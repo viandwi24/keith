@@ -17,7 +17,7 @@ Status legend: **decided** = use it. **open** = the named task decides it and re
 | Password hashing | Argon2id via `Bun.password` | decided | No extra dependency |
 | Auth tokens | Opaque random tokens, SHA-256 hashed in DB | decided | No JWT needed: core is the only verifier |
 | LLM providers | Own adapter interface. OpenRouter + DeepSeek via an OpenAI-compatible helper | decided | [ADR-0004](../decisions/0004-keith-owns-the-agent-loop.md), [ADR-0008](../decisions/0008-first-llm-providers.md) |
-| TUI framework | Ink (React for terminals) or OpenTUI | open, task P1-F1 | Pick for Bun compatibility and streaming-text rendering |
+| TUI framework | OpenTUI (`@opentui/core` ^0.5.12, imperative core API, no React) | proposed, [ADR-0010](../decisions/0010-tui-framework.md) | Bun-native, built-in multi-line textarea, diffed rendering for streaming text. Only in `apps/tui` |
 | Web UI | React + Tailwind + shadcn/ui | decided (phase 2) | One component system only |
 | Web bundler | Bun's HTML bundler or Vite | open, phase 2 | Output must be static assets served by the web plugin |
 | Voice transport (browser) | WebSocket binary frames first. WebRTC later if latency needs it | decided (phase 3) | [voice.md](voice.md) |
