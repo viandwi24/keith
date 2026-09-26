@@ -39,6 +39,26 @@
 | **Config** | `~/.keith/config.toml`, env-var secrets | [config.md](config.md) |
 | **UI** | UI blocks from tools, rendered by capable nodes | [ui.md](ui.md) |
 
+## Commands, startup and shutdown
+
+The `keith` command is the `bin` of `@keith/core` (`packages/core/src/cli/main.ts`; in the repo, `bun run dev` runs `keith start` in watch mode). `KEITH_HOME` defaults to `~/.keith`.
+
+| Command | What it does |
+|---|---|
+| `keith setup` | Creates `KEITH_HOME`, `config.toml`, `persona.md`, the database and the owner Person (see [config.md](config.md#keith-setup)) |
+| `keith start [--port N] [--host H]` | Runs `bootstrap()` and serves until SIGINT/SIGTERM |
+| `keith migrate` | Applies pending database migrations (`keith start` does this too) |
+| `keith --version` | Prints the version |
+
+`bootstrap({ home, flags, env?, plugins?, clock?, log? })` in `core/src/bootstrap.ts` builds everything in the order of [core.md](core.md#construction-order-bootstrap) and returns a running `Keith` (`url`, `port`, `stop()`, …). Tests pass `plugins` (the SDK's fake LLM plugin), a fake clock and `flags: { port: 0 }`. If any step fails, what was already built is torn down again and the error is rethrown.
+
+**Graceful shutdown** (`keith.stop()`, on the first SIGINT or SIGTERM; a second signal exits at once):
+
+1. `core.stop_requested`, then `presence.flushPresence()` (last-seen times of everyone still here).
+2. The server stops listening and closes every socket.
+3. The ThreadManager stops (no new delivery turns or holds), then every running turn is cancelled and awaited. Its partial text is persisted with `meta.cancelled = true`.
+4. Presence is disposed, the scheduler stops (running tasks are aborted but keep their stored status, so the next start recovers them), memory unsubscribes, plugins stop in reverse order, the event bus drains, and the database closes.
+
 ## Life of a text turn
 
 1. The TUI sends `input.text` over WS.

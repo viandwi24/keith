@@ -27,6 +27,8 @@
       "version": "0.0.0",
       "dependencies": {
         "@keith/protocol": "workspace:*",
+        "@keith/provider-deepseek": "workspace:*",
+        "@keith/provider-openrouter": "workspace:*",
         "@keith/sdk": "workspace:*",
         "drizzle-orm": "1.0.0-rc.4",
         "zod": "^4.6.5",

@@ -15,7 +15,7 @@
     "format": "biome check --write .",
     "deps": "bun scripts/check-deps.ts",
     "plans": "bun scripts/plans.ts",
-    "dev": "echo 'not yet: the core arrives in phase 1'"
+    "dev": "bun --watch packages/core/src/cli/main.ts start"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",

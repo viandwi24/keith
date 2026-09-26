@@ -87,9 +87,19 @@ apiKey = "env:DEEPSEEK_API_KEY"
 # weather = "@keith/tool-weather"
 ```
 
-`keith setup` asks which provider to use (DeepSeek or OpenRouter), enables only that plugin, asks for a model id (it offers a default, labelled as possibly outdated since vendor ids change), and maps all three roles to it. Users split roles across models later by editing the file.
-
 Each plugin section is validated by that plugin's own `config` schema. The core never interprets plugin sections.
+
+### `keith setup`
+
+`keith setup` asks which provider to use (DeepSeek or OpenRouter), enables only that plugin (also listed in `required`), asks for a model id (it offers a default, `deepseek-flash` or `~openai/gpt-sol-latest`, labelled as possibly outdated since vendor ids change), and maps all three roles to it. The API key is written as `env:DEEPSEEK_API_KEY` / `env:OPENROUTER_API_KEY`, never literally. Users split roles across models later by editing the file.
+
+It also creates `KEITH_HOME` with `files/`, `plugins/` and `logs/`, writes `persona.md` from `defaultPersona(mind.name)`, applies the migrations, and creates the **owner** Person (name, username, password asked twice, at least 8 characters, hashed with `Bun.password`).
+
+Running it again is safe: an existing `config.toml` or `persona.md` is kept as is, and when an owner exists it only offers to reset that owner's password. It never creates a second owner.
+
+Answers are read from the terminal (raw mode, so the password is not echoed) or one per line from piped stdin. Code and tests drive it through a `Prompter` (`scriptedPrompter(answers)` in tests).
+
+The first-party provider plugins (`@keith/provider-deepseek`, `@keith/provider-openrouter`) are dependencies of `@keith/core`, so the plugin host's `import()` of a name in `plugins.enabled` resolves them. Third-party plugins must be installed where the core can resolve them.
 
 ## Secrets
 
@@ -99,7 +109,7 @@ Each plugin section is validated by that plugin's own `config` schema. The core 
 
 ## Precedence
 
-Config file < environment overrides < CLI flags (`keith start --port 5000`).
+Config file < environment overrides < CLI flags (`keith start --port 5000 --host 0.0.0.0`).
 
 Environment overrides use `KEITH__` plus the key path, with `__` between segments. Segments are matched to schema keys case-insensitively: `KEITH__SERVER__PORT=5000`, `KEITH__MIND__TURN__MAXSTEPS=12` → `mind.turn.maxSteps`. Values are parsed as JSON when possible, otherwise as strings (`KEITH__PLUGINS__ENABLED='["@keith/provider-openrouter"]'`). Plugin sections and `[services]` can't be overridden this way. Use `env:` inside them. A `KEITH__` variable that matches no key is an error. `env:` references are resolved after overrides, so an override may itself be `"env:NAME"`.
 
