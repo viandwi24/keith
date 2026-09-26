@@ -906,7 +906,7 @@ Three lanes, each with its own concurrency limit. Separate pools make I-5 struct
 | `delivery` | Delivery and briefing turns | 2 (`scheduler.delivery`) |
 | `background` | Tasks, reflection (phase 4) | 2 (`scheduler.background`) |
 
-A **tick** fires every `scheduler.tickMs` (default 30 000) and emits `scheduler.ticked`. Plugins, commitment expiry and phase-4 reminders use it. Jobs in one lane never wait on another lane's pool.
+A **tick** fires every `scheduler.tickMs` (default 30 000) and emits `scheduler.ticked`. Plugins, commitment expiry and phase-4 reminders use it. Jobs in one lane never wait on another lane's pool. Within a lane, waiting jobs start in FIFO order. A job whose `signal` aborts while it waits leaves the queue, and `run` rejects with the signal's reason.
 
 ## Tasks
 
@@ -915,14 +915,15 @@ A Task is background work run with an Agent.
 - Started by the built-in tool `task.start({ agent?, goal, notify, promise? })`. `notify` is `'when-done'` (creates a Commitment) or `'silent'`. `agent` defaults to the built-in `general`, whose tools are every non-reserved registry tool plus `memory.recall`, `memory.remember` and `skill.load`. Plugins add agents through the agent registry.
 - **Task context:** the Agent's system prompt + a short persona line + the goal + the task person's relationship card. Tasks don't get thread history. They use `memory.recall` when they need more. The task runs `RunLoop` with the Agent's tools, the `background` model role, `persist: null`, and `runCtx.participants = [personId]` (the group's participants in phase 5).
 - **Visibility:** `subject` when started in a direct thread, `thread` when started in a group thread.
-- **v1 limits:** tasks cannot start tasks, at most `mind.task.maxPerPerson` (default 3) running per Person, and a timeout of `mind.task.timeoutMs` (default 1 800 000).
-- **Status:** `queued → running → completed | failed | cancelled`. On core start, tasks left `running` are re-queued once (`attempt` 2). A second interruption fails them.
-- The result is stored on the task as `summary` (short text for contexts and deliveries) plus `detail` (full text) plus optional `ui`. In phase 1, results are *not* written as memories. They reach later contexts through the delivery message in thread history and through `task.status`. Phase 4 reflection distills them.
+- **v1 limits:** tasks cannot start tasks, at most `mind.task.maxPerPerson` (default 3) active (`queued` or `running`) per Person, and a timeout of `mind.task.timeoutMs` (default 1 800 000), counted from the moment the task starts running. Over the limit, `task.start` returns a tool error (`TASK_LIMIT_REACHED`) the model can read. A timeout fails the task.
+- **Status:** `queued → running → completed | failed | cancelled`. On core start, tasks left `queued` are scheduled again, and tasks left `running` are re-queued once (`attempt` 2). A second interruption fails them. A graceful shutdown aborts running tasks without changing their stored status, so the next start recovers them. A run that ends with empty text counts as failed.
+- The result is stored on the task as `summary` (the result text cut to 500 characters, for contexts and deliveries) plus `detail` (full text) plus optional `ui` (the last `ui` block the run produced).
+- `task.status` shows one task (with its result) or lists the caller's active tasks. `task.status` and `task.cancel` only see tasks of the calling person, or tasks started in the current group thread. The three `task.*` tools require tier `member`. In phase 1, results are *not* written as memories. They reach later contexts through the delivery message in thread history and through `task.status`. Phase 4 reflection distills them.
 - Emits `task.started`, `task.completed`, `task.failed`, `task.cancelled`.
 
 ## Commitments
 
-- Created by `task.start` when `notify = 'when-done'`, with `promise` holding the user-facing wording.
+- Created by `task.start` when `notify = 'when-done'`, with `promise` holding the user-facing wording. `TaskService.start` creates it before the task is scheduled, so a fast task never misses it. A task started without a thread promises in the person's `main` thread.
 - `open → fulfilled | cancelled | expired`. Expiry is `mind.commitment.ttlMs` (default 604 800 000 = 7 days) without resolution, checked on tick (I-10).
 - When a task ends:
   - completed → commitment `fulfilled` + a `task_result` Delivery
@@ -940,6 +941,8 @@ A Delivery is anything the Mind should surface in a Thread without being asked.
 | `reminder` | `reminder.set` built-in | 4 |
 | `relay` | `relay.send` built-in (I-13) | 5 |
 | `invitation` | `thread.start_group` | 5 |
+
+**Enqueueing.** `DeliveryQueue.enqueue` persists the item and emits `delivery.enqueued`; it never calls the Mind. Without a `threadId` it targets the person's `main` thread and fails with `NOT_FOUND` if that thread doesn't exist yet. A task's delivery goes to its commitment's thread; `silent` tasks have no commitment and deliver nothing. The plugin sink (`ctx.deliveries`) validates the input with zod, refuses (`FORBIDDEN`) a `threadId` the person doesn't participate in, and records `source` = the plugin id.
 
 **Flush triggers.** The ThreadManager checks the queue when (a) a `delivery.enqueued` event arrives for a thread, (b) a turn ends, (c) an arrival's hold ends (below), and (d) `open` is called and no hold starts (a reconnect below the threshold, or `briefing = off`). It flushes only when the thread is `idle`, the person is present, and no arrival hold is active.
 
