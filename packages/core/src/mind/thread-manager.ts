@@ -616,6 +616,11 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
       ready.get(a.threadId)?.running?.controller.abort()
     },
 
+    async action() {
+      // Placeholder until task P2-D1 implements ui.action routing (interface added by P2-K1).
+      throw new KeithError('NOT_FOUND', 'ui actions are not supported yet')
+    },
+
     state(threadId) {
       return ready.get(threadId)?.state ?? 'idle'
     },

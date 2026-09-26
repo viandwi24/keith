@@ -52,5 +52,10 @@ function createRepositories(db: Orm): Repositories {
     deliveries: createDeliveriesRepository(db),
     memories: createMemoriesRepository(db),
     pluginData: createPluginDataRepository(db),
+    // Placeholder until task P2-D1 adds the `files` table (interface added by P2-K1).
+    files: {
+      create: () => Promise.reject(new KeithError('INTERNAL', 'files are not supported yet')),
+      get: () => Promise.resolve(null),
+    },
   }
 }

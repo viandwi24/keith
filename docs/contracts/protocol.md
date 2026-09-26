@@ -23,7 +23,7 @@ The protocol between the core and every Node. Implemented as zod schemas in `@ke
 | `POST /v1/files` · `GET /v1/files/:id` | bearer | multipart | `{ file: FileDto }` | 2 |
 
 - `messages`: `limit` is 1..200 and defaults to 50. The page holds the `limit` messages just before `before` (or the latest ones when `before` is omitted), **oldest first**. `hasMore` is true when older messages exist.
-- `FileDto` is defined by the phase-2 task that builds `/v1/files` (an additive change).
+- `FileDto` and the files endpoints are specified under [Files](#files) (additive, phase 2, task P2-K1).
 
 Errors: HTTP status + `{ error: { code, message } }`. Codes are listed at the end of this document. A request body or query that fails validation gets `400` with `INVALID_REQUEST`.
 
@@ -44,6 +44,18 @@ type TurnState  = 'idle' | 'listening' | 'thinking' | 'speaking'
 `tool` role messages are internal and never sent to nodes. Tool activity reaches nodes as `tool.activity` frames.
 
 Every id in a DTO or frame payload is a prefixed ULID (`thr_…`, `msg_…`, `per_…`, `nod_…`; see [conventions](../rules/conventions.md#identifiers)) and is validated as one: the prefix, then 26 Crockford base32 characters. Timestamps (`ts`, `createdAt`, `updatedAt`, `expiresAt`) are integer milliseconds since the Unix epoch.
+
+## Files
+
+Phase 2, additive (task P2-K1).
+
+```ts
+type FileDto = { id: string /* fil_… */; name: string; mime: string; size: number; createdAt: number }
+```
+
+- `POST /v1/files`: `multipart/form-data` with one part named `file`, at most `FILE_MAX_BYTES` (10 MiB). Response `{ file: FileDto }`. Too large or missing part → `400 INVALID_REQUEST`.
+- `GET /v1/files/:id`: the bytes, with `content-type` = the stored `mime`. `404 NOT_FOUND` when the file doesn't exist or the person may not read it (the core defines who may, see [storage.md](../architecture/storage.md)).
+- UI blocks reference files by the core-relative URL `/v1/files/<id>` (`fileUrl(id)` in `@keith/protocol`).
 
 ## Envelope
 

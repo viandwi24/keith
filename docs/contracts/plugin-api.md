@@ -102,7 +102,7 @@ export const currentWeather = defineTool({
   async onAction(action, t) { /* optional (phase 2): handle ui.action from this tool's blocks */ },
 })
 
-// onAction(action: ToolAction, t: ToolRunContext): Promise<ToolResult | undefined>
+// onAction(action: ToolAction, t: ToolRunContext): Promise<ToolResult | undefined>   (semantics below)
 interface ToolAction { messageId: MessageId; blockId: string; actionId: string; value?: unknown }
 
 interface ToolRunContext {
@@ -124,6 +124,8 @@ interface ToolResult {
 
 interface ToolRegistry { register(tool: Tool): void }   // the core also has a privileged registerBuiltin() for reserved namespaces
 ```
+
+**`onAction` (phase 2, additive, P2-K1).** When a node sends `ui.action` for a block this tool produced, the core calls `onAction` once, with a `ToolRunContext` for the person who clicked. The tool's `minTier` is checked against that person first. If it returns a `ToolResult`, the core appends it to the Thread as an assistant message (`content` as text, `ui` as its block, `fallbackText` as usual) without calling the model; returning `undefined` adds nothing. A throw becomes an `error` frame to the clicking node. A block whose tool has no `onAction` becomes the user input `(clicked: <label>)` in the Thread instead (see [ui.md](../architecture/ui.md#interactivity)).
 
 `minTier` is required: every tool states who may trigger it (R-14). Tool names must match `/^[a-z][a-z0-9]*(_[a-z0-9]+)*(\.[a-z][a-z0-9]*(_[a-z0-9]+)*)+$/` (lowercase, dot-separated segments, single underscores only) and start with the plugin's `namespace` followed by a dot. Reserved namespaces (see [plugin-system.md](../architecture/plugin-system.md#namespace)) are for built-ins only. `defineTool` checks the pattern when the tool is defined and throws `TOOL_NAME_INVALID` (`TOOL_NAME_PATTERN`, `assertToolName`); the namespace prefix is checked at registration. Some providers disallow `.` in function names, so adapters map names reversibly (e.g. `.` ↔ `__`).
 

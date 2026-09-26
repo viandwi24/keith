@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { MessageId, PersonId, ThreadId } from './ids.ts'
+import { FileId, MessageId, PersonId, ThreadId } from './ids.ts'
 import { UiBlock } from './ui/blocks.ts'
 
 /** The protocol version carried in `hello`, `welcome`, `/v1/health` and the envelope `v`. */
@@ -105,3 +105,28 @@ export const MessagesResponse = z.object({
   hasMore: z.boolean(),
 })
 export type MessagesResponse = z.infer<typeof MessagesResponse>
+
+// Files (phase 2). See docs/contracts/protocol.md#files.
+
+/** Largest upload `POST /v1/files` accepts, in bytes. */
+export const FILE_MAX_BYTES = 10 * 1024 * 1024
+
+export const FileDto = z.object({
+  id: FileId,
+  /** Original file name, as uploaded. */
+  name: z.string().min(1).max(255),
+  /** MIME type, e.g. `image/png`. */
+  mime: z.string().min(1).max(255),
+  size: z.number().int().nonnegative().max(FILE_MAX_BYTES),
+  createdAt: Timestamp,
+})
+export type FileDto = z.infer<typeof FileDto>
+
+/** `POST /v1/files` response. The request is `multipart/form-data` with one part named `file`. */
+export const FileUploadResponse = z.object({ file: FileDto })
+export type FileUploadResponse = z.infer<typeof FileUploadResponse>
+
+/** Core-relative URL of a file, usable in UI block `url` fields. */
+export function fileUrl(id: FileId): `/v1/files/${FileId}` {
+  return `/v1/files/${id}`
+}

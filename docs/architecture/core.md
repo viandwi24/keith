@@ -622,6 +622,25 @@ export interface MemoriesRepository {
   touchRecalled(ids: MemoryId[], at: number): Promise<void>
 }
 
+// files (phase 2)
+
+export interface FileRecord {
+  id: FileId
+  /** Original file name. */
+  name: string
+  /** Path relative to `KEITH_HOME/files/`. */
+  path: string
+  mime: string
+  size: number
+  ownerPersonId: PersonId
+  createdAt: number
+}
+
+export interface FilesRepository {
+  create(f: FileRecord): Promise<void>
+  get(id: FileId): Promise<FileRecord | null>
+}
+
 // plugin_data
 
 export interface PluginDataRepository {
@@ -644,6 +663,7 @@ export interface Repositories {
   deliveries: DeliveriesRepository
   memories: MemoriesRepository
   pluginData: PluginDataRepository
+  files: FilesRepository
 }
 
 /** An open database. Used only by bootstrap (and test helpers); everything else gets `Repositories`. */
@@ -718,6 +738,20 @@ export interface ThreadManager {
     text: string
   }): Promise<void>
   cancel(a: { threadId: ThreadId; nodeId: NodeId }): void
+  /**
+   * A `ui.action` from a node (phase 2). Finds the block in the message's persisted `ui` entries,
+   * then calls its tool's `onAction` or runs the input "(clicked: <label>)". Throws
+   * `KeithError('NOT_FOUND')` for an unknown message, block or action.
+   */
+  action(a: {
+    threadId: ThreadId
+    personId: PersonId
+    nodeId: NodeId
+    messageId: MessageId
+    blockId: string
+    actionId: string
+    value?: unknown
+  }): Promise<void>
   state(threadId: ThreadId): TurnState
 }
 

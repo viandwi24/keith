@@ -152,3 +152,31 @@ describe('extractImports', () => {
     expect(extractImports(src)).toEqual([{ specifier: 'x', typeOnly: false, line: 3 }])
   })
 })
+
+describe('checkFile: @keith/client and browser apps of client-app plugins (ADR-0011)', () => {
+  test('@keith/client may import only @keith/protocol', () => {
+    expect(checkFile('packages/client/src/a.ts', "import { x } from '@keith/protocol'")).toEqual([])
+    expect(checkFile('packages/client/src/a.ts', "import { x } from '@keith/sdk'")[0]?.rule).toBe('R-1')
+  })
+  test('plugins/<name>/app may import @keith/client and @keith/protocol, not @keith/sdk', () => {
+    expect(checkFile('plugins/web/app/src/main.tsx', "import { x } from '@keith/client'")).toEqual([])
+    expect(checkFile('plugins/web/app/src/main.tsx', "import { x } from '@keith/protocol'")).toEqual([])
+    expect(checkFile('plugins/web/app/src/main.tsx', "import { x } from '@keith/sdk'")[0]?.rule).toBe('R-1')
+  })
+  test('plugin server code may still not import @keith/client', () => {
+    expect(checkFile('plugins/web/src/index.ts', "import { x } from '@keith/client'")[0]?.rule).toBe('R-1')
+  })
+  test('plugin server code may not import its app, and the app may not import server code', () => {
+    expect(
+      checkFile('plugins/web/src/index.ts', "import x from '../app/src/main.tsx'")[0]?.message,
+    ).toContain('ADR-0011')
+    expect(
+      checkFile('plugins/web/app/src/main.tsx', "import x from '../../src/index.ts'")[0]?.message,
+    ).toContain('ADR-0011')
+    expect(checkFile('plugins/web/app/src/main.tsx', "import x from './ui/card.tsx'")).toEqual([])
+  })
+  test('built bundles in dist/ are not scanned', async () => {
+    const root = await fixtureRepo({ 'plugins/web/dist/app.js': "import '@keith/core'\n" })
+    expect(await checkRepo(root)).toEqual([])
+  })
+})

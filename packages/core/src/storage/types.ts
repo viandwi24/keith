@@ -9,6 +9,7 @@ import type {
   CommitmentStatus,
   Delivery,
   DeliveryId,
+  FileId,
   Memory,
   MemoryId,
   MessageId,
@@ -253,6 +254,25 @@ export interface MemoriesRepository {
   touchRecalled(ids: MemoryId[], at: number): Promise<void>
 }
 
+// files (phase 2)
+
+export interface FileRecord {
+  id: FileId
+  /** Original file name. */
+  name: string
+  /** Path relative to `KEITH_HOME/files/`. */
+  path: string
+  mime: string
+  size: number
+  ownerPersonId: PersonId
+  createdAt: number
+}
+
+export interface FilesRepository {
+  create(f: FileRecord): Promise<void>
+  get(id: FileId): Promise<FileRecord | null>
+}
+
 // plugin_data
 
 export interface PluginDataRepository {
@@ -275,6 +295,7 @@ export interface Repositories {
   deliveries: DeliveriesRepository
   memories: MemoriesRepository
   pluginData: PluginDataRepository
+  files: FilesRepository
 }
 
 /** An open database. Used only by bootstrap (and test helpers); everything else gets `Repositories`. */

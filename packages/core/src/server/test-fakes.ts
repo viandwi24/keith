@@ -255,6 +255,9 @@ export function createFakeThreadManager(repos: FakeRepos): FakeThreadManager {
     calls,
     history,
     failOpen: null,
+    async action() {
+      throw new Error('fake ThreadManager.action is not implemented')
+    },
     async open(a) {
       calls.open.push({ ...a })
       if (tm.failOpen) throw tm.failOpen

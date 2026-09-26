@@ -1,6 +1,6 @@
 # ADR-0011: The browser side of a client-app plugin follows the app rules
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-09-26
 - **Rules/invariants affected:** R-1, R-2, I-8
 
@@ -13,7 +13,7 @@
 - Code under `plugins/<name>/app/**` is a Node, not plugin code. It follows the app rule: it may import `@keith/protocol` and `@keith/client`, never `@keith/sdk`, `@keith/core` or another plugin.
 - Plugin server code (`plugins/<name>/src/**`) may not import its own `app/`. The only link between the halves is the built static output that the plugin serves.
 - `@keith/client` may import only `@keith/protocol`.
-- R-1 in engineering.md gets one sentence saying this, and `scripts/check-deps.ts` enforces it (task P2-K1).
+- R-1 in engineering.md gets one sentence saying this, and `scripts/check-deps.ts` enforces it (task P2-K1). Accepted by the owner, who confirmed the concept: `@keith/web` is a plugin that extends the core's HTTP server and WebSocket, and it ships its own browser UI.
 
 ## Consequences
 

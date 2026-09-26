@@ -14,7 +14,10 @@ export type Area =
   | { kind: 'protocol' }
   | { kind: 'sdk' }
   | { kind: 'core' }
+  | { kind: 'client' }
   | { kind: 'plugin'; name: string }
+  /** The browser side of a client-app plugin (`plugins/<name>/app/**`): a Node, so app rules (ADR-0011). */
+  | { kind: 'plugin-app'; name: string }
   | { kind: 'app'; name: string }
   | { kind: 'e2e' }
   | { kind: 'other' }
@@ -53,7 +56,7 @@ export const VENDOR_AI_SCOPES: readonly string[] = ['@ai-sdk/', '@langchain/', '
 
 const STORAGE_PACKAGES: readonly string[] = ['bun:sqlite', 'drizzle-orm', 'drizzle-kit', 'better-sqlite3']
 
-const SOURCE_GLOB = '{packages,plugins,apps,tests}/**/*.{ts,tsx,mts,cts,js,mjs}'
+const SOURCE_GLOB = '{packages,plugins,apps,tests}/**/*.{ts,tsx,mts,cts,js,jsx,mjs}'
 
 /** Classifies a repo-relative path into the area whose import rules apply to it. */
 export function areaOf(file: string): Area {
@@ -62,6 +65,8 @@ export function areaOf(file: string): Area {
   if (top === 'packages' && name === 'protocol') return { kind: 'protocol' }
   if (top === 'packages' && name === 'sdk') return { kind: 'sdk' }
   if (top === 'packages' && name === 'core') return { kind: 'core' }
+  if (top === 'packages' && name === 'client') return { kind: 'client' }
+  if (top === 'plugins' && name && parts[2] === 'app') return { kind: 'plugin-app', name }
   if (top === 'plugins' && name) return { kind: 'plugin', name }
   if (top === 'apps' && name) return { kind: 'app', name }
   if (top === 'tests' && name === 'e2e') return { kind: 'e2e' }
@@ -208,6 +213,10 @@ function allowedKeithImports(area: Area): Set<string> | 'any' {
       return new Set(['@keith/protocol'])
     case 'core':
       return new Set(['@keith/protocol', '@keith/sdk'])
+    case 'client':
+      return new Set(['@keith/protocol'])
+    case 'plugin-app':
+      return new Set(['@keith/protocol', '@keith/client'])
     case 'plugin':
       return new Set(['@keith/protocol', '@keith/sdk'])
     case 'app':
@@ -235,6 +244,10 @@ export function checkFile(file: string, source: string): Violation[] {
         const target = normalize(join(dirname(file), specifier))
         if (target !== root && !target.startsWith(`${root}/`)) {
           add('R-1', `relative import '${specifier}' leaves package ${root}`)
+        } else if (area.kind === 'plugin' && target.startsWith(`${root}/app/`)) {
+          add('R-1', `plugin server code may not import its browser app ('${specifier}', ADR-0011)`)
+        } else if (area.kind === 'plugin-app' && !target.startsWith(`${root}/app/`)) {
+          add('R-1', `the browser app may not import plugin server code ('${specifier}', ADR-0011)`)
         }
       }
       continue
@@ -277,6 +290,8 @@ function selfPackageName(area: Area): string | null {
       return '@keith/sdk'
     case 'core':
       return '@keith/core'
+    case 'client':
+      return '@keith/client'
     case 'plugin':
       return `@keith/${area.name}`
     case 'app':
@@ -292,6 +307,8 @@ function describe(area: Area): string {
       return `plugin '${area.name}'`
     case 'app':
       return `app '${area.name}'`
+    case 'plugin-app':
+      return `browser app of plugin '${area.name}'`
     default:
       return `@keith/${area.kind}`
   }
@@ -303,7 +320,7 @@ export async function checkRepo(root: string): Promise<Violation[]> {
   const glob = new Glob(SOURCE_GLOB)
   for await (const path of glob.scan({ cwd: root, onlyFiles: true })) {
     const file = relative(root, join(root, path)).split('\\').join('/')
-    if (file.includes('/node_modules/')) continue
+    if (file.includes('/node_modules/') || file.includes('/dist/')) continue
     violations.push(...checkFile(file, await Bun.file(join(root, file)).text()))
   }
   return violations.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line)

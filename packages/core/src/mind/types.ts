@@ -5,6 +5,7 @@ import type { MessageDto, ThreadDto } from '@keith/protocol'
 import type { LlmMessage } from '@keith/sdk'
 import type {
   Delivery,
+  MessageId,
   Modality,
   ModelRole,
   NodeId,
@@ -42,6 +43,20 @@ export interface ThreadManager {
     text: string
   }): Promise<void>
   cancel(a: { threadId: ThreadId; nodeId: NodeId }): void
+  /**
+   * A `ui.action` from a node (phase 2). Finds the block in the message's persisted `ui` entries,
+   * then calls its tool's `onAction` or runs the input "(clicked: <label>)". Throws
+   * `KeithError('NOT_FOUND')` for an unknown message, block or action.
+   */
+  action(a: {
+    threadId: ThreadId
+    personId: PersonId
+    nodeId: NodeId
+    messageId: MessageId
+    blockId: string
+    actionId: string
+    value?: unknown
+  }): Promise<void>
   state(threadId: ThreadId): TurnState
 }
 

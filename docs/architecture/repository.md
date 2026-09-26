@@ -17,7 +17,7 @@ keith/
 ├─ plugins/
 │  ├─ provider-openrouter/   # @keith/provider-openrouter
 │  ├─ provider-deepseek/     # @keith/provider-deepseek
-│  ├─ web/                   # @keith/web (phase 2): client-app plugin
+│  ├─ web/                   # @keith/web (phase 2): client-app plugin (src/ = server side, app/ = browser app, a Node)
 │  └─ tool-weather/          # @keith/tool-weather (phase 2): reference tool plugin with UI
 ├─ apps/
 │  └─ tui/                   # @keith/tui: terminal node
@@ -59,11 +59,12 @@ Core folders talk through TypeScript interfaces declared in [core.md](core.md#in
 @keith/protocol  ◄──  @keith/sdk  ◄──  @keith/core
        ▲                   ▲
        │                   └──── plugins/*
-       └──── apps/*, (later) @keith/client
+       └──── apps/*, plugins/*/app, @keith/client
 ```
 
 - `plugins/*` import only `@keith/sdk` and `@keith/protocol`.
-- `apps/*` import only `@keith/protocol` (and `@keith/client` once it exists, phase 2).
+- `apps/*` and the browser side of client-app plugins (`plugins/*/app/**`) import only `@keith/protocol` and `@keith/client` ([ADR-0011](../decisions/0011-client-app-browser-side.md)).
+- `@keith/client` imports only `@keith/protocol`.
 - Nothing imports `@keith/core` except `tests/e2e`.
 - Plugins never import each other.
 

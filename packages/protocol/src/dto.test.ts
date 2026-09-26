@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  FILE_MAX_BYTES,
+  FileDto,
+  FileUploadResponse,
+  fileUrl,
   HealthResponse,
   LoginRequest,
   LoginResponse,
@@ -13,6 +17,7 @@ import {
   ThreadsResponse,
 } from './dto.ts'
 import { HttpErrorBody } from './errors.ts'
+import { isAllowedUiUrl } from './ui/blocks.ts'
 
 const person = { id: 'per_01J8ZQ3K4M5N6P7Q8R9S0T1V2Z', name: 'Tony', tier: 'owner' } as const
 const thread = {
@@ -105,5 +110,28 @@ describe('HTTP bodies', () => {
   test('error body', () => {
     expect(HttpErrorBody.safeParse({ error: { code: 'NOT_FOUND', message: 'no thread' } }).success).toBe(true)
     expect(HttpErrorBody.safeParse({ error: { code: 'NOPE', message: 'x' } }).success).toBe(false)
+  })
+})
+
+describe('files', () => {
+  const file = {
+    id: 'fil_01J8ZQ3K4M5N6P7Q8R9S0T1V40',
+    name: 'map.png',
+    mime: 'image/png',
+    size: 1234,
+    createdAt: 1,
+  } as const
+
+  test('FileDto', () => {
+    expect(FileDto.parse(file)).toEqual(file)
+    expect(FileDto.safeParse({ ...file, id: 'msg_01J8ZQ3K4M5N6P7Q8R9S0T1V40' }).success).toBe(false)
+    expect(FileDto.safeParse({ ...file, size: FILE_MAX_BYTES + 1 }).success).toBe(false)
+    expect(FileDto.safeParse({ ...file, name: '' }).success).toBe(false)
+  })
+
+  test('upload response and file URL', () => {
+    expect(FileUploadResponse.safeParse({ file }).success).toBe(true)
+    expect(fileUrl(file.id)).toBe('/v1/files/fil_01J8ZQ3K4M5N6P7Q8R9S0T1V40')
+    expect(isAllowedUiUrl(fileUrl(file.id))).toBe(true)
   })
 })
