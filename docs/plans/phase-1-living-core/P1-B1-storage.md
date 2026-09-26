@@ -4,8 +4,8 @@ title: Storage (SQLite, Drizzle, repositories)
 phase: 1
 wave: 1
 lane: B
-status: todo
-owner: null
+status: in-progress
+owner: agent-P1-B1
 depends: [P0-04]
 owns:
   - packages/core/src/storage/**

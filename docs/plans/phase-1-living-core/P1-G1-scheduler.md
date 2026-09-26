@@ -4,8 +4,8 @@ title: Scheduler, tasks, commitments, delivery queue
 phase: 1
 wave: 1
 lane: G
-status: todo
-owner: null
+status: in-progress
+owner: agent-P1-G1
 depends: [P0-04]
 owns:
   - packages/core/src/scheduler/**

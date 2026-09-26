@@ -4,8 +4,8 @@ title: TUI node
 phase: 1
 wave: 1
 lane: F
-status: todo
-owner: null
+status: in-progress
+owner: agent-P1-F1
 depends: [P0-04]
 owns:
   - apps/tui/**

@@ -4,8 +4,8 @@ title: "Mind: threads, turn loop, context builder, delivery flush, briefing"
 phase: 1
 wave: 1
 lane: E
-status: todo
-owner: null
+status: in-progress
+owner: agent-P1-E1
 depends: [P0-04]
 owns:
   - packages/core/src/mind/**

@@ -4,8 +4,8 @@ title: Plugin host, registries, event bus, config
 phase: 1
 wave: 1
 lane: A
-status: todo
-owner: null
+status: in-progress
+owner: agent-P1-A1
 depends: [P0-04]
 owns:
   - packages/core/src/shared/**

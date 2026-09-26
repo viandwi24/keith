@@ -4,8 +4,8 @@ title: OpenAI-compatible helper, OpenRouter and DeepSeek providers
 phase: 1
 wave: 1
 lane: D
-status: todo
-owner: null
+status: in-progress
+owner: agent-P1-D1
 depends: [P0-04]
 owns:
   - packages/sdk/src/providers/openai-compatible/**
