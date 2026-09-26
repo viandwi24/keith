@@ -1,5 +1,7 @@
 # Provider interfaces v1
 
+**Frozen: v1 (2026-09-26).** Changes follow the [freeze rules](README.md#freeze-rules).
+
 Exported from `@keith/sdk`. Rationale: [architecture/providers.md](../architecture/providers.md).
 
 ## LLM

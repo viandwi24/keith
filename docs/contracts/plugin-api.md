@@ -1,5 +1,7 @@
 # Plugin API v1
 
+**Frozen: v1 (2026-09-26).** Changes follow the [freeze rules](README.md#freeze-rules).
+
 Exported from `@keith/sdk`. The model behind it is in [architecture/plugin-system.md](../architecture/plugin-system.md).
 
 ## `definePlugin`

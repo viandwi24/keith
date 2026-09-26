@@ -1,5 +1,7 @@
 # Event catalog v1
 
+**Frozen: v1 (2026-09-26).** Changes follow the [freeze rules](README.md#freeze-rules).
+
 Internal event bus (in-process). Not the wire protocol. Types live in `@keith/sdk` (`CoreEventMap`), and the bus lives in `core/src/events`.
 
 ## Conventions

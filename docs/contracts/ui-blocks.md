@@ -1,5 +1,7 @@
 # UI blocks v1
 
+**Frozen: v1 (2026-09-26).** Changes follow the [freeze rules](README.md#freeze-rules).
+
 Standard, renderer-agnostic UI descriptions. Zod schemas live in `@keith/protocol` (`UiBlock`). Model and rules: [architecture/ui.md](../architecture/ui.md). The schema test parses every ` ```json block` example.
 
 ## Common fields

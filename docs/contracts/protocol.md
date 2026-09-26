@@ -1,5 +1,7 @@
 # Wire protocol v1
 
+**Frozen: v1 (2026-09-26).** Changes follow the [freeze rules](README.md#freeze-rules).
+
 The protocol between the core and every Node. Implemented as zod schemas in `@keith/protocol`. This document is normative, and the schema test parses every ` ```json frame` example below.
 
 ## Transport
