@@ -854,6 +854,8 @@ Rules:
 - **`input.cancel`** aborts the running turn's `AbortSignal`. The partial assistant text is persisted with `meta.cancelled = true`.
 - **Focus** is set to the node of each new input. Audio output goes to the focus node only. Text and UI go to every node attached to the Thread (I-7).
 - Each new user input is echoed to the *other* attached nodes as `message.user`.
+- **Queue details.** One turn runs per thread at a time. Inputs that arrive while a turn runs wait in a FIFO; when the turn ends, *all* waiting inputs become the next turn together. A queued input is echoed right away but persisted when its turn starts, so history reads `user → reply → next user` rather than two user messages before the reply.
+- **Focus fallback.** When the focus node detaches, focus is empty until the next input; a turn without focus uses the capabilities of the first attached node.
 
 ## The turn loop
 
@@ -877,6 +879,9 @@ runLoop({ system, messages, tools, modelRole, maxSteps, runCtx, persist, signal,
 - **Provider errors:** retryable ones (network, 429, 5xx) are retried by the loop up to 2 times with backoff, then surface as an `error` frame plus a short assistant apology message.
 - **Tool call ids:** the provider's `LlmToolCall.id` is persisted as-is. See [storage.md](storage.md#messages-and-tool-calls).
 - A tool result's `ui` block is persisted on the assistant message and sent as a `ui.render` frame to attached nodes that declared `ui.render@1`. The model only ever sees `content` (text).
+- **Messages of a turn.** Nodes see one assistant message per turn (the `messageId` of `message.started`); its content is all text streamed in the turn and it carries the turn's `ui` entries. When `persist` is set, the loop also stores each tool step as an assistant row with `toolCalls` plus one `tool` row per call. Those rows are replayed to the model but hidden from nodes (history and `thread.opened` skip them).
+- **Retry and stall details.** A retryable provider error is retried only before the step's first text or tool event (otherwise the node would see text twice). A stalled step is not retried: it fails the turn with `PROVIDER_ERROR`. A failed turn keeps any partial text and appends the apology.
+- **Replay window.** The recent-messages window may cut a tool step in half. Orphan `tool` rows are dropped, and an assistant row whose calls lack results is replayed as plain text.
 
 ## Context builder
 
@@ -950,6 +955,8 @@ A Delivery is anything the Mind should surface in a Thread without being asked.
 
 **Away.** Deliveries wait until the person is present again.
 
+**Flush details.** Trigger (d) runs on the next macrotask after `open` returns, so the server sends `thread.opened` before any turn frame. Items in a delivery turn are marked delivered only if the turn completed; after a failed or cancelled turn the flush waits for the next trigger (no retry loop).
+
 ## Presence and arrival
 
 - A Person is **present** while at least one attended node has one of their Threads open. `persons.last_seen_at` is written when they become away, refreshed on every scheduler tick while they are present, and written for every present person on graceful shutdown. Arrival detection survives restarts and crashes, and a crash costs at most one tick of accuracy.
@@ -958,6 +965,7 @@ A Delivery is anything the Mind should surface in a Thread without being asked.
   - `on-greeting` (default): an **arrival hold** starts, and no delivery turn runs. The first user turn after arrival gets all pending deliveries in context (section 8). If the input is a greeting or a catch-up question, the model leads with them. Otherwise it answers first and then mentions them briefly. After that turn's reply is persisted, the included items are marked delivered. If no input arrives within `mind.arrival.holdMs` (default 120 000), the hold ends and a normal delivery turn runs.
   - `auto`: after a grace period of `mind.arrival.graceMs` (default 1 500, so plugin deliveries can land), a briefing turn runs in the delivery lane. It is a delivery turn whose instructions also say to greet.
   - `off`: no hold, normal flush.
+- The `auto` grace period works like a short hold: deliveries that land during it wait for the briefing. Input during an `on-greeting` hold or an `auto` grace ends it, and that user turn carries the pending deliveries (the briefing turn is skipped).
 
 ## Built-in tools
 
