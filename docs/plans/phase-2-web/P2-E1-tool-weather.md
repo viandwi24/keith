@@ -4,8 +4,8 @@ title: "@keith/tool-weather: reference tool plugin with a service, an event and 
 phase: 2
 wave: 2
 lane: E
-status: todo
-owner: null
+status: in-progress
+owner: agent-P2-E1
 depends: [P2-K1]
 owns:
   - plugins/tool-weather/**

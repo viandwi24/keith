@@ -4,8 +4,8 @@ title: "Core: ui.action routing, MessageDto.ui in history, /v1/files"
 phase: 2
 wave: 2
 lane: D
-status: todo
-owner: null
+status: in-progress
+owner: agent-P2-D1
 depends: [P2-K1]
 owns:
   - packages/core/src/mind/**

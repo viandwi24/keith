@@ -4,8 +4,8 @@ title: Extract @keith/client and migrate the TUI
 phase: 2
 wave: 2
 lane: A
-status: todo
-owner: null
+status: in-progress
+owner: agent-P2-A1
 depends: [P2-K1]
 owns:
   - packages/client/**

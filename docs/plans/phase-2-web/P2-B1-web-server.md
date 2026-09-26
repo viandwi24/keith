@@ -4,8 +4,8 @@ title: "@keith/web server side: client-app plugin serving the browser app"
 phase: 2
 wave: 2
 lane: B
-status: todo
-owner: null
+status: in-progress
+owner: agent-P2-B1
 depends: [P2-K1]
 owns:
   - plugins/web/package.json
