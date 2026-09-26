@@ -505,7 +505,23 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
     }
   }
 
-  async function append(record: MessageRecord): Promise<MessageDto | null> {
+  /**
+   * History is ordered by `(createdAt, id)`. A turn's assistant message gets its id when the turn
+   * starts (for `message.started`), before the tool-step rows the run loop stores, and a queued
+   * input gets its id when it arrives. Within one millisecond that id order is wrong, so a record
+   * that would sort before the thread's latest row is stamped one millisecond after it.
+   */
+  async function inOrder<R extends MessageRecord>(record: R): Promise<R> {
+    const { messages } = await repos.messages.page({ threadId: record.threadId, limit: 1 })
+    const last = messages[0]
+    if (!last) return record
+    const sortsBefore =
+      record.createdAt < last.createdAt || (record.createdAt === last.createdAt && record.id < last.id)
+    return sortsBefore ? { ...record, createdAt: last.createdAt + 1 } : record
+  }
+
+  async function append(input: MessageRecord): Promise<MessageDto | null> {
+    const record = await inOrder(input)
     await repos.messages.append(record)
     events.emit('thread.message_added', {
       threadId: record.threadId,
