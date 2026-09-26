@@ -4,7 +4,7 @@ title: Storage (SQLite, Drizzle, repositories)
 phase: 1
 wave: 1
 lane: B
-status: review
+status: done
 owner: agent-P1-B1
 depends: [P0-04]
 owns:
