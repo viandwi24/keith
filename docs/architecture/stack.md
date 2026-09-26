@@ -19,7 +19,7 @@ Status legend: **decided** = use it. **open** = the named task decides it and re
 | LLM providers | Own adapter interface. OpenRouter + DeepSeek via an OpenAI-compatible helper | decided | [ADR-0004](../decisions/0004-keith-owns-the-agent-loop.md), [ADR-0008](../decisions/0008-first-llm-providers.md) |
 | TUI framework | OpenTUI (`@opentui/core` ^0.5.12, imperative core API, no React) | proposed, [ADR-0010](../decisions/0010-tui-framework.md) | Bun-native, built-in multi-line textarea, diffed rendering for streaming text. Only in `apps/tui` |
 | Web UI | React + Tailwind + shadcn/ui | decided (phase 2) | One component system only |
-| Web bundler | Bun's HTML bundler or Vite | open, phase 2 | Output must be static assets served by the web plugin |
+| Web bundler | Bun's HTML bundler (`Bun.build` API + `bun-plugin-tailwind`) | proposed, [ADR-0012](../decisions/0012-web-bundler.md) | Builds `plugins/web/app/` to static assets in `plugins/web/dist/`, served by the web plugin. `bun run dev` uses Bun's dev server with a `/v1` proxy |
 | Voice transport (browser) | WebSocket binary frames first. WebRTC later if latency needs it | decided (phase 3) | [voice.md](voice.md) |
 | System node | Rust | decided (phase 7) | Out of process only. [ADR-0009](../decisions/0009-rust-only-out-of-process.md) |
 | Tool ecosystem bridge | MCP client (tools from MCP servers → tool registry) | decided (phase 8) | Untrusted third-party code runs out of process via MCP |
