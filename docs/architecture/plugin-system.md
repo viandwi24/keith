@@ -16,6 +16,8 @@ The exact API is in [contracts/plugin-api.md](../contracts/plugin-api.md). This 
 | Headless file-access agent on another machine | No, it's a Node | Separate process with `fs@1` |
 | Third-party tool server you don't trust | No, it's an MCP server | Bridged into the tool registry (phase 8) |
 
+A client-app plugin that ships a browser UI (today only `@keith/web`) keeps two halves in one package ([ADR-0011](../decisions/0011-client-app-browser-side.md)): server code in `src/` and the browser app in `app/`, which builds to `dist/`. The server half never imports `app/`. The whole server side of `@keith/web` is one `ctx.http.static('/', dist, { spaFallback: 'index.html' })`, with no `/p/web/` routes. The config option `distDir` overrides the folder (a relative path resolves against the core's working directory). If the folder has no `index.html`, the plugin logs a warning and serves a small "web app isn't built" placeholder page at `/`, so the core keeps running without the build.
+
 Like a Linux distro, Keith works as CLI only. The web plugin is a desktop environment you can install on top, and applications (tools) don't depend on which one is installed. They speak the shared protocol (UI blocks).
 
 ## Plugin kinds
