@@ -23,6 +23,7 @@
       "dependencies": {
         "@keith/protocol": "workspace:*",
         "@keith/sdk": "workspace:*",
+        "zod": "^4.6.5",
       },
     },
     "packages/protocol": {
