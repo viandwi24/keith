@@ -4,7 +4,7 @@ title: Scheduler, tasks, commitments, delivery queue
 phase: 1
 wave: 1
 lane: G
-status: review
+status: done
 owner: agent-P1-G1
 depends: [P0-04]
 owns:
