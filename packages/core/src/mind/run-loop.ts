@@ -17,6 +17,7 @@ import type { CoreProviderRegistries, CoreToolRegistry, ToolInvocation } from '.
 import type { Clock, Ids, Logger, PersonDto, PersonId, ThreadId } from '../shared/types.ts'
 import type { MessageRecord, Repositories } from '../storage/types.ts'
 import type { RunLoop, RunLoopArgs, RunLoopEvent, RunLoopResult } from './types.ts'
+import { validUiBlock } from './ui.ts'
 
 export type RunLoopDeps = {
   providers: Pick<CoreProviderRegistries, 'llm'>
@@ -124,13 +125,18 @@ export function createRunLoop(deps: RunLoopDeps): RunLoop {
         ok,
         ms: deps.clock.now() - started,
       })
-      if (result.ui) {
+      // I-9: the core validates blocks; an invalid one is dropped and the turn goes on.
+      const block =
+        result.ui === undefined
+          ? null
+          : validUiBlock(result.ui, deps.log, { tool: call.name, toolCallId: call.id })
+      if (block) {
         emit({
           type: 'ui',
           toolCallId: call.id,
           toolName: call.name,
-          block: result.ui,
-          fallbackText: result.fallbackText ?? uiBlockToText(result.ui),
+          block,
+          fallbackText: result.fallbackText ?? uiBlockToText(block),
         })
       }
       return result

@@ -1,9 +1,7 @@
 // The core's `/v1` HTTP endpoints. Contract: docs/contracts/protocol.md#http-endpoints.
 
 import {
-  type ErrorCode,
   type HealthResponse,
-  type HttpErrorBody,
   LoginRequest,
   type LoginResponse,
   type MeResponse,
@@ -20,29 +18,16 @@ import type { Logger, PersonDto, PersonId } from '../shared/types.ts'
 import type { Repositories } from '../storage/types.ts'
 import { type Auth, type AuthSession, bearerToken } from './auth.ts'
 import { toMessageDto, toPersonDto, toThreadDto } from './dto.ts'
+import type { FilesApi } from './files.ts'
+import { errorResponse } from './responses.ts'
 
-const STATUS: Record<ErrorCode, number> = {
-  UNAUTHORIZED: 401,
-  FORBIDDEN: 403,
-  NOT_FOUND: 404,
-  INVALID_REQUEST: 400,
-  INVALID_FRAME: 400,
-  UNKNOWN_FRAME: 400,
-  THREAD_BUSY: 409,
-  RATE_LIMITED: 429,
-  PROVIDER_ERROR: 502,
-  INTERNAL: 500,
-}
-
-export function errorResponse(code: ErrorCode, message: string): Response {
-  const body: HttpErrorBody = { error: { code, message } }
-  return Response.json(body, { status: STATUS[code] })
-}
+export { errorResponse }
 
 export type HttpApiDeps = {
   auth: Auth
   repos: Pick<Repositories, 'persons' | 'threads' | 'messages'>
   threads: Pick<ThreadManager, 'state'>
+  files: FilesApi
   version: string
   log: Logger
 }
@@ -61,6 +46,8 @@ async function readJson(req: Request): Promise<{ ok: true; value: unknown } | { 
     return { ok: false }
   }
 }
+
+const FILE_PATH = /^\/v1\/files\/[^/]+$/
 
 /** Handles every `/v1/*` request except the WS upgrade. */
 export function createHttpApi(deps: HttpApiDeps): (req: Request, url: URL) => Promise<Response> {
@@ -140,7 +127,9 @@ export function createHttpApi(deps: HttpApiDeps): (req: Request, url: URL) => Pr
     const known =
       (path === '/v1/auth/logout' && method === 'POST') ||
       ((path === '/v1/me' || path === '/v1/threads') && method === 'GET') ||
-      (/^\/v1\/threads\/[^/]+\/messages$/.test(path) && method === 'GET')
+      (/^\/v1\/threads\/[^/]+\/messages$/.test(path) && method === 'GET') ||
+      (path === '/v1/files' && method === 'POST') ||
+      (FILE_PATH.test(path) && method === 'GET')
     if (!known) return errorResponse('NOT_FOUND', `no route for ${method} ${path}`)
 
     const session = await sessionOf(auth, req)
@@ -158,7 +147,9 @@ export function createHttpApi(deps: HttpApiDeps): (req: Request, url: URL) => Pr
       const body: ThreadsResponse = { threads: await threadsOf(session) }
       return Response.json(body)
     }
+    if (path === '/v1/files') return deps.files.upload(req, session.person.id)
     const rawId = path.split('/')[3] ?? ''
+    if (FILE_PATH.test(path)) return deps.files.download(rawId, session.person.id)
     return messagesOf(session, rawId, url)
   }
 

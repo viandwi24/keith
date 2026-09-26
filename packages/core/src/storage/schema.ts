@@ -1,4 +1,4 @@
-// Drizzle schema for every phase-1 table in docs/architecture/storage.md. drizzle-kit reads this file
+// Drizzle schema for every phase-1 and phase-2 table in docs/architecture/storage.md. drizzle-kit reads this file
 // (packages/core/drizzle.config.ts) to generate migrations; never edit a generated migration.
 // JSON columns are plain text here; repositories parse them with zod on read (R-9).
 // `memories_fts` is an FTS5 virtual table created by a custom migration, not declared here.
@@ -7,6 +7,7 @@ import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'driz
 import type {
   CommitmentId,
   DeliveryId,
+  FileId,
   MemoryId,
   MessageId,
   NodeId,
@@ -271,4 +272,23 @@ export const pluginData = sqliteTable(
     updatedAt: integer('updated_at').notNull(),
   },
   (t) => [primaryKey({ columns: [t.pluginId, t.key] })],
+)
+
+export const files = sqliteTable(
+  'files',
+  {
+    id: text('id').$type<FileId>().primaryKey(),
+    /** Original file name. */
+    name: text('name').notNull(),
+    /** Relative to `KEITH_HOME/files/`. */
+    path: text('path').notNull(),
+    mime: text('mime').notNull(),
+    size: integer('size').notNull(),
+    ownerPersonId: text('owner_person_id')
+      .$type<PersonId>()
+      .notNull()
+      .references(() => persons.id),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => [index('files_owner_idx').on(t.ownerPersonId)],
 )

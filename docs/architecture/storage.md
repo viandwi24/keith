@@ -27,7 +27,7 @@ One SQLite file (`~/.keith/keith.db`) plus one data folder (`~/.keith/files/`). 
 | `deliveries` | id, thread_id, person_id, kind, author_person_id, source, urgency, content, ui (json), status, created_at, delivered_at | 1 |
 | `memories` (+ `memories_fts`) | see [memory.md](memory.md) | 1 |
 | `plugin_data` | plugin_id, key, value (json), updated_at. PK (plugin_id, key) | 1 |
-| `files` | id, path, mime, size, owner_person_id, created_at | 2 |
+| `files` | id, name, path, mime, size, owner_person_id, created_at. See [Files](#files) | 2 |
 | `reminders` | id, person_id, thread_id, due_at, text, status | 4 |
 | `workspaces` | id, person_id or thread_id, state (json), updated_at | 6 |
 
@@ -87,6 +87,19 @@ type MemoryFilter = {
 `memories_fts` is an FTS5 table created by the custom migration `memories-fts`, with the tokenizer `porter unicode61 remove_diacritics 2`. It keeps its own copy of `content` keyed by the memory id (an `UNINDEXED` column), not an external-content table, because `memories` has a text primary key and `VACUUM` may renumber implicit rowids. Triggers on insert, delete and update of `content` keep it in sync.
 
 `memories.search(text, filter)` turns `text` into a query of its distinct words, each quoted and joined with `OR`, so FTS5 operators in user text are never interpreted. Results are ranked by `bm25()`, then `updated_at` (newest first), limit 8 by default. The filter SQL above leaves out branches that cannot match (`allowHousehold` false, `subjectPersonId` null, empty `threadIds`); a filter that admits nothing returns no rows.
+
+## Files
+
+`POST /v1/files` (`server/files.ts`) stores the bytes of an upload at `KEITH_HOME/files/<file id>` and a `files` row (`FilesRepository`, `storage/files.ts`): `name` is the uploaded file name (last path segment, control characters removed, at most 255 characters, `file` when empty), `path` is relative to the files folder (the id), `mime` is the part's type when well-formed, else `application/octet-stream`, and `owner_person_id` is the uploader. The limit is `FILE_MAX_BYTES` (10 MiB, `@keith/protocol`); a body whose `content-length` is clearly larger is refused before it is read. The server gets the folder as `filesDir` (`KeithPaths.filesDir`); without it, both endpoints answer `404`.
+
+**Who may read a file** (`GET /v1/files/:id`, rule R-14): the owner, or a current participant of a thread in which the file is referenced by
+
+- a user message written by the file's owner (its text contains `/v1/files/<id>`), or
+- a UI block of an assistant message (a tool put the URL in a block).
+
+A URL typed by anyone else grants nothing, so knowing a file id is not enough to read it. Everyone else gets `404 NOT_FOUND`, the same answer as for a missing file. The check pages through the reader's threads (user and assistant rows); at household scale that is cheap, and a reference index can replace it later without changing the rule.
+
+Downloads carry the stored `mime`, `x-content-type-options: nosniff` and `content-security-policy: sandbox; default-src 'none'`, so an uploaded HTML or SVG document can't run with the core's origin.
 
 ## Backups
 

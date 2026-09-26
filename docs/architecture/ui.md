@@ -20,7 +20,7 @@ tool plugin ──returns── { content: "22°C, rain at 4pm", ui: UiBlock }
 
 - **The core owns the schema.** It lives in `@keith/protocol`. Tool plugins produce blocks, client apps render them, and neither knows about the other (I-9).
 - **Every `ui.render` frame carries `fallbackText`.** A node that can't render a block type shows the fallback. Nothing is ever invisible.
-- **Validation at the core.** A tool returning an invalid block has its `ui` dropped, gets a logged warning, and the turn goes on.
+- **Validation at the core.** A tool returning an invalid block has its `ui` dropped, gets a logged warning, and the turn goes on. The run loop checks each block against the `UiBlock` schema and its limits (depth, size, URL schemes, ids unique in the tree; `mind/ui.ts`), and the ThreadManager drops a block that reuses a block id already on the same message, so a `ui.action` always names one block.
 
 ## Tiers of UI
 
@@ -34,8 +34,20 @@ tool plugin ──returns── { content: "22°C, rain at 4pm", ui: UiBlock }
 - a call to that tool's `onAction` handler if it declared one, or
 - a user input "(clicked: <label>)" into the Thread otherwise.
 
+How the core handles it (`server/connection.ts` → `ThreadManager.action` in `mind/thread-manager.ts`):
+
+| Step | Rule |
+|---|---|
+| Routing | The server accepts `ui.action` only for a thread open on that node (else `error { FORBIDDEN }`), and does not wait for the result, so `input.cancel` still gets through. A rejection becomes an `error` frame with `re` set to the action's frame id: `NOT_FOUND`, `FORBIDDEN` as is, anything else `INTERNAL` |
+| Lookup | The message must be an assistant message of that thread, `blockId` an `actions` block at any depth of one of its `ui` entries, and `actionId` one of its actions. Otherwise `NOT_FOUND` |
+| Who may click | Only a current participant of the thread (`FORBIDDEN`). Before `onAction` runs, the tool's `minTier` is checked against the lowest tier of the clicking person and the thread's participants, who all see the result (R-14). Refused → `FORBIDDEN`, and `onAction` is not called |
+| `onAction` | Called once, with `ToolAction { messageId, blockId, actionId, value }` and a `ToolRunContext` whose `person` is the clicking person, `participants` the thread's, `taskId` null. `value` is the frame's `value`, or the action's stored `value` when the frame has none. The tool's `timeoutMs` applies (`TOOL_TIMEOUT` → `INTERNAL` frame) |
+| Result | A returned `ToolResult` becomes an assistant message without a model call: `message.started` (`proactive: false`), `ui.render` of its validated block to `ui.render@1` nodes, then `message.completed`. The block is stored with the same tool name, so clicks on it reach the same handler. It is appended after any running turn, so history stays ordered. `undefined` adds nothing |
+| No handler | When the tool has no `onAction`, or is no longer registered, the click is the input `(clicked: <label>)` from the clicking person and node. The `message.user` echo also goes to the clicking node, which never typed the text |
+
 ## Rendering rules for client apps
 
 - Keep one visual language: in the web app, blocks render with the same shadcn/ui components and theme tokens as the rest of the UI.
 - Blocks attach to the assistant message they belong to (`messageId`), or float in the Thread if they have none.
-- Images use URLs served by the core (`/v1/files/:id`, phase 2) or `data:` URIs under 256 KB.
+- Images use URLs served by the core (`/v1/files/:id`, phase 2) or `data:` URIs under 256 KB. `/v1/files/:id` needs the bearer token (see [storage.md](storage.md#files)), so a browser fetches the bytes with an `Authorization` header and shows them from an object URL; a plain `<img src>` gets `401`.
+- History carries blocks too: `MessageDto.ui` holds a reply's blocks in `thread.opened`, `message.completed` and `GET /v1/threads/:id/messages`, so a client renders the same blocks after a reload as it did live.

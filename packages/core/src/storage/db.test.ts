@@ -31,7 +31,7 @@ function migrationCount(path: string): number {
 }
 
 describe('openDb', () => {
-  test('applies every migration to a fresh file and creates all phase-1 tables', () => {
+  test('applies every migration to a fresh file and creates every table', () => {
     const path = join(tempDir(), 'keith.db')
     openDb(path).close()
     const raw = new Database(path, { readonly: true })
@@ -55,13 +55,14 @@ describe('openDb', () => {
       'memories',
       'memories_fts',
       'plugin_data',
+      'files',
       'memories_fts_insert',
       'memories_fts_update',
       'memories_fts_delete',
     ]) {
       expect(names).toContain(table)
     }
-    expect(migrationCount(path)).toBe(2)
+    expect(migrationCount(path)).toBe(3)
   })
 
   test('opening an already migrated file applies nothing', () => {

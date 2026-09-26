@@ -7,6 +7,7 @@ import { KeithError } from '@keith/sdk'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
 import { createAuthTokensRepository, createNodesRepository } from './access.ts'
+import { createFilesRepository } from './files.ts'
 import { createMemoriesRepository } from './memories.ts'
 import { createMessagesRepository } from './messages.ts'
 import type { Orm } from './orm.ts'
@@ -52,10 +53,6 @@ function createRepositories(db: Orm): Repositories {
     deliveries: createDeliveriesRepository(db),
     memories: createMemoriesRepository(db),
     pluginData: createPluginDataRepository(db),
-    // Placeholder until task P2-D1 adds the `files` table (interface added by P2-K1).
-    files: {
-      create: () => Promise.reject(new KeithError('INTERNAL', 'files are not supported yet')),
-      get: () => Promise.resolve(null),
-    },
+    files: createFilesRepository(db),
   }
 }

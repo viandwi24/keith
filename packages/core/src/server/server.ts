@@ -10,6 +10,7 @@ import type { Repositories } from '../storage/types.ts'
 import type { ServerAttachmentRegistry } from './attachments.ts'
 import { type AuthSession, createAuth } from './auth.ts'
 import { type Connection, type ConnectionTiming, DEFAULT_TIMING, openConnection } from './connection.ts'
+import { createFilesApi } from './files.ts'
 import { createHttpApi, errorResponse, sessionOf } from './http-api.ts'
 import { createPluginHttp, createPluginWs } from './plugin-routes.ts'
 import type { ServerPresence } from './presence.ts'
@@ -21,12 +22,17 @@ export type CoreServerDeps = {
   clock: Clock
   ids: Ids
   events: CoreEventBus
-  repos: Pick<Repositories, 'persons' | 'authTokens' | 'nodes' | 'threads' | 'messages'>
+  repos: Pick<Repositories, 'persons' | 'authTokens' | 'nodes' | 'threads' | 'messages' | 'files'>
   threads: ThreadManager
   attachments: ServerAttachmentRegistry
   presence: ServerPresence
   /** Keith's version, for `/v1/health` and `welcome`. */
   version: string
+  /**
+   * `KEITH_HOME/files` (`KeithPaths.filesDir`), where `/v1/files` keeps the bytes. Without it the
+   * files endpoints answer `404 NOT_FOUND`.
+   */
+  filesDir?: string | undefined
   /** Tests shorten the handshake and heartbeat timers. */
   timing?: Partial<ConnectionTiming> | undefined
 }
@@ -38,7 +44,22 @@ export function createCoreServer(deps: CoreServerDeps): CoreServer {
   const auth = createAuth(deps)
   const http = createPluginHttp()
   const ws = createPluginWs()
-  const api = createHttpApi({ auth, repos: deps.repos, threads: deps.threads, version: deps.version, log })
+  if (deps.filesDir === undefined) log.warn('no files directory: /v1/files is disabled')
+  const files = createFilesApi({
+    repos: deps.repos,
+    ids: deps.ids,
+    clock: deps.clock,
+    log,
+    dir: deps.filesDir ?? null,
+  })
+  const api = createHttpApi({
+    auth,
+    repos: deps.repos,
+    threads: deps.threads,
+    files,
+    version: deps.version,
+    log,
+  })
   const timing: ConnectionTiming = { ...DEFAULT_TIMING, ...deps.timing }
   let frameSeq = 0
   const connectionDeps = {

@@ -8,9 +8,10 @@ import { createFakeClock, createMemoryLogger, type FakeClock, type MemoryLogger 
 import type { KeithConfig } from '../config/types.ts'
 import type { CoreEventBus } from '../events/types.ts'
 import type { Arrival, OpenedThread, ThreadManager } from '../mind/types.ts'
-import type { IdPrefix, Ids, NodeId, PersonId, ThreadId, TurnState } from '../shared/types.ts'
+import type { FileId, IdPrefix, Ids, NodeId, PersonId, ThreadId, TurnState } from '../shared/types.ts'
 import type {
   AuthTokenRecord,
+  FileRecord,
   MessageRecord,
   NodeRecord,
   PersonRecord,
@@ -42,7 +43,10 @@ export const threadId = (n: number) => `thr_${String(n).padStart(26, '0')}` as T
 
 // Repositories
 
-export type ServerRepos = Pick<Repositories, 'persons' | 'authTokens' | 'nodes' | 'threads' | 'messages'>
+export type ServerRepos = Pick<
+  Repositories,
+  'persons' | 'authTokens' | 'nodes' | 'threads' | 'messages' | 'files'
+>
 
 export type FakeRepos = ServerRepos & {
   data: {
@@ -52,6 +56,7 @@ export type FakeRepos = ServerRepos & {
     threads: Map<ThreadId, ThreadRecord>
     participants: ThreadParticipantRecord[]
     messages: MessageRecord[]
+    files: Map<FileId, FileRecord>
     lastSeenWrites: { ids: PersonId[]; at: number }[]
   }
 }
@@ -64,6 +69,7 @@ export function createFakeRepos(): FakeRepos {
     threads: new Map(),
     participants: [],
     messages: [],
+    files: new Map(),
     lastSeenWrites: [],
   }
   return {
@@ -184,6 +190,16 @@ export function createFakeRepos(): FakeRepos {
         return { messages: page, hasMore: list.length > page.length }
       },
     },
+    files: {
+      async create(f) {
+        if (data.files.has(f.id)) throw new Error('duplicate file id')
+        data.files.set(f.id, { ...f })
+      },
+      async get(id) {
+        const f = data.files.get(id)
+        return f ? { ...f } : null
+      },
+    },
   }
 }
 
@@ -239,24 +255,29 @@ export type FakeThreadManager = ThreadManager & {
     detach: { nodeId: NodeId; threadId?: ThreadId | undefined }[]
     input: { threadId: ThreadId; personId: PersonId; nodeId: NodeId; text: string }[]
     cancel: { threadId: ThreadId; nodeId: NodeId }[]
+    action: Parameters<ThreadManager['action']>[0][]
   }
   /** Messages `open` returns for a thread. */
   history: Map<ThreadId, MessageDto[]>
   /** Makes `open` throw this. */
   failOpen: Error | null
+  /** Makes `action` throw this. */
+  failAction: Error | null
 }
 
 /** A ThreadManager that opens the person's `main` thread (thr_…0001-style ids per person). */
 export function createFakeThreadManager(repos: FakeRepos): FakeThreadManager {
-  const calls: FakeThreadManager['calls'] = { open: [], detach: [], input: [], cancel: [] }
+  const calls: FakeThreadManager['calls'] = { open: [], detach: [], input: [], cancel: [], action: [] }
   const history = new Map<ThreadId, MessageDto[]>()
   const states = new Map<ThreadId, TurnState>()
   const tm: FakeThreadManager = {
     calls,
     history,
     failOpen: null,
-    async action() {
-      throw new Error('fake ThreadManager.action is not implemented')
+    failAction: null,
+    async action(a) {
+      calls.action.push({ ...a })
+      if (tm.failAction) throw tm.failAction
     },
     async open(a) {
       calls.open.push({ ...a })
@@ -357,6 +378,8 @@ export type TestServerOptions = {
   clock?: FakeClock
   timing?: Partial<ConnectionTiming>
   awayAfterMinutes?: number
+  /** `KEITH_HOME/files` for `/v1/files`; omitted = files disabled. */
+  filesDir?: string
 }
 
 let ownerHash: Promise<string> | null = null
@@ -399,6 +422,7 @@ export async function startTestServer(opts: TestServerOptions = {}): Promise<Tes
     presence,
     version: '0.1.0',
     timing: opts.timing,
+    filesDir: opts.filesDir,
   })
   const { host, port } = await server.listen()
   const base = `http://${host}:${port}`

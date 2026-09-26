@@ -133,6 +133,7 @@ export async function createHarness(opts: HarnessOptions = {}) {
     ids,
     clock,
     log,
+    tools,
   })
 
   /** Attaches the node, marks the person present, and opens their main thread (like the server). */

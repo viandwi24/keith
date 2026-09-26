@@ -8,9 +8,20 @@ import {
   type MessageDto,
   makeFrame,
   type ThreadDto,
+  uiBlockToText,
 } from '@keith/protocol'
-import { type EventBus, isKeithError, KeithError, type KeithErrorCode } from '@keith/sdk'
+import {
+  DEFAULT_TOOL_TIMEOUT_MS,
+  type EventBus,
+  isKeithError,
+  KeithError,
+  type KeithErrorCode,
+  type Tool,
+  type ToolAction,
+  type ToolResult,
+} from '@keith/sdk'
 import type { KeithConfig } from '../config/types.ts'
+import type { CoreServiceRegistry, CoreToolRegistry } from '../plugins/types.ts'
 import type { DeliveryQueue, Scheduler } from '../scheduler/types.ts'
 import type { NodeSink, Presence } from '../server/types.ts'
 import type {
@@ -25,6 +36,7 @@ import type {
   ThreadId,
   TurnKind,
   TurnState,
+  UiBlock,
 } from '../shared/types.ts'
 import type {
   AssistantMessageRecord,
@@ -35,8 +47,9 @@ import type {
   ThreadRecord,
   UserMessageRecord,
 } from '../storage/types.ts'
-import { toMessageDto } from './messages.ts'
+import { lowestTier, toMessageDto } from './messages.ts'
 import type { Arrival, ContextBuilder, RunLoop, RunLoopEvent, RunLoopResult, ThreadManager } from './types.ts'
+import { findUiAction, idsFreeIn, validUiBlock } from './ui.ts'
 
 export type ThreadManagerDeps = {
   config: Pick<KeithConfig, 'mind'>
@@ -51,6 +64,13 @@ export type ThreadManagerDeps = {
   ids: Ids
   clock: Clock
   log: Logger
+  /**
+   * Looks up the tool behind a clicked block (`ui.action`, phase 2). Without it every click
+   * becomes the input "(clicked: <label>)".
+   */
+  tools?: Pick<CoreToolRegistry, 'get'> | undefined
+  /** `t.services` for `onAction` runs. Without it, `get` throws `SERVICE_MISSING`. */
+  services?: Pick<CoreServiceRegistry, 'get' | 'find'> | undefined
 }
 
 /** The ThreadManager plus lifecycle hooks for bootstrap and tests. */
@@ -88,11 +108,24 @@ type Runtime = {
   arrivalDeliveries: boolean
   briefingDue: boolean
   flushRequested: boolean
+  /** Work that must not interleave with a turn (appending a `ui.action` result). Runs first. */
+  jobs: (() => Promise<void>)[]
 }
 
 type Work = { kind: TurnKind; inputs: UserMessageRecord[]; deliveries: Delivery[] }
 
 type Outcome = 'ok' | 'cancelled' | 'failed'
+
+type InputArgs = Parameters<ThreadManager['input']>[0]
+type ActionArgs = Parameters<ThreadManager['action']>[0]
+
+/** `t.services` when bootstrap passes no service registry. */
+const NO_SERVICES: Pick<CoreServiceRegistry, 'get' | 'find'> = {
+  get: (name) => {
+    throw new KeithError('SERVICE_MISSING', `service '${name}' is not available`)
+  },
+  find: () => undefined,
+}
 
 export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager {
   const { config, repos, nodes, ids, clock, events, log } = deps
@@ -169,6 +202,7 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
           arrivalDeliveries: false,
           briefingDue: false,
           flushRequested: false,
+          jobs: [],
         }
         ready.set(threadId, rt)
         return rt
@@ -282,6 +316,11 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
     try {
       for (;;) {
         rt.dirty = false
+        const job = rt.jobs.shift()
+        if (job) {
+          await job()
+          continue
+        }
         const work = await nextWork(rt)
         if (!work) {
           if (rt.dirty) continue
@@ -489,19 +528,34 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
         return
       }
       case 'ui': {
-        ui.push({ block: e.block, toolCallId: e.toolCallId, toolName: e.toolName })
-        const frame = makeFrame(
-          'ui.render',
-          { threadId, messageId, block: e.block, fallbackText: e.fallbackText },
-          frameOpts(),
-        )
-        for (const n of nodes.attachedTo(threadId)) {
-          if (capabilities.get(n)?.includes(UI_CAPABILITY)) nodes.send(n, frame)
+        // Block ids are unique within a message (ui-blocks.md), so `ui.action` finds one block.
+        if (!idsFreeIn(e.block, ui)) {
+          log.warn('ui block reuses a block id of this message; dropped', {
+            threadId,
+            messageId,
+            tool: e.toolName,
+            blockId: e.block.id,
+          })
+          return
         }
+        ui.push({ block: e.block, toolCallId: e.toolCallId, toolName: e.toolName })
+        renderUi(rt, messageId, e.block, e.fallbackText)
         return
       }
       case 'step.completed':
         return
+    }
+  }
+
+  /** Sends `ui.render` to the thread's nodes with `ui.render@1`. */
+  function renderUi(rt: Runtime, messageId: MessageId, block: UiBlock, fallbackText: string): void {
+    const frame = makeFrame(
+      'ui.render',
+      { threadId: rt.threadId, messageId, block, fallbackText },
+      frameOpts(),
+    )
+    for (const n of nodes.attachedTo(rt.threadId)) {
+      if (capabilities.get(n)?.includes(UI_CAPABILITY)) nodes.send(n, frame)
     }
   }
 
@@ -536,6 +590,169 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
     const code: ErrorCode = isKeithError(error, 'PROVIDER_ERROR') ? 'PROVIDER_ERROR' : 'INTERNAL'
     const message = code === 'PROVIDER_ERROR' ? 'the model provider failed' : 'internal error'
     broadcast(rt, makeFrame('error', { code, message }, frameOpts()))
+  }
+
+  // Input
+
+  /**
+   * Queues a user input for the next turn and echoes it as `message.user` to the thread's other
+   * nodes, or to all of them with `echoToSender` (a click, which the sending node didn't type).
+   */
+  async function input(a: InputArgs, echoToSender = false): Promise<void> {
+    const rt = await runtimeFor(a.threadId)
+    if (!rt.participants.includes(a.personId)) {
+      throw new KeithError('FORBIDDEN', 'not a participant of this thread', {
+        details: { threadId: a.threadId, personId: a.personId },
+      })
+    }
+    if (!capabilities.has(a.nodeId)) await rememberNode(a.nodeId)
+    const record: UserMessageRecord = {
+      id: ids.next('msg'),
+      threadId: a.threadId,
+      role: 'user',
+      authorPersonId: a.personId,
+      nodeId: a.nodeId,
+      modality: a.modality,
+      content: a.text,
+      meta: null,
+      createdAt: clock.now(),
+    }
+    const dto = toMessageDto(record)
+    if (dto) {
+      const frame = makeFrame('message.user', { message: dto }, frameOpts())
+      broadcast(rt, frame, echoToSender ? undefined : a.nodeId)
+    }
+    rt.focus = a.nodeId
+    if (rt.hold) {
+      // The first input after an arrival ends the hold (or the briefing grace) and carries the briefing.
+      clearHold(rt)
+      rt.arrivalDeliveries = true
+    }
+    rt.queue.push(record)
+    kick(rt)
+  }
+
+  // ui.action (docs/architecture/ui.md#interactivity, docs/contracts/plugin-api.md onAction)
+
+  async function action(a: ActionArgs): Promise<void> {
+    const rt = await runtimeFor(a.threadId)
+    if (!rt.participants.includes(a.personId)) {
+      throw new KeithError('FORBIDDEN', 'not a participant of this thread', {
+        details: { threadId: a.threadId, personId: a.personId },
+      })
+    }
+    const message = await repos.messages.get(a.messageId)
+    if (!message || message.threadId !== a.threadId || message.role !== 'assistant') {
+      throw new KeithError('NOT_FOUND', 'message not found', { details: { messageId: a.messageId } })
+    }
+    const found = findUiAction(message.ui ?? [], a.blockId, a.actionId)
+    if (!found) {
+      throw new KeithError('NOT_FOUND', 'block or action not found', {
+        details: { messageId: a.messageId, blockId: a.blockId, actionId: a.actionId },
+      })
+    }
+    const tool = deps.tools?.get(found.entry.toolName)?.tool
+    if (!tool?.onAction) {
+      // No handler (or the tool is gone): the click becomes an input the Mind answers.
+      await input(
+        {
+          threadId: a.threadId,
+          personId: a.personId,
+          nodeId: a.nodeId,
+          modality: 'text',
+          text: `(clicked: ${found.action.label})`,
+        },
+        true,
+      )
+      return
+    }
+    const [person] = await personDtos([a.personId])
+    if (!person) throw new KeithError('NOT_FOUND', 'person not found', { details: { personId: a.personId } })
+    const participants = await personDtos(rt.participants)
+    // R-14: the clicking person, and everyone who will see the result, must reach the tool's tier.
+    const lowest = lowestTier([person, ...participants].map((p) => p.tier))
+    if (lowestTier([lowest, tool.minTier]) !== tool.minTier) {
+      throw new KeithError('FORBIDDEN', `this action needs tier '${tool.minTier}'`, {
+        details: { tool: tool.name, tier: lowest },
+      })
+    }
+    const value = a.value !== undefined ? a.value : found.action.value
+    const toolAction: ToolAction = { messageId: a.messageId, blockId: a.blockId, actionId: a.actionId }
+    if (value !== undefined) toolAction.value = value
+    const result = await runOnAction(tool, toolAction, { person, participants, threadId: a.threadId })
+    if (result === undefined) return
+    await inPump(rt, () => appendActionResult(rt, tool.name, result))
+  }
+
+  async function runOnAction(
+    tool: Tool,
+    toolAction: ToolAction,
+    ctx: { person: PersonDto; participants: PersonDto[]; threadId: ThreadId },
+  ): Promise<ToolResult | undefined> {
+    const onAction = tool.onAction
+    if (!onAction) return undefined
+    const timeoutMs = tool.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS
+    const controller = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        const error = new KeithError('TOOL_TIMEOUT', `onAction of '${tool.name}' timed out`)
+        controller.abort(error)
+        reject(error)
+      }, timeoutMs)
+    })
+    try {
+      return await Promise.race([
+        onAction.call(tool, toolAction, {
+          person: ctx.person,
+          participants: ctx.participants,
+          threadId: ctx.threadId,
+          taskId: null,
+          signal: controller.signal,
+          log: log.child({ tool: tool.name, messageId: toolAction.messageId }),
+          services: deps.services ?? NO_SERVICES,
+        }),
+        timeout,
+      ])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  /** Runs `job` in the thread's pump, after any running turn, and waits for it. */
+  function inPump(rt: Runtime, job: () => Promise<void>): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      rt.jobs.push(() => job().then(resolve, reject))
+      kick(rt)
+    })
+  }
+
+  /** An `onAction` result becomes an assistant message, without a model call. */
+  async function appendActionResult(rt: Runtime, toolName: string, result: ToolResult): Promise<void> {
+    const threadId = rt.threadId
+    const messageId = ids.next('msg')
+    broadcast(rt, makeFrame('message.started', { threadId, messageId, proactive: false }, frameOpts()))
+    const ui: MessageUiEntry[] = []
+    const block = result.ui === undefined ? null : validUiBlock(result.ui, log, { tool: toolName, messageId })
+    if (block) {
+      ui.push({ block, toolCallId: `action:${messageId}`, toolName })
+      renderUi(rt, messageId, block, result.fallbackText ?? uiBlockToText(block))
+    }
+    const record: AssistantMessageRecord = {
+      id: messageId,
+      threadId,
+      role: 'assistant',
+      authorPersonId: null,
+      nodeId: null,
+      modality: 'text',
+      content: result.content,
+      meta: null,
+      createdAt: clock.now(),
+      toolCalls: null,
+      ui: ui.length > 0 ? ui : null,
+    }
+    const dto = await append(record)
+    if (dto) broadcast(rt, makeFrame('message.completed', { message: dto }, frameOpts()))
   }
 
   // The interface
@@ -581,45 +798,13 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
       }
     },
 
-    async input(a) {
-      const rt = await runtimeFor(a.threadId)
-      if (!rt.participants.includes(a.personId)) {
-        throw new KeithError('FORBIDDEN', 'not a participant of this thread', {
-          details: { threadId: a.threadId, personId: a.personId },
-        })
-      }
-      if (!capabilities.has(a.nodeId)) await rememberNode(a.nodeId)
-      const record: UserMessageRecord = {
-        id: ids.next('msg'),
-        threadId: a.threadId,
-        role: 'user',
-        authorPersonId: a.personId,
-        nodeId: a.nodeId,
-        modality: a.modality,
-        content: a.text,
-        meta: null,
-        createdAt: clock.now(),
-      }
-      const dto = toMessageDto(record)
-      if (dto) broadcast(rt, makeFrame('message.user', { message: dto }, frameOpts()), a.nodeId)
-      rt.focus = a.nodeId
-      if (rt.hold) {
-        // The first input after an arrival ends the hold (or the briefing grace) and carries the briefing.
-        clearHold(rt)
-        rt.arrivalDeliveries = true
-      }
-      rt.queue.push(record)
-      kick(rt)
-    },
+    input: (a) => input(a),
 
     cancel(a) {
       ready.get(a.threadId)?.running?.controller.abort()
     },
 
-    async action() {
-      // Placeholder until task P2-D1 implements ui.action routing (interface added by P2-K1).
-      throw new KeithError('NOT_FOUND', 'ui actions are not supported yet')
-    },
+    action,
 
     state(threadId) {
       return ready.get(threadId)?.state ?? 'idle'

@@ -288,9 +288,26 @@ export function openConnection(
           return
         case 'pong':
           return
-        case 'ui.action':
-          sendError('UNKNOWN_FRAME', 'ui.action is not supported yet (phase 2)', frame.id)
+        case 'ui.action': {
+          if (!isOpenHere(frame.data.threadId)) {
+            sendError('FORBIDDEN', 'thread is not open on this node', frame.id)
+            return
+          }
+          const { threadId, messageId, blockId, actionId, value } = frame.data
+          // Not awaited: the result waits for a running turn, and input.cancel must still get through.
+          deps.threads
+            .action({
+              threadId,
+              personId: person.id,
+              nodeId: node,
+              messageId,
+              blockId,
+              actionId,
+              ...(value === undefined ? {} : { value }),
+            })
+            .catch((error: unknown) => failed(frame.type, error, frame.id))
           return
+        }
       }
     } catch (error) {
       failed(frame.type, error, frame.id)
