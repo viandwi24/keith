@@ -117,6 +117,9 @@ describe('chat client against the fake core', () => {
     await waitUntil(() => client.state.connection.kind === 'reconnecting', 3000, 'reconnecting')
     await core.restart()
     await waitUntil(() => core.hellos === 2 && client.state.connection.kind === 'online', 5000, 'reconnected')
+    // `online` is set on welcome; the reopen's thread.open follows it, so wait for the core to receive it.
+    const threadOpens = () => core.received.filter((f) => f.type === 'thread.open').length
+    await waitUntil(() => threadOpens() === 2, 3000, 'thread reopened')
     await waitUntil(() => messages(client).length === 2, 3000, 'history')
 
     const reopen = core.received.filter((f) => f.type === 'thread.open').at(-1)
