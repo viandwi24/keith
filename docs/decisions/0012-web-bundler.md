@@ -1,6 +1,6 @@
 # ADR-0012: Bun's HTML bundler for the web app
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-09-26
 - **Rules/invariants affected:** R-18 (official scaffolding), R-19 (one component system per client), stack rule "prefer Bun built-ins"
 

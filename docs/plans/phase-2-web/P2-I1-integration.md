@@ -4,8 +4,8 @@ title: "Integration and S-8 end to end in a real browser"
 phase: 2
 wave: 4
 lane: I
-status: todo
-owner: null
+status: in-progress
+owner: agent-P2-I1
 depends: [P2-C1, P2-E1]
 owns:
   - tests/e2e/**
