@@ -51,3 +51,28 @@ How the core handles it (`server/connection.ts` → `ThreadManager.action` in `m
 - Blocks attach to the assistant message they belong to (`messageId`), or float in the Thread if they have none.
 - Images use URLs served by the core (`/v1/files/:id`, phase 2) or `data:` URIs under 256 KB. `/v1/files/:id` needs the bearer token (see [storage.md](storage.md#files)), so a browser fetches the bytes with an `Authorization` header and shows them from an object URL; a plain `<img src>` gets `401`.
 - History carries blocks too: `MessageDto.ui` holds a reply's blocks in `thread.opened`, `message.completed` and `GET /v1/threads/:id/messages`, so a client renders the same blocks after a reload as it did live.
+
+## The web app
+
+The browser half of `@keith/web` (`plugins/web/app/`, a Node per [ADR-0011](../decisions/0011-client-app-browser-side.md)) renders blocks with React and the same shadcn/ui components and theme tokens as the rest of its UI. It is built with Bun's HTML bundler ([ADR-0012](../decisions/0012-web-bundler.md), proposed) into `plugins/web/dist/`.
+
+| Block | Renders as (`components/blocks/ui-block.tsx`) |
+|---|---|
+| `markdown` | `react-markdown` (CommonMark). Raw HTML is skipped, links keep only `http(s):`/`mailto:` and open in a new tab, markdown images are not loaded (their alt text shows) |
+| `card` | shadcn `Card`: image on top, title, subtitle, markdown body, children, footer |
+| `list` | a bordered list, numbered when `ordered`, with subtitle and meta |
+| `table` | shadcn `Table`, cells aligned per column |
+| `keyValue` | a `<dl>` grid |
+| `image` | `<img>`: `https:` and `data:image/*` directly; `/v1/files/<id>` fetched with `Authorization: Bearer` and shown from an object URL (revoked on unmount); anything else, or a failed fetch, shows `[image: alt]` |
+| `actions` | shadcn `Button`s (`primary` → default, `secondary` → outline, `danger` → destructive). A click sends `ui.action` with the message id, block id, action id and the action's `value` if it has one. Buttons of a floating block (no `messageId`) are disabled, since `ui.action` needs a message |
+| `stack` | a flex row (wrapping) or column |
+| `html` | `<iframe sandbox="allow-scripts" srcdoc=…>` (never `allow-same-origin`), `height` px or 240 |
+| unknown type | the entry's `fallbackText` |
+
+Other rendering rules:
+- The app declares `chat.text@1` and `ui.render@1` in `hello` and keeps its session (token, `nodeId`) in `localStorage` through `@keith/client`'s `webStorageSessionStore`.
+- Blocks attach below their assistant message; floating blocks sit in the timeline where they arrived.
+- Assistant rows with no text, no blocks and no streaming (tool steps in `GET /v1/threads/:id/messages`) are not shown.
+- Proactive messages carry a badge; tool activity shows as one line per tool call; the turn state shows above the input, with a Cancel button while a turn runs.
+- A lost connection shows a banner with the retry countdown and "Retry now". A rejected token (close `4003`) shows a sign-in form, then reconnects with the new token and keeps the thread.
+- shadcn/ui components live in `plugins/web/app/components/ui/` and are added with `bunx --bun shadcn@latest add <name>` run from `plugins/web/app/`, which holds `components.json` and a small `package.json` (name `@keith/web-app`, only the `#components/*`, `#lib/*`, `#hooks/*` import aliases the CLI needs). The CLI also installs the component's npm dependencies there: add them to `plugins/web/package.json` with `bun add` instead, and delete `app/node_modules` and `app/bun.lock` (both are gitignored).

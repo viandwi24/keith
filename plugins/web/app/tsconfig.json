@@ -1,0 +1,15 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "paths": {
+      "#components": ["./components"],
+      "#components/*": ["./components/*"],
+      "#lib": ["./lib"],
+      "#lib/*": ["./lib/*"],
+      "#hooks": ["./hooks"],
+      "#hooks/*": ["./hooks/*"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx"]
+}
