@@ -276,7 +276,8 @@ export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
       },
     }
   } catch (error) {
-    log.error('keith failed to start', { error: String(error) })
+    const cause = error instanceof Error && error.cause !== undefined ? String(error.cause) : undefined
+    log.error('keith failed to start', { error: String(error), ...(cause ? { cause } : {}) })
     await unwind(log)
     throw error
   }

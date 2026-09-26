@@ -24,9 +24,10 @@ export const MIGRATIONS_FOLDER = fileURLToPath(new URL('../../drizzle', import.m
 export function openDb(path: string): Db {
   const sqlite = new Database(path, { create: true, strict: true })
   try {
+    // First, so switching to WAL (which needs a lock) waits for another connection instead of failing.
+    sqlite.run('PRAGMA busy_timeout = 5000')
     sqlite.run('PRAGMA journal_mode = WAL')
     sqlite.run('PRAGMA foreign_keys = ON')
-    sqlite.run('PRAGMA busy_timeout = 5000')
     const orm = drizzle({ client: sqlite })
     migrate(orm, { migrationsFolder: MIGRATIONS_FOLDER })
     return {
