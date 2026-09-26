@@ -53,7 +53,10 @@ async function online(view: View) {
   await waitFor(() => {
     const badge = view.container.querySelector('[data-slot="connection"]')
     if (badge?.getAttribute('data-status') !== 'online') throw new Error('not online yet')
-    if (!view.container.querySelector('textarea')) throw new Error('no composer')
+    // The badge turns online at `welcome`; sending also needs `thread.opened`, which the composer
+    // shows by switching its placeholder.
+    const box = view.container.querySelector('textarea')
+    if (box?.getAttribute('placeholder') !== 'Message Keith') throw new Error('no thread yet')
   })
 }
 
