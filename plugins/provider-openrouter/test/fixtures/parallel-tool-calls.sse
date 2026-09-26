@@ -1,0 +1,17 @@
+: synthetic fixture, built by hand from https://openrouter.ai/docs/guides/features/tool-calling (2026-09-26); no live recording yet.
+: Re-record from the real API and scrub keys and ids (follow-up task in P1-D1 Outcome).
+
+data: {"id":"gen-fixture-1","provider":"ExampleProvider","model":"example/model","object":"chat.completion.chunk","created":1790000000,"choices":[{"index":0,"delta":{"role":"assistant","content":null,"tool_calls":[{"index":0,"id":"call_fixture_1","type":"function","function":{"name":"weather__current","arguments":"{\"city\": "}}]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-fixture-1","provider":"ExampleProvider","model":"example/model","object":"chat.completion.chunk","created":1790000000,"choices":[{"index":0,"delta":{"role":"assistant","content":null,"tool_calls":[{"index":0,"function":{"arguments":"\"Paris\"}"}}]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-fixture-1","provider":"ExampleProvider","model":"example/model","object":"chat.completion.chunk","created":1790000000,"choices":[{"index":0,"delta":{"role":"assistant","content":null,"tool_calls":[{"index":1,"id":"call_fixture_2","type":"function","function":{"name":"weather__current","arguments":""}}]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-fixture-1","provider":"ExampleProvider","model":"example/model","object":"chat.completion.chunk","created":1790000000,"choices":[{"index":0,"delta":{"role":"assistant","content":null,"tool_calls":[{"index":1,"function":{"arguments":"{\"city\": \"Rome\"}"}}]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-fixture-1","provider":"ExampleProvider","model":"example/model","object":"chat.completion.chunk","created":1790000000,"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":"tool_calls","native_finish_reason":"tool_calls","logprobs":null}]}
+
+data: {"id":"gen-fixture-1","provider":"ExampleProvider","model":"example/model","object":"chat.completion.chunk","created":1790000000,"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":"tool_calls","native_finish_reason":"tool_calls","logprobs":null}],"usage":{"prompt_tokens":80,"completion_tokens":40,"total_tokens":120,"cost":0.0001,"prompt_tokens_details":{"cached_tokens":0},"completion_tokens_details":{"reasoning_tokens":0}}}
+
+data: [DONE]
+

@@ -1,0 +1,15 @@
+: synthetic fixture, built by hand from https://api-docs.deepseek.com/guides/tool_calls (2026-09-26); no live recording yet.
+: Re-record from the real API and scrub keys and ids (follow-up task in P1-D1 Outcome).
+
+data: {"id":"fixture-0001","object":"chat.completion.chunk","created":1790000000,"model":"example-model","system_fingerprint":"fp_fixture","choices":[{"index":0,"delta":{"role":"assistant","content":null,"tool_calls":[{"index":0,"id":"call_fixture_1","type":"function","function":{"name":"clock__today","arguments":""}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"fixture-0001","object":"chat.completion.chunk","created":1790000000,"model":"example-model","system_fingerprint":"fp_fixture","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{}"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"fixture-0001","object":"chat.completion.chunk","created":1790000000,"model":"example-model","system_fingerprint":"fp_fixture","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"call_fixture_2","type":"function","function":{"name":"weather__current","arguments":""}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"fixture-0001","object":"chat.completion.chunk","created":1790000000,"model":"example-model","system_fingerprint":"fp_fixture","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"{\"location\": \"Paris\", \"date\": \"2026-09-26\"}"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"fixture-0001","object":"chat.completion.chunk","created":1790000000,"model":"example-model","system_fingerprint":"fp_fixture","choices":[{"index":0,"delta":{"content":""},"logprobs":null,"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":130,"completion_tokens":40,"total_tokens":170,"prompt_tokens_details":{"cached_tokens":0},"prompt_cache_hit_tokens":0,"prompt_cache_miss_tokens":130}}
+
+data: [DONE]
+

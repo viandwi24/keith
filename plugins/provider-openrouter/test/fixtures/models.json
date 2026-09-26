@@ -1,0 +1,64 @@
+{
+  "_fixture": "synthetic, built by hand from https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties (2026-09-26); re-record from the real API",
+  "status": 200,
+  "body": {
+    "data": [
+      {
+        "id": "example/tool-model",
+        "canonical_slug": "example/tool-model",
+        "name": "Example Tool Model",
+        "created": 1790000000,
+        "context_length": 128000,
+        "architecture": {
+          "modality": "text->text",
+          "input_modalities": ["text"],
+          "output_modalities": ["text"],
+          "tokenizer": "Other",
+          "instruct_type": null
+        },
+        "pricing": {
+          "prompt": "0.000001",
+          "completion": "0.000002",
+          "request": "0",
+          "image": "0"
+        },
+        "top_provider": {
+          "context_length": 128000,
+          "max_completion_tokens": 16384,
+          "is_moderated": false
+        },
+        "per_request_limits": null,
+        "supported_parameters": ["tools", "tool_choice", "temperature", "max_tokens", "reasoning"],
+        "default_parameters": null
+      },
+      {
+        "id": "example/plain-model",
+        "canonical_slug": "example/plain-model",
+        "name": "Example Plain Model",
+        "created": 1790000000,
+        "context_length": 8192,
+        "architecture": {
+          "modality": "text->text",
+          "input_modalities": ["text"],
+          "output_modalities": ["text"],
+          "tokenizer": "Other",
+          "instruct_type": null
+        },
+        "pricing": {
+          "prompt": "0",
+          "completion": "0",
+          "request": "0",
+          "image": "0"
+        },
+        "top_provider": {
+          "context_length": 8192,
+          "max_completion_tokens": 4096,
+          "is_moderated": false
+        },
+        "per_request_limits": null,
+        "supported_parameters": ["temperature", "max_tokens"],
+        "default_parameters": null
+      }
+    ]
+  }
+}

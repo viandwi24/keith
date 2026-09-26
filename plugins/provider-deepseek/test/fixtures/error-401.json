@@ -1,0 +1,12 @@
+{
+  "_fixture": "synthetic, built by hand from https://api-docs.deepseek.com/quick_start/error_codes (2026-09-26); re-record from the real API",
+  "status": 401,
+  "body": {
+    "error": {
+      "message": "Authentication Fails, Your api key: ****XXXX is invalid",
+      "type": "authentication_error",
+      "param": null,
+      "code": "invalid_request_error"
+    }
+  }
+}

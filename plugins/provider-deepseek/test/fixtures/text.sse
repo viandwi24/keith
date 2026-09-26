@@ -1,0 +1,27 @@
+: synthetic fixture, built by hand from https://api-docs.deepseek.com/api/create-chat-completion (2026-09-26); no live recording yet.
+: Re-record from the real API and scrub keys and ids (follow-up task in P1-D1 Outcome).
+
+data: {"id":"fixture-0001","object":"chat.completion.chunk","created":1790000000,"model":"example-model","system_fingerprint":"fp_fixture","choices":[{"index":0,"delta":{"content":"","role":"assistant"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"fixture-0001","object":"chat.completion.chunk","created":1790000000,"model":"example-model","system_fingerprint":"fp_fixture","choices":[{"index":0,"delta":{"content":"Hello","role":"assistant"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"fixture-0001","object":"chat.completion.chunk","created":1790000000,"model":"example-model","system_fingerprint":"fp_fixture","choices":[{"index":0,"delta":{"content":"!","role":"assistant"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"fixture-0001","object":"chat.completion.chunk","created":1790000000,"model":"example-model","system_fingerprint":"fp_fixture","choices":[{"index":0,"delta":{"content":" How","role":"assistant"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"fixture-0001","object":"chat.completion.chunk","created":1790000000,"model":"example-model","system_fingerprint":"fp_fixture","choices":[{"index":0,"delta":{"content":" can","role":"assistant"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"fixture-0001","object":"chat.completion.chunk","created":1790000000,"model":"example-model","system_fingerprint":"fp_fixture","choices":[{"index":0,"delta":{"content":" I","role":"assistant"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"fixture-0001","object":"chat.completion.chunk","created":1790000000,"model":"example-model","system_fingerprint":"fp_fixture","choices":[{"index":0,"delta":{"content":" assist","role":"assistant"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"fixture-0001","object":"chat.completion.chunk","created":1790000000,"model":"example-model","system_fingerprint":"fp_fixture","choices":[{"index":0,"delta":{"content":" you","role":"assistant"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"fixture-0001","object":"chat.completion.chunk","created":1790000000,"model":"example-model","system_fingerprint":"fp_fixture","choices":[{"index":0,"delta":{"content":" today","role":"assistant"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"fixture-0001","object":"chat.completion.chunk","created":1790000000,"model":"example-model","system_fingerprint":"fp_fixture","choices":[{"index":0,"delta":{"content":"?","role":"assistant"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"fixture-0001","object":"chat.completion.chunk","created":1790000000,"model":"example-model","system_fingerprint":"fp_fixture","choices":[{"index":0,"delta":{"content":"","role":null},"logprobs":null,"finish_reason":"stop"}],"usage":{"prompt_tokens":17,"completion_tokens":9,"total_tokens":26,"prompt_tokens_details":{"cached_tokens":0},"prompt_cache_hit_tokens":0,"prompt_cache_miss_tokens":17}}
+
+data: [DONE]
+

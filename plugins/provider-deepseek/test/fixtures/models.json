@@ -1,0 +1,47 @@
+{
+  "_fixture": "synthetic, built by hand from https://api-docs.deepseek.com/api/list-models (2026-09-26); re-record from the real API",
+  "status": 200,
+  "body": {
+    "object": "list",
+    "data": [
+      {
+        "id": "example-flash",
+        "object": "model",
+        "owned_by": "deepseek",
+        "name": "Example Flash",
+        "context_window": 1048576,
+        "max_output_tokens": 393216,
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["text"],
+        "effort": {
+          "supported_levels": ["low", "high", "max"],
+          "default_level": "high"
+        },
+        "api_capabilities": {
+          "anthropic_messages": {
+            "system_prompt_update": "in-history"
+          }
+        }
+      },
+      {
+        "id": "example-pro",
+        "object": "model",
+        "owned_by": "deepseek",
+        "name": "Example Pro",
+        "context_window": 1048576,
+        "max_output_tokens": 393216,
+        "input_modalities": ["text"],
+        "output_modalities": ["text"],
+        "effort": {
+          "supported_levels": ["low", "high", "max"],
+          "default_level": "high"
+        },
+        "api_capabilities": {
+          "anthropic_messages": {
+            "system_prompt_update": "leading-only"
+          }
+        }
+      }
+    ]
+  }
+}
