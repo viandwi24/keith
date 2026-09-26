@@ -4,8 +4,8 @@ title: "@keith/web browser app: React + Tailwind + shadcn/ui"
 phase: 2
 wave: 3
 lane: C
-status: todo
-owner: null
+status: in-progress
+owner: agent-P2-C1
 depends: [P2-A1, P2-B1, P2-D1]
 owns:
   - plugins/web/app/**
