@@ -4,7 +4,7 @@ title: Plugin host, registries, event bus, config
 phase: 1
 wave: 1
 lane: A
-status: review
+status: done
 owner: agent-P1-A1
 depends: [P0-04]
 owns:
