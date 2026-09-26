@@ -70,6 +70,15 @@
         "zod": "^4.6.5",
       },
     },
+    "plugins/tool-weather": {
+      "name": "@keith/tool-weather",
+      "version": "0.0.0",
+      "dependencies": {
+        "@keith/protocol": "workspace:*",
+        "@keith/sdk": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "plugins/web": {
       "name": "@keith/web",
       "version": "0.0.0",
@@ -164,6 +173,8 @@
     "@keith/provider-openrouter": ["@keith/provider-openrouter@workspace:plugins/provider-openrouter"],
 
     "@keith/sdk": ["@keith/sdk@workspace:packages/sdk"],
+
+    "@keith/tool-weather": ["@keith/tool-weather@workspace:plugins/tool-weather"],
 
     "@keith/tui": ["@keith/tui@workspace:apps/tui"],
 
