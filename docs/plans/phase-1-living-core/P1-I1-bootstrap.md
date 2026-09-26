@@ -4,7 +4,7 @@ title: Bootstrap and CLI (keith setup, keith start, keith migrate)
 phase: 1
 wave: 2
 lane: I
-status: review
+status: done
 owner: agent-P1-I1
 depends: [P1-A1, P1-B1, P1-C1, P1-D1, P1-E1, P1-F1, P1-G1, P1-M1]
 owns:
