@@ -4,8 +4,8 @@ title: Implement @keith/sdk contracts and testing kit
 phase: 0
 wave: 3
 lane: K
-status: todo
-owner: null
+status: done
+owner: claude
 depends: [P0-02]
 owns:
   - packages/sdk/**
@@ -50,12 +50,35 @@ Everything a plugin author and a core lane need to build against, without any co
 
 ## Acceptance criteria
 
-- [ ] A sample plugin in `packages/sdk/test/fixtures/` using every registry type-checks.
-- [ ] `defineTool` rejects invalid names (`TOOL_NAME_INVALID`).
-- [ ] Fake LLM: aborting mid-stream throws `ProviderError('aborted')`.
-- [ ] The package depends only on `@keith/protocol` and `zod`.
-- [ ] `bun run check` passes.
+- [x] A sample plugin in `packages/sdk/test/fixtures/` using every registry type-checks.
+- [x] `defineTool` rejects invalid names (`TOOL_NAME_INVALID`).
+- [x] Fake LLM: aborting mid-stream throws `ProviderError('aborted')`.
+- [x] The package depends only on `@keith/protocol` and `zod`.
+- [x] `bun run check` passes.
 
 ## Outcome
 
-_To be filled._
+**Built** (`@keith/sdk`, depends only on `@keith/protocol` and `zod@^4.6.5`)
+
+- `src/plugin.ts`: `definePlugin` (identity, infers `ctx.config` from the schema's output type), `PluginDefinition`, `AnyPluginDefinition`, `PluginKind`, `PluginContext`, `ServiceMap` (augmentation point), `ServiceRegistry`, `ProviderRegistries`, `HttpRegistry`, `WsRegistry`, `DeliverySink`, `PluginDataStore`, plus the shared constants `PLUGIN_KINDS`, `KIND_REGISTRIES`, `PLUGIN_NAMESPACE_PATTERN`, `RESERVED_NAMESPACES`.
+- `src/tools.ts`: `defineTool` (validates the name at definition time, `TOOL_NAME_INVALID`), `ToolDefinition`, `Tool`, `ToolRunContext`, `ToolResult`, `ToolAction`, `ToolRegistry`, `TOOL_NAME_PATTERN`, `DEFAULT_TOOL_TIMEOUT_MS`. `src/skills.ts` (`defineSkill`, `loadSkillInstructions`), `src/agents.ts` (`defineAgent`, `GENERAL_AGENT_ID`).
+- `src/events.ts`: `CoreEventMap` for every phase-1 event, `EventMap` (augmentation point), `EventBus`, `KeithEvent`, `CORE_EVENT_NAMES` (with a compile-time completeness check), `CORE_EVENT_NAMESPACES`, `EVENT_NAME_PATTERN`.
+- `src/providers/types.ts`: `LlmProvider`, `LlmRequest`, `LlmMessage`, `LlmEvent`, `LlmToolSpec`, `LlmToolCall`, `JsonSchema`, `ProviderError` (with default `retryable` per code) and the voice/realtime interfaces.
+- `src/errors.ts`: `KeithError(code, message, { cause, details })`, `KEITH_ERROR_CODES`, `isKeithError`.
+- `src/common.ts`: `Logger`, `Clock`, `ModelRole`, `Urgency`, `Visibility`, `DeliveryKind`, `TurnKind` (one definition that the core re-exports).
+- `@keith/sdk/testing` (subpath export): `createFakeLlm` (scripted turns or request functions, delays, abort → `ProviderError('aborted')`, request recording, `fallback`, `push`), `fakeText` / `fakeToolCall` / `fakeDelay`, `createFakeLlmPlugin`, `createFakePluginContext` (in-memory registries that enforce kind, service, tool-name and namespace rules and record everything), `setupFakePlugin`, `createFakeClock`, `createMemoryLogger`.
+- Tests (100): fake LLM (text, tool calls, finish handling, delays, concurrency, abort mid-stream and during a delay, recording, exhaustion), `defineTool` name table, `KeithError`/`ProviderError`, the fake context, and a sample plugin (`test/fixtures/sample-plugin.ts`) that uses every registry, augments `ServiceMap` and `EventMap`, and is loaded end to end. Type tests (`@ts-expect-error`) prove `ctx.config` inference. Doc-sync tests check `KEITH_ERROR_CODES` against plugin-api.md, provider error codes against providers.md, and `CORE_EVENT_NAMES` against events.md.
+
+**Contract clarifications made in the docs**
+
+- `plugin-api.md`: which `PluginDefinition` fields are optional; `ctx.config` is the zod output type; kind violations throw synchronously; `minTier` is required and `requires`/`timeoutMs` have defaults (`[]`, 30 000 ms); `onAction` signature and `ToolAction`; `ToolRunContext` ids are typed; `defineTool` validates the pattern and registration checks the prefix; `KeithError` takes optional `details`; a new "Testing kit" section.
+- `providers.md`: the `ProviderError` constructor and default `retryable`; `JsonSchema`; the phase-3 placeholder types.
+- `events.md`: typed ids in payloads, the meaning of `error`/`code`/`kind` fields, and the code names.
+
+**Deviations and notes**
+
+- Added `src/common.ts` (not in the task list) for `Logger`, `Clock` and the small domain enums, so `plugin.ts`, `events.ts` and the core share one definition.
+- Added test helpers beyond the list (`createFakeLlmPlugin`, `setupFakePlugin`, `createFakeClock`, `createMemoryLogger`) because P1-D1, P1-I1 and P1-I2 name exactly these needs (loading a plugin against a fake context, booting the core with a fake LLM plugin, a fake clock).
+- `Clock` stays `{ now(): number }` as the contract says. Timer-based behavior (stall watchdog, arrival hold, ticks) is tested with Bun's `jest.useFakeTimers()`, which Bun 1.3 supports.
+- Bun 1.3 installs workspaces with the isolated linker, so a package cannot import itself by name. The sample plugin therefore augments `'../../src/index.ts'`; plugins that depend on `@keith/sdk` write `declare module '@keith/sdk'` (the same module).
+

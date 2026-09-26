@@ -4,9 +4,11 @@
   "type": "module",
   "private": true,
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/index.ts"
   },
   "dependencies": {
-    "@keith/protocol": "workspace:*"
+    "@keith/protocol": "workspace:*",
+    "zod": "^4.6.5"
   }
 }

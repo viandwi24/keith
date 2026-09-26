@@ -37,6 +37,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@keith/protocol": "workspace:*",
+        "zod": "^4.6.5",
       },
     },
     "plugins/provider-deepseek": {

@@ -37,14 +37,17 @@ type LlmEvent =
       usage?: { inputTokens: number; outputTokens: number; cachedInputTokens?: number } }
 
 interface LlmModelInfo { id: string; contextWindow?: number; supportsTools?: boolean }
+type JsonSchema = { [key: string]: unknown }
 ```
+
+In code, optional fields are typed `field?: T | undefined` so producers can pass through possibly-undefined values under `exactOptionalPropertyTypes`.
 
 ### Adapter obligations
 
 1. Exactly one `finish` event, always last.
 2. Tool-call arguments are assembled across stream chunks, JSON-parsed, and emitted as a single `tool.call`. Unparseable args produce `tool.call` with `args: { __raw: string }`, and the core returns a validation error to the model.
 3. Abort: when `signal` aborts, stop reading, close the HTTP request, and end the iterator by throwing `ProviderError('aborted')`.
-4. Errors are thrown as `ProviderError` with `code: 'auth' | 'rate_limited' | 'bad_request' | 'unavailable' | 'timeout' | 'aborted' | 'unknown'` and `retryable: boolean`.
+4. Errors are thrown as `ProviderError` with `code: 'auth' | 'rate_limited' | 'bad_request' | 'unavailable' | 'timeout' | 'aborted' | 'unknown'` and `retryable: boolean`. Constructor: `new ProviderError(code, message = code, { retryable?, status?, cause? })`. `retryable` defaults to true for `rate_limited`, `unavailable` and `timeout`, false otherwise. `status` is the vendor's HTTP status when there was one.
 5. No retries inside the adapter. The core decides.
 6. No logging of request bodies above `debug`, and never of API keys.
 
@@ -99,4 +102,4 @@ interface RealtimeSession {
 }
 ```
 
-`AudioChunk`, `AudioInput`, `SttOptions`, `TtsOptions`, `RealtimeOptions` and `RealtimeEvent` are finalized by the phase-3 contract task (additive). The shapes above are fixed.
+`AudioChunk`, `AudioInput`, `SttOptions`, `TtsOptions`, `RealtimeOptions` and `RealtimeEvent` are finalized by the phase-3 contract task (additive). The shapes above are fixed. Until then the SDK exports them as open object types (`AudioChunk` has at least `data: Uint8Array`, `RealtimeEvent` at least `type: string`).
