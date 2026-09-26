@@ -15,6 +15,7 @@ One decision per file. Accepted ADRs are never edited except for their status li
 | [0007](0007-adapters-only-with-two-implementations.md) | Adapters only where a second implementation exists | accepted |
 | [0008](0008-first-llm-providers.md) | First LLM providers: OpenRouter and DeepSeek | accepted |
 | [0009](0009-rust-only-out-of-process.md) | Rust only for out-of-process nodes | accepted |
+| [0010](0010-tui-framework.md) | OpenTUI (core API, no React) for the TUI node | accepted |
 
 ## Writing an ADR
 

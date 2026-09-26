@@ -4,7 +4,7 @@ title: TUI node
 phase: 1
 wave: 1
 lane: F
-status: review
+status: done
 owner: agent-P1-F1
 depends: [P0-04]
 owns:

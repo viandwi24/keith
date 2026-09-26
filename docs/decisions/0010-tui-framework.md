@@ -1,6 +1,6 @@
 # ADR-0010: OpenTUI (core API, no React) for the TUI node
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-09-26
 - **Rules/invariants affected:** R-6, R-19 (one component system per client), I-11
 
