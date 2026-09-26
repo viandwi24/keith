@@ -1,5 +1,4 @@
-import type { TurnState } from '@keith/protocol'
-import type { ChatState, ConnectionStatus, Entry } from './state.ts'
+import { type ChatState, connectionLabel, type Entry, turnLabel } from '@keith/client'
 
 /**
  * Pure presentation: turns the state into styled lines. The terminal renderer (`ui.ts`) only maps
@@ -23,32 +22,6 @@ export type EntryView = { key: string; segments: Segment[] }
 export const PROACTIVE_PREFIX = 'Keith ▸ '
 export const ASSISTANT_PREFIX = 'Keith  '
 export const USER_PREFIX = 'You    '
-
-const TURN_LABELS: Record<TurnState, string> = {
-  idle: '',
-  listening: 'listening…',
-  thinking: 'thinking…',
-  speaking: 'speaking',
-}
-
-export function turnLabel(state: TurnState): string {
-  return TURN_LABELS[state]
-}
-
-export function connectionLabel(status: ConnectionStatus): string {
-  switch (status.kind) {
-    case 'connecting':
-      return 'connecting…'
-    case 'online':
-      return 'online'
-    case 'reconnecting':
-      return `offline, reconnecting in ${Math.ceil(status.inMs / 1000)}s (attempt ${status.attempt})`
-    case 'auth-required':
-      return 'signed out: the token was rejected'
-    case 'closed':
-      return `closed: ${status.reason}`
-  }
-}
 
 /** The one-line status bar: who, which thread, connection and turn state. */
 export function statusLine(state: ChatState): string {
@@ -87,6 +60,9 @@ export function entryView(entry: Entry): EntryView {
       const style: LineStyle = entry.status === 'failed' ? 'tool-failed' : 'tool'
       return { key: entry.key, segments: [{ text: `  ⚙ ${entry.name} ${mark}${summary}`, style }] }
     }
+    case 'ui':
+      // The TUI does not declare `ui.render@1`, but shows a block's fallback text if one arrives.
+      return { key: entry.key, segments: [{ text: entry.fallbackText, style: 'assistant' }] }
     case 'notice': {
       const label = entry.level === 'info' ? 'ℹ ' : entry.level === 'warn' ? '⚠ ' : '✗ '
       return { key: entry.key, segments: [{ text: `${label}${entry.text}`, style: entry.level }] }

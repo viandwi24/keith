@@ -1,9 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import { createChatClient, login } from '@keith/client'
+import { type FakeCoreOptions, startFakeCore, waitUntil } from '@keith/client/testing'
 import { createTestRenderer, type TestRendererSetup } from '@opentui/core/testing'
-import { type FakeCoreOptions, startFakeCore } from '../test/fake-core.ts'
-import { waitUntil } from '../test/helpers.ts'
-import { login } from './api.ts'
-import { createChatClient } from './client.ts'
 import { promptLogin } from './login-screen.ts'
 import { mountChat } from './ui.ts'
 

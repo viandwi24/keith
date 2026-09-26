@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import { type CoreFrame, type FrameData, type MessageDto, makeFrame, type ThreadDto } from '@keith/protocol'
-import { applyFrame, applyLocal, type ChatState, initialState, type MessageEntry } from './state.ts'
+import {
+  applyFrame,
+  applyLocal,
+  type ChatState,
+  initialState,
+  type MessageEntry,
+  oldestMessageId,
+} from './state.ts'
 
 const threadId = 'thr_01J8ZQ3K4M5N6P7Q8R9S0T1V31'
 const otherThread = 'thr_01J8ZQ3K4M5N6P7Q8R9S0T1V99'
@@ -169,5 +176,78 @@ describe('state reducer', () => {
       frame('message.user', { message: message({ role: 'user', content: 'from phone' }) }),
     )
     expect(state.entries).toMatchObject([{ role: 'user', text: 'from phone' }])
+  })
+})
+
+describe('ui.render blocks', () => {
+  const card = { type: 'card', id: 'weather', title: 'Paris', body: '22°C' } as const
+  const markdown = { type: 'markdown', id: 'note', text: '**done**' } as const
+
+  test('attach to their message, one per block id, replaced in place', () => {
+    const state = apply(
+      opened(),
+      frame('message.started', { threadId, messageId, proactive: false }),
+      frame('ui.render', { threadId, messageId, block: card, fallbackText: 'Paris 22°C' }),
+      frame('ui.render', { threadId, messageId, block: markdown, fallbackText: 'done' }),
+      frame('ui.render', {
+        threadId,
+        messageId,
+        block: { ...card, body: '23°C' },
+        fallbackText: 'Paris 23°C',
+      }),
+    )
+    const entry = state.entries[0] as MessageEntry
+    expect(state.entries).toHaveLength(1)
+    expect(entry.ui).toEqual([
+      { block: { ...card, body: '23°C' }, fallbackText: 'Paris 23°C' },
+      { block: markdown, fallbackText: 'done' },
+    ])
+  })
+
+  test('survive message.completed without ui, and come from the DTO when it has them', () => {
+    const streamed = apply(
+      opened(),
+      frame('message.started', { threadId, messageId, proactive: false }),
+      frame('ui.render', { threadId, messageId, block: card, fallbackText: 'Paris 22°C' }),
+    )
+    const kept = apply(streamed, frame('message.completed', { message: message() }))
+    expect((kept.entries[0] as MessageEntry).ui).toEqual([{ block: card, fallbackText: 'Paris 22°C' }])
+    const fromDto = apply(streamed, frame('message.completed', { message: message({ ui: [markdown] }) }))
+    expect((fromDto.entries[0] as MessageEntry).ui).toEqual([{ block: markdown, fallbackText: '**done**' }])
+  })
+
+  test('history messages carry their blocks with derived fallback text', () => {
+    const state = opened([message({ ui: [card] })])
+    expect((state.entries[0] as MessageEntry).ui).toEqual([{ block: card, fallbackText: 'Paris\n22°C' }])
+  })
+
+  test('a block before message.started opens the message; one without messageId floats', () => {
+    const state = apply(
+      opened(),
+      frame('ui.render', { threadId, messageId, block: card, fallbackText: 'Paris' }),
+      frame('message.started', { threadId, messageId, proactive: true }),
+      frame('ui.render', { threadId, block: markdown, fallbackText: 'done' }),
+      frame('ui.render', { threadId: otherThread, block: markdown, fallbackText: 'done' }),
+    )
+    expect(state.entries).toMatchObject([
+      { kind: 'message', id: messageId, proactive: true, streaming: true, ui: [{ block: card }] },
+      { kind: 'ui', block: markdown, fallbackText: 'done' },
+    ])
+  })
+})
+
+describe('history paging', () => {
+  test('an older page is prepended once, and the cursor is the oldest core message', () => {
+    const older = message({ id: 'msg_01J8ZQ3K4M5N6P7Q8R9S0T1V20', content: 'older' })
+    const state = applyLocal(opened([message()]), { type: 'sent', text: 'local' })
+    expect(oldestMessageId(state)).toBe(messageId)
+    const paged = applyLocal(state, { type: 'history.page', messages: [older, message()], hasMore: false })
+    expect(paged.entries.map((e) => (e.kind === 'message' ? e.text : e.kind))).toEqual([
+      'older',
+      'Hello sir.',
+      'local',
+    ])
+    expect(paged.history).toEqual({ hasMore: false, loading: false })
+    expect(oldestMessageId(paged)).toBe(older.id)
   })
 })

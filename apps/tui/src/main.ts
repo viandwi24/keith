@@ -1,8 +1,14 @@
+import {
+  type Auth,
+  ClientError,
+  createAuth,
+  createChatClient,
+  normalizeBaseUrl,
+  type StoredSession,
+} from '@keith/client'
 import { DEFAULT_PORT } from '@keith/protocol'
 import { type CliRenderer, createCliRenderer } from '@opentui/core'
-import { login, normalizeBaseUrl } from './api.ts'
-import { createChatClient } from './client.ts'
-import { type Env, loadSession, type StoredSession, saveSession, sessionFilePath } from './config.ts'
+import { type Env, fileSessionStore, sessionFilePath } from './config.ts'
 import { TuiError } from './errors.ts'
 import { promptLogin } from './login-screen.ts'
 import { mountChat } from './ui.ts'
@@ -47,24 +53,32 @@ export async function main(argv: readonly string[], env: Env): Promise<number> {
     return 0
   }
 
-  const path = sessionFilePath(env)
-  const stored = await loadSession(path)
-  const baseUrl = normalizeBaseUrl(args.url ?? stored?.url ?? `http://127.0.0.1:${DEFAULT_PORT}`)
-  const sameServer = stored?.url === baseUrl ? stored : null
+  const store = fileSessionStore(sessionFilePath(env))
+  const stored = await store.load()
+  let baseUrl: string
+  try {
+    baseUrl = normalizeBaseUrl(args.url ?? stored?.url ?? `http://127.0.0.1:${DEFAULT_PORT}`)
+  } catch (error) {
+    if (!(error instanceof ClientError)) throw error
+    console.error(error.message)
+    return 2
+  }
+  // The stored session is reused only for the same core and while it has not expired.
+  const auth = createAuth({ baseUrl, store })
 
   const renderer = await createCliRenderer({ exitOnCtrlC: false })
   try {
-    let session: StoredSession | null = sameServer && sameServer.expiresAt > Date.now() ? sameServer : null
-    let nodeId = sameServer?.nodeId
+    let session = await auth.restore()
     let message: string | undefined
     for (;;) {
       if (!session) {
-        session = await signIn(renderer, { baseUrl, path, nodeId, message, username: undefined })
+        session = await signIn(renderer, auth, message)
         if (!session) return 0
       }
-      const outcome = await runChat(renderer, session, path)
+      const outcome = await runChat(renderer, session, auth)
       if (outcome === 'quit') return 0
-      nodeId = session.nodeId
+      // Keeps the node id for the next login.
+      await auth.expire()
       session = null
       message = 'Your session was rejected by the core. Sign in again.'
     }
@@ -75,32 +89,18 @@ export async function main(argv: readonly string[], env: Env): Promise<number> {
 
 async function signIn(
   renderer: CliRenderer,
-  opts: {
-    baseUrl: string
-    path: string
-    nodeId: StoredSession['nodeId']
-    message: string | undefined
-    username: string | undefined
-  },
+  auth: Auth,
+  firstMessage: string | undefined,
 ): Promise<StoredSession | null> {
-  let message = opts.message
-  let username = opts.username
+  let message = firstMessage
+  let username: string | undefined
   for (;;) {
-    const creds = await promptLogin(renderer, { url: opts.baseUrl, username, message })
+    const creds = await promptLogin(renderer, { url: auth.baseUrl, username, message })
     if (!creds) return null
     try {
-      const res = await login(opts.baseUrl, creds)
-      const session: StoredSession = {
-        url: opts.baseUrl,
-        token: res.token,
-        person: res.person,
-        expiresAt: res.expiresAt,
-        ...(opts.nodeId ? { nodeId: opts.nodeId } : {}),
-      }
-      await saveSession(opts.path, session)
-      return session
+      return await auth.login(creds)
     } catch (error) {
-      if (!(error instanceof TuiError)) throw error
+      if (!(error instanceof ClientError)) throw error
       message = error.message
       username = creds.username
     }
@@ -110,10 +110,9 @@ async function signIn(
 function runChat(
   renderer: CliRenderer,
   session: StoredSession,
-  path: string,
+  auth: Auth,
 ): Promise<'quit' | 'auth-required'> {
   return new Promise((resolve) => {
-    let current = session
     let done = false
     const finish = (outcome: 'quit' | 'auth-required') => {
       if (done) return
@@ -136,8 +135,7 @@ function runChat(
         screen.update(state)
       },
       onNodeId: (nodeId) => {
-        current = { ...current, nodeId }
-        saveSession(path, current).catch((error: unknown) => {
+        auth.rememberNodeId(nodeId).catch((error: unknown) => {
           console.error('cannot save the node id', error)
         })
       },

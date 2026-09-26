@@ -17,9 +17,16 @@
         "keith-tui": "./src/index.ts",
       },
       "dependencies": {
+        "@keith/client": "workspace:*",
         "@keith/protocol": "workspace:*",
         "@opentui/core": "^0.5.12",
-        "zod": "^4.6.5",
+      },
+    },
+    "packages/client": {
+      "name": "@keith/client",
+      "version": "0.0.0",
+      "dependencies": {
+        "@keith/protocol": "workspace:*",
       },
     },
     "packages/core": {
@@ -163,6 +170,8 @@
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.25.12", "", { "os": "win32", "cpu": "x64" }, "sha512-alJC0uCZpTFrSL0CCDjcgleBXPnCrEAhTBILpeAp7M/OFgoqtAetfBzX0xM00MUsVVPpVjlPuMbREqnZCXaTnA=="],
 
     "@js-temporal/polyfill": ["@js-temporal/polyfill@0.5.1", "", { "dependencies": { "jsbi": "^4.3.0" } }, "sha512-hloP58zRVCRSpgDxmqCWJNlizAlUgJFqG2ypq79DCvyv9tHjRYMDOcPFjzfl/A1/YxDvRCZz8wvZvmapQnKwFQ=="],
+
+    "@keith/client": ["@keith/client@workspace:packages/client"],
 
     "@keith/core": ["@keith/core@workspace:packages/core"],
 

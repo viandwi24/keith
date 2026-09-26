@@ -1,3 +1,4 @@
+import type { ChatState, SendResult } from '@keith/client'
 import {
   BoxRenderable,
   bold,
@@ -11,8 +12,6 @@ import {
   type TextChunk,
   TextRenderable,
 } from '@opentui/core'
-import type { SendResult } from './client.ts'
-import type { ChatState } from './state.ts'
 import { entryView, type Segment, statusLine } from './view.ts'
 
 /**

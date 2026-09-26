@@ -1,23 +1,16 @@
-import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { NodeId, PersonDto } from '@keith/protocol'
-import { z } from 'zod'
+import { parseStoredSession, type SessionStore, type StoredSession } from '@keith/client'
 import { TuiError } from './errors.ts'
 
 /**
- * What the TUI remembers between runs, in `$XDG_CONFIG_HOME/keith/tui.json` (mode 600).
- * The token is a secret: the file is never world or group readable.
+ * What the TUI remembers between runs, in `$XDG_CONFIG_HOME/keith/tui.json` (mode 600): the
+ * `StoredSession` of `@keith/client` (url, token, person, expiry, nodeId). The token is a secret:
+ * the file is never world or group readable.
  */
-export const StoredSession = z.object({
-  url: z.string().min(1),
-  token: z.string().min(1),
-  person: PersonDto,
-  expiresAt: z.number().int().nonnegative(),
-  /** Issued by the core on the first `welcome` and sent back in later `hello`s. */
-  nodeId: NodeId.optional(),
-})
-export type StoredSession = z.infer<typeof StoredSession>
+
+export type { StoredSession }
 
 export type Env = Readonly<Record<string, string | undefined>>
 
@@ -37,15 +30,12 @@ export async function loadSession(path: string): Promise<StoredSession | null> {
     if (isNotFound(error)) return null
     throw new TuiError('CONFIG_INVALID', `cannot read ${path}`, { cause: error })
   }
-  let json: unknown
   try {
-    json = JSON.parse(text)
+    return parseStoredSession(JSON.parse(text))
   } catch {
     // A corrupt file is treated as "not signed in"; the next login overwrites it.
     return null
   }
-  const parsed = StoredSession.safeParse(json)
-  return parsed.success ? parsed.data : null
 }
 
 /** Writes the session atomically with file mode 600 (the directory gets 700). */
@@ -57,6 +47,15 @@ export async function saveSession(path: string, session: StoredSession): Promise
   // `mode` is filtered by the umask; chmod makes 600 exact.
   await chmod(tmp, 0o600)
   await rename(tmp, path)
+}
+
+/** The session file as a `@keith/client` `SessionStore`. */
+export function fileSessionStore(path: string): SessionStore {
+  return {
+    load: () => loadSession(path),
+    save: (session) => saveSession(path, session),
+    clear: () => rm(path, { force: true }),
+  }
 }
 
 function isNotFound(error: unknown): boolean {

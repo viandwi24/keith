@@ -1,11 +1,8 @@
-/** Error codes of the TUI. The TUI can't import the core's `KeithError` (R-1), so it has its own. */
-export type TuiErrorCode =
-  | 'LOGIN_FAILED'
-  | 'NETWORK'
-  | 'INVALID_RESPONSE'
-  | 'CONFIG_INVALID'
-  | 'INVALID_ARGS'
-  | 'ABORTED'
+/**
+ * Error codes of the TUI itself (arguments, the session file). Protocol and HTTP errors are
+ * `ClientError`s from `@keith/client`. The TUI can't import the core's `KeithError` (R-1).
+ */
+export type TuiErrorCode = 'CONFIG_INVALID' | 'INVALID_ARGS'
 
 export class TuiError extends Error {
   readonly code: TuiErrorCode

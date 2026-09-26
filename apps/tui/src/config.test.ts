@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tempConfigHome } from '../test/helpers.ts'
-import { loadSession, type StoredSession, saveSession, sessionFilePath } from './config.ts'
+import { fileSessionStore, loadSession, type StoredSession, saveSession, sessionFilePath } from './config.ts'
 
 const session: StoredSession = {
   url: 'http://127.0.0.1:4824',
@@ -55,5 +55,24 @@ describe('session file', () => {
     expect(await loadSession(path)).toBeNull()
     await writeFile(path, JSON.stringify({ token: 'x' }))
     expect(await loadSession(path)).toBeNull()
+  })
+})
+
+describe('fileSessionStore', () => {
+  test('saves, loads and clears the session file', async () => {
+    const home = await tempConfigHome()
+    try {
+      const path = sessionFilePath({ XDG_CONFIG_HOME: home.dir })
+      const store = fileSessionStore(path)
+      expect(await store.load()).toBeNull()
+      await store.save(session)
+      expect((await stat(path)).mode & 0o777).toBe(0o600)
+      expect(await store.load()).toEqual(session)
+      await store.clear()
+      expect(await store.load()).toBeNull()
+      await store.clear()
+    } finally {
+      await home.cleanup()
+    }
   })
 })

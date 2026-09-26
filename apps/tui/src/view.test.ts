@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { initialState, type MessageEntry } from './state.ts'
-import { entryText, entryView, PROACTIVE_PREFIX, statusLine, turnLabel } from './view.ts'
+import { initialState, type MessageEntry } from '@keith/client'
+import { entryText, entryView, PROACTIVE_PREFIX, statusLine } from './view.ts'
 
 const assistant: MessageEntry = {
   kind: 'message',
@@ -12,15 +12,10 @@ const assistant: MessageEntry = {
   streaming: false,
   cancelled: false,
   local: false,
+  ui: [],
 }
 
 describe('view', () => {
-  test('turn state labels', () => {
-    expect(turnLabel('thinking')).toBe('thinking…')
-    expect(turnLabel('speaking')).toBe('speaking')
-    expect(turnLabel('idle')).toBe('')
-  })
-
   test('status line shows person, thread, connection and turn', () => {
     const state = {
       ...initialState(),
@@ -55,5 +50,10 @@ describe('view', () => {
       summary: 'timeout',
     })
     expect(view.segments).toEqual([{ text: '  ⚙ web.search ✗ timeout', style: 'tool-failed' }])
+  })
+
+  test('a floating UI block shows its fallback text', () => {
+    const block = { type: 'markdown', id: 'n', text: 'Rain at 4pm' } as const
+    expect(entryText({ kind: 'ui', key: 'ui:1', block, fallbackText: 'Rain at 4pm' })).toBe('Rain at 4pm')
   })
 })
