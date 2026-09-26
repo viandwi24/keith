@@ -57,6 +57,10 @@ export type E2eConfig = {
   briefing?: 'auto' | 'on-greeting' | 'off'
   holdMs?: number
   graceMs?: number
+  /** Plugin packages to load by name (dynamic `import()`, as `keith start` does). */
+  enabled?: string[]
+  /** Extra TOML appended to the config (e.g. `[plugins."@keith/web"]` sections). */
+  extra?: string
 }
 
 /**
@@ -84,10 +88,10 @@ graceMs = ${c.graceMs ?? 50}
 tickMs = 3600000
 
 [plugins]
-enabled  = []
+enabled  = ${JSON.stringify(c.enabled ?? [])}
 required = []
 stopTimeoutMs = 500
-`
+${c.extra ?? ''}`
 }
 
 export type E2eHome = { dir: string; remove(): void }

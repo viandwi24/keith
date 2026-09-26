@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { initialState, type MessageEntry } from '@keith/client'
-import { entryText, entryView, PROACTIVE_PREFIX, statusLine } from './view.ts'
+import { entryText, entryView, entryViews, PROACTIVE_PREFIX, statusLine } from './view.ts'
 
 const assistant: MessageEntry = {
   kind: 'message',
@@ -55,5 +55,20 @@ describe('view', () => {
   test('a floating UI block shows its fallback text', () => {
     const block = { type: 'markdown', id: 'n', text: 'Rain at 4pm' } as const
     expect(entryText({ kind: 'ui', key: 'ui:1', block, fallbackText: 'Rain at 4pm' })).toBe('Rain at 4pm')
+  })
+
+  test('history tool steps (assistant rows without text or blocks) are not shown', () => {
+    const step: MessageEntry = { ...assistant, key: 'm0', id: 'm0', text: '' }
+    const state = { ...initialState(), entries: [step, assistant] }
+    expect(entryViews(state).map((v) => v.key)).toEqual(['m1'])
+    // Still streaming: shown (the text is on its way).
+    expect(entryViews({ ...state, entries: [{ ...step, streaming: true }] })).toHaveLength(1)
+  })
+
+  test("a reply with blocks but no text shows the blocks' fallback text", () => {
+    const block = { type: 'markdown', id: 'n', text: 'Rain at 4pm' } as const
+    const entry: MessageEntry = { ...assistant, text: '', ui: [{ block, fallbackText: 'Rain at 4pm' }] }
+    expect(entryText(entry)).toContain('Rain at 4pm')
+    expect(entryViews({ ...initialState(), entries: [entry] })).toHaveLength(1)
   })
 })

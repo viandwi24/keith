@@ -221,6 +221,22 @@ export function oldestMessageId(state: ChatState): string | undefined {
   return undefined
 }
 
+/**
+ * An assistant row with no text and no blocks that is not streaming: an intermediate tool step
+ * from `GET /v1/threads/:id/messages` or `thread.opened` history. It carries nothing to show, so
+ * client apps skip it.
+ */
+export function isHiddenEntry(entry: Entry): boolean {
+  return (
+    entry.kind === 'message' &&
+    entry.role === 'assistant' &&
+    !entry.streaming &&
+    !entry.cancelled &&
+    entry.text.trim() === '' &&
+    entry.ui.length === 0
+  )
+}
+
 function assistantEntry(id: string, text: string, proactive: boolean): MessageEntry {
   return {
     kind: 'message',

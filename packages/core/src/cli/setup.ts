@@ -47,10 +47,47 @@ export const PROVIDER_CHOICES: readonly ProviderChoice[] = [
   },
 ]
 
-/** The config.toml `keith setup` writes: only the chosen provider, every role on one model. */
-export function renderConfig(choice: ProviderChoice, model: string): string {
+/** A plugin `keith setup` offers besides the provider. Enabled, not required: Keith starts without it. */
+export type OptionalPlugin = {
+  key: 'web' | 'weather'
+  /** Plugin package (= plugin id). */
+  pluginId: string
+  question: string
+  /** Default answer. */
+  enable: boolean
+  /** Config lines of its `[plugins."<id>"]` section, written commented out as a hint. */
+  hints: string[]
+}
+
+export const OPTIONAL_PLUGINS: readonly OptionalPlugin[] = [
+  {
+    key: 'web',
+    pluginId: '@keith/web',
+    question: 'Enable the web app (@keith/web, served at the core URL)?',
+    enable: true,
+    hints: ['# distDir = "/path/to/plugins/web/dist"   # default: the package\'s own dist/'],
+  },
+  {
+    key: 'weather',
+    pluginId: '@keith/tool-weather',
+    question: 'Enable the weather tool (@keith/tool-weather, uses Open-Meteo)?',
+    enable: true,
+    hints: ['# homeCity = "Surabaya"   # rain alerts when you arrive', '# units = "metric"'],
+  },
+]
+
+/**
+ * The config.toml `keith setup` writes: the chosen provider (enabled and required), every role on
+ * one model, plus the optional plugins the person enabled.
+ */
+export function renderConfig(
+  choice: ProviderChoice,
+  model: string,
+  optional: readonly OptionalPlugin[] = [],
+): string {
   const ref = JSON.stringify(`${choice.providerId}:${model}`)
   const plugin = JSON.stringify(choice.pluginId)
+  const enabled = [plugin, ...optional.map((p) => JSON.stringify(p.pluginId))]
   return [
     '# Keith configuration. Every key and its default: docs/architecture/config.md',
     '',
@@ -64,13 +101,14 @@ export function renderConfig(choice: ProviderChoice, model: string): string {
     `utility    = ${ref}`,
     '',
     '[plugins]',
-    `enabled  = [${plugin}]`,
+    `enabled  = [${enabled.join(', ')}]`,
     `required = [${plugin}]`,
     '',
     `[plugins.${plugin}]`,
     `apiKey = ${JSON.stringify(`env:${choice.envVar}`)}`,
     ...choice.extra,
     '',
+    ...optional.flatMap((p) => [`[plugins.${JSON.stringify(p.pluginId)}]`, ...p.hints, '']),
   ].join('\n')
 }
 
@@ -102,8 +140,12 @@ export async function runSetup(opts: SetupOptions): Promise<SetupResult> {
   const configFile = Bun.file(paths.configFile)
   let configWritten = false
   let choice: ProviderChoice | undefined
+  const optional: OptionalPlugin[] = []
   if (await configFile.exists()) {
     out(`Keeping the existing ${paths.configFile}`)
+    for (const p of await missingOptionalPlugins(paths.configFile)) {
+      out(`To enable ${p.pluginId}, add "${p.pluginId}" to plugins.enabled in config.toml.`)
+    }
   } else {
     choice = await askProvider(prompter)
     const model = await askNonEmpty(
@@ -111,7 +153,10 @@ export async function runSetup(opts: SetupOptions): Promise<SetupResult> {
       `Model id for ${choice.label} (the default may be outdated; check ${choice.label}'s model list)`,
       choice.defaultModel,
     )
-    await Bun.write(paths.configFile, renderConfig(choice, model))
+    for (const p of OPTIONAL_PLUGINS) {
+      if (await askYesNo(prompter, p.question, p.enable)) optional.push(p)
+    }
+    await Bun.write(paths.configFile, renderConfig(choice, model, optional))
     configWritten = true
     out(`Wrote ${paths.configFile}`)
   }
@@ -134,6 +179,9 @@ export async function runSetup(opts: SetupOptions): Promise<SetupResult> {
       out(
         `Next: export ${choice.envVar}=<your key>, run 'keith start', then 'keith-tui' in another terminal.`,
       )
+      if (optional.some((p) => p.key === 'web')) {
+        out("Web app: build it once with 'bun run --cwd plugins/web build', then open http://127.0.0.1:4824/")
+      }
     }
     return { paths, configWritten, personaWritten, owner }
   } finally {
@@ -209,6 +257,20 @@ async function askNewPassword(prompter: Prompter): Promise<string> {
     if ((await prompter.secret('Repeat the password')) === password) return password
   }
   throw new KeithError('INTERNAL', 'no valid password entered')
+}
+
+/** The optional plugins an existing config.toml does not enable (unreadable config: none). */
+async function missingOptionalPlugins(configFile: string): Promise<OptionalPlugin[]> {
+  try {
+    const raw: unknown = Bun.TOML.parse(await Bun.file(configFile).text())
+    const plugins = typeof raw === 'object' && raw !== null && 'plugins' in raw ? raw.plugins : undefined
+    const enabled =
+      typeof plugins === 'object' && plugins !== null && 'enabled' in plugins ? plugins.enabled : undefined
+    const list = Array.isArray(enabled) ? enabled : []
+    return OPTIONAL_PLUGINS.filter((p) => !list.includes(p.pluginId))
+  } catch {
+    return []
+  }
 }
 
 /** `mind.name` from config.toml without resolving `env:` values (the key may not be set yet). */

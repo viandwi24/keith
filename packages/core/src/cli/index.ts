@@ -15,7 +15,14 @@ import { type Prompter, terminalPrompter } from './prompt.ts'
 import { runSetup } from './setup.ts'
 
 export { type Prompter, scriptedPrompter, terminalPrompter } from './prompt.ts'
-export { PROVIDER_CHOICES, renderConfig, runSetup, type SetupOptions, type SetupResult } from './setup.ts'
+export {
+  OPTIONAL_PLUGINS,
+  PROVIDER_CHOICES,
+  renderConfig,
+  runSetup,
+  type SetupOptions,
+  type SetupResult,
+} from './setup.ts'
 
 export type CliIo = {
   env: Record<string, string | undefined>

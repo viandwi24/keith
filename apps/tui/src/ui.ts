@@ -12,7 +12,7 @@ import {
   type TextChunk,
   TextRenderable,
 } from '@opentui/core'
-import { entryView, type Segment, statusLine } from './view.ts'
+import { entryViews, type Segment, statusLine } from './view.ts'
 
 /**
  * The conversation screen, drawn with OpenTUI's core renderables (ADR-0010). It holds no
@@ -126,7 +126,7 @@ export function mountChat(renderer: CliRenderer, actions: ChatActions): ChatScre
   }
 
   const renderEntries = (state: ChatState) => {
-    const views = state.entries.map(entryView)
+    const views = entryViews(state)
     // Streaming appends and in-place updates keep the existing lines. Anything else (a history
     // reload after reconnect) rebuilds the list.
     const keepsOrder = lines.length <= views.length && lines.every((line, i) => line.key === views[i]?.key)

@@ -49,17 +49,21 @@ describe('keith setup', () => {
   test('creates config, persona, db and owner in a fresh KEITH_HOME (DeepSeek)', async () => {
     const home = tempHome()
     const asked: string[] = []
-    // provider (default 1 = DeepSeek), model (default), name, username (default), password twice
+    // provider (default 1 = DeepSeek), model (default), web (default y), weather (default y), name,
+    // username (default), password twice
     const code = await runCli(
       ['setup'],
-      io(home, ['', '', 'Tony Stark', '', 'jarvis-42', 'jarvis-42'], asked),
+      io(home, ['', '', '', '', 'Tony Stark', '', 'jarvis-42', 'jarvis-42'], asked),
     )
     expect(code).toBe(0)
     expect(asked[0]).toContain('DeepSeek')
     expect(asked[0]).toContain('OpenRouter')
 
     const config = await readConfig(home, { DEEPSEEK_API_KEY: 'sk-test' })
-    expect(config.plugins.enabled).toEqual(['@keith/provider-deepseek'])
+    expect(asked[2]).toContain('@keith/web')
+    expect(asked[3]).toContain('@keith/tool-weather')
+    expect(config.plugins.enabled).toEqual(['@keith/provider-deepseek', '@keith/web', '@keith/tool-weather'])
+    // Only the provider is required: Keith starts without the web app or the weather tool.
     expect(config.plugins.required).toEqual(['@keith/provider-deepseek'])
     expect(config.plugins.sections['@keith/provider-deepseek']).toEqual({ apiKey: 'sk-test' })
     expect(config.models).toEqual({
@@ -84,7 +88,17 @@ describe('keith setup', () => {
     const home = tempHome()
     const code = await runCli(
       ['setup'],
-      io(home, ['openrouter', 'acme/model-x', 'Pepper', 'pepper', 'short', 'long-enough', 'long-enough']),
+      io(home, [
+        'openrouter',
+        'acme/model-x',
+        'n',
+        'n',
+        'Pepper',
+        'pepper',
+        'short',
+        'long-enough',
+        'long-enough',
+      ]),
     )
     expect(code).toBe(0)
     const config = await readConfig(home, { OPENROUTER_API_KEY: 'or-test' })
@@ -102,7 +116,9 @@ describe('keith setup', () => {
 
   test('running it again keeps the files, offers a password reset and never duplicates the owner', async () => {
     const home = tempHome()
-    expect(await runCli(['setup'], io(home, ['1', '', 'Tony', 'tony', 'first-pass', 'first-pass']))).toBe(0)
+    expect(
+      await runCli(['setup'], io(home, ['1', '', 'n', 'n', 'Tony', 'tony', 'first-pass', 'first-pass'])),
+    ).toBe(0)
     const configBefore = await Bun.file(join(home, 'config.toml')).text()
     await Bun.write(join(home, 'persona.md'), 'My own persona')
 
@@ -112,6 +128,11 @@ describe('keith setup', () => {
     expect(await runCli(['setup'], second)).toBe(0)
     expect(asked).toEqual(['Reset the password of tony? (y/n)'])
     expect(second.lines.join('\n')).toContain('Keeping the existing')
+    // The existing config enables neither optional plugin: setup says how to add them.
+    expect(second.lines).toContain(
+      'To enable @keith/web, add "@keith/web" to plugins.enabled in config.toml.',
+    )
+    expect(second.lines.join('\n')).toContain('To enable @keith/tool-weather')
 
     // Accept it.
     expect(await runCli(['setup'], io(home, ['y', 'second-pass', 'second-pass']))).toBe(0)
@@ -126,7 +147,7 @@ describe('keith setup', () => {
   test('mismatched passwords are asked again', async () => {
     const home = tempHome()
     const asked: string[] = []
-    const answers = ['1', '', 'Tony', 'tony', 'password-a', 'password-b', 'password-c', 'password-c']
+    const answers = ['1', '', '', '', 'Tony', 'tony', 'password-a', 'password-b', 'password-c', 'password-c']
     expect(await runCli(['setup'], io(home, answers, asked))).toBe(0)
     expect(asked.filter((q) => q.startsWith('Password'))).toHaveLength(2)
     const [owner] = await owners(home)

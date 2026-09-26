@@ -171,6 +171,9 @@ export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
       ids,
       clock,
       log,
+      // ui.action: clicks reach the originating tool's onAction, which may use services.
+      tools,
+      services,
     })
     const turns = trackRunningTurns(events)
     closers.push({ name: 'threads', run: () => threads.stop() })
@@ -187,6 +190,7 @@ export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
       attachments,
       presence,
       version: KEITH_VERSION,
+      filesDir: paths.filesDir,
       timing: opts.timing,
     })
 

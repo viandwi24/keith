@@ -4,20 +4,8 @@ import { UiBlockView } from '../blocks/ui-block.tsx'
 import { Markdown } from '../markdown.tsx'
 import { Badge } from '../ui/badge.tsx'
 
-/**
- * An assistant row with no text and no blocks that is not streaming: an intermediate tool step
- * from `GET /v1/threads/:id/messages` (P2-D1). It carries nothing to show.
- */
-export function isHiddenEntry(entry: Entry): boolean {
-  return (
-    entry.kind === 'message' &&
-    entry.role === 'assistant' &&
-    !entry.streaming &&
-    !entry.cancelled &&
-    entry.text.trim() === '' &&
-    entry.ui.length === 0
-  )
-}
+/** Skips tool-step rows without text or blocks (shared with the TUI through `@keith/client`). */
+export { isHiddenEntry } from '@keith/client'
 
 export function EntryView({ entry }: { entry: Entry }) {
   switch (entry.kind) {

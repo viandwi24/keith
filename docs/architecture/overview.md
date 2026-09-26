@@ -45,7 +45,7 @@ The `keith` command is the `bin` of `@keith/core` (`packages/core/src/cli/main.t
 
 | Command | What it does |
 |---|---|
-| `keith setup` | Creates `KEITH_HOME`, `config.toml`, `persona.md`, the database and the owner Person (see [config.md](config.md#keith-setup)) |
+| `keith setup` | Creates `KEITH_HOME`, `config.toml`, `persona.md`, the database and the owner Person, and offers to enable the web app (`@keith/web`) and the weather tool (`@keith/tool-weather`) (see [config.md](config.md#keith-setup), [ui.md](ui.md#enabling-the-web-app-s-8)) |
 | `keith start [--port N] [--host H]` | Runs `bootstrap()` and serves until SIGINT/SIGTERM |
 | `keith migrate` | Applies pending database migrations (`keith start` does this too) |
 | `keith --version` | Prints the version |

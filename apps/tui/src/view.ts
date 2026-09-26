@@ -1,4 +1,4 @@
-import { type ChatState, connectionLabel, type Entry, turnLabel } from '@keith/client'
+import { type ChatState, connectionLabel, type Entry, isHiddenEntry, turnLabel } from '@keith/client'
 
 /**
  * Pure presentation: turns the state into styled lines. The terminal renderer (`ui.ts`) only maps
@@ -34,6 +34,11 @@ export function statusLine(state: ChatState): string {
   return parts.join(' · ')
 }
 
+/** The lines to show, oldest first. Tool-step rows without text or blocks (from history) are skipped. */
+export function entryViews(state: ChatState): EntryView[] {
+  return state.entries.filter((e) => !isHiddenEntry(e)).map(entryView)
+}
+
 export function entryView(entry: Entry): EntryView {
   switch (entry.kind) {
     case 'message': {
@@ -49,7 +54,12 @@ export function entryView(entry: Entry): EntryView {
       const segments: Segment[] = entry.proactive
         ? [{ text: PROACTIVE_PREFIX, style: 'proactive' }]
         : [{ text: ASSISTANT_PREFIX, style: 'prefix' }]
-      segments.push({ text: entry.text, style: entry.proactive ? 'proactive' : 'assistant' })
+      // A reply with blocks but no text (history of a node without `ui.render@1`) shows their fallback.
+      const text =
+        entry.text.trim() === '' && !entry.streaming
+          ? entry.ui.map((u) => u.fallbackText).join('\n')
+          : entry.text
+      segments.push({ text, style: entry.proactive ? 'proactive' : 'assistant' })
       if (entry.streaming) segments.push({ text: ' ▍', style: 'muted' })
       if (entry.cancelled) segments.push({ text: ' (cancelled)', style: 'muted' })
       return { key: entry.key, segments }

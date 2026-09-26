@@ -54,7 +54,7 @@ How the core handles it (`server/connection.ts` → `ThreadManager.action` in `m
 
 ## The web app
 
-The browser half of `@keith/web` (`plugins/web/app/`, a Node per [ADR-0011](../decisions/0011-client-app-browser-side.md)) renders blocks with React and the same shadcn/ui components and theme tokens as the rest of its UI. It is built with Bun's HTML bundler ([ADR-0012](../decisions/0012-web-bundler.md), proposed) into `plugins/web/dist/`.
+The browser half of `@keith/web` (`plugins/web/app/`, a Node per [ADR-0011](../decisions/0011-client-app-browser-side.md)) renders blocks with React and the same shadcn/ui components and theme tokens as the rest of its UI. It is built with Bun's HTML bundler ([ADR-0012](../decisions/0012-web-bundler.md)) into `plugins/web/dist/` (`bun run --cwd plugins/web build`). The core serves that folder at `/` with an SPA fallback when `@keith/web` is enabled; `/v1` keeps answering as the API, and without a build a placeholder page is served instead.
 
 | Block | Renders as (`components/blocks/ui-block.tsx`) |
 |---|---|
@@ -72,7 +72,15 @@ The browser half of `@keith/web` (`plugins/web/app/`, a Node per [ADR-0011](../d
 Other rendering rules:
 - The app declares `chat.text@1` and `ui.render@1` in `hello` and keeps its session (token, `nodeId`) in `localStorage` through `@keith/client`'s `webStorageSessionStore`.
 - Blocks attach below their assistant message; floating blocks sit in the timeline where they arrived.
-- Assistant rows with no text, no blocks and no streaming (tool steps in `GET /v1/threads/:id/messages`) are not shown.
+- Assistant rows with no text, no blocks and no streaming (tool steps in `GET /v1/threads/:id/messages`) are not shown (`isHiddenEntry` in `@keith/client`, shared with the TUI).
 - Proactive messages carry a badge; tool activity shows as one line per tool call; the turn state shows above the input, with a Cancel button while a turn runs.
 - A lost connection shows a banner with the retry countdown and "Retry now". A rejected token (close `4003`) shows a sign-in form, then reconnects with the new token and keeps the thread.
 - shadcn/ui components live in `plugins/web/app/components/ui/` and are added with `bunx --bun shadcn@latest add <name>` run from `plugins/web/app/`, which holds `components.json` and a small `package.json` (name `@keith/web-app`, only the `#components/*`, `#lib/*`, `#hooks/*` import aliases the CLI needs). The CLI also installs the component's npm dependencies there: add them to `plugins/web/package.json` with `bun add` instead, and delete `app/node_modules` and `app/bun.lock` (both are gitignored).
+
+## Nodes without `ui.render@1` (the TUI)
+
+The TUI declares only `chat.text@1`, so it gets no `ui.render` frames: it shows the message text, which the tool's `content` or the model's reply already carries. When a history message has blocks but no text, it shows the blocks' fallback (`uiBlockToText`, the same text the core puts in `ui.render.fallbackText` when a tool gives none). It skips the same empty tool-step rows as the web app.
+
+## Enabling the web app (S-8)
+
+`keith setup` offers `@keith/web` and `@keith/tool-weather` (both enabled, neither required). On an existing `config.toml` it prints how to add whichever is missing to `plugins.enabled`. Nothing else changes: the Mind and the tool plugins never know which nodes render blocks (I-9, I-12). `tests/e2e/s8-web.test.ts` plays the scenario in Chromium with Playwright against the built app.

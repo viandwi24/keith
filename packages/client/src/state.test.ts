@@ -5,6 +5,7 @@ import {
   applyLocal,
   type ChatState,
   initialState,
+  isHiddenEntry,
   type MessageEntry,
   oldestMessageId,
 } from './state.ts'
@@ -249,5 +250,35 @@ describe('history paging', () => {
     ])
     expect(paged.history).toEqual({ hasMore: false, loading: false })
     expect(oldestMessageId(paged)).toBe(older.id)
+  })
+})
+
+describe('isHiddenEntry', () => {
+  const step: MessageEntry = {
+    kind: 'message',
+    key: messageId,
+    id: messageId,
+    role: 'assistant',
+    text: '',
+    proactive: false,
+    streaming: false,
+    cancelled: false,
+    local: false,
+    ui: [],
+  }
+
+  test('an assistant tool step without text or blocks is hidden', () => {
+    expect(isHiddenEntry(step)).toBe(true)
+    expect(isHiddenEntry({ ...step, text: ' \n' })).toBe(true)
+  })
+
+  test('text, blocks, streaming, cancelled, user rows and other entries are shown', () => {
+    expect(isHiddenEntry({ ...step, text: 'hi' })).toBe(false)
+    expect(isHiddenEntry({ ...step, streaming: true })).toBe(false)
+    expect(isHiddenEntry({ ...step, cancelled: true })).toBe(false)
+    expect(isHiddenEntry({ ...step, role: 'user' })).toBe(false)
+    const ui = [{ block: { type: 'markdown', id: 'x', text: 'x' } as const, fallbackText: 'x' }]
+    expect(isHiddenEntry({ ...step, ui })).toBe(false)
+    expect(isHiddenEntry({ kind: 'notice', key: 'n', level: 'info', text: '' })).toBe(false)
   })
 })
