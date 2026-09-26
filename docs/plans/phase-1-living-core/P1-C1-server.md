@@ -4,7 +4,7 @@ title: Server, auth, node handshake, presence
 phase: 1
 wave: 1
 lane: C
-status: review
+status: done
 owner: agent-P1-C1
 depends: [P0-04]
 owns:
