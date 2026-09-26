@@ -1,0 +1,13 @@
+{
+  "name": "@keith/provider-deepseek",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@keith/protocol": "workspace:*",
+    "@keith/sdk": "workspace:*"
+  }
+}
