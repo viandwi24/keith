@@ -4,8 +4,8 @@ title: End-to-end scenarios S-1 to S-4
 phase: 1
 wave: 3
 lane: I
-status: todo
-owner: null
+status: in-progress
+owner: agent-P1-I2
 depends: [P1-I1]
 owns:
   - tests/e2e/**
