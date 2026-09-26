@@ -4,7 +4,7 @@ title: End-to-end scenarios S-1 to S-4
 phase: 1
 wave: 3
 lane: I
-status: review
+status: done
 owner: agent-P1-I2
 depends: [P1-I1]
 owns:
@@ -89,3 +89,5 @@ No other bugs were found. The C1 risk (frames sent during `open` don't reach the
 4. **`ThreadManager.open` `historyLimit`** (from C1/E1): `open` returns at most 50 messages.
 5. **Workspace resolution for `tests/e2e`:** if bare `@keith/*` imports are wanted there, the root `package.json` needs `devDependencies` `@keith/core`, `@keith/sdk`, `@keith/protocol` as `workspace:*` (coordinator change).
 6. **Human S-2 run** with the TUI and a real model (see above).
+
+**Coordinator close-out (2026-09-26):** the owner declared phase 1 done and started phase 2. The human run with a real model was not reported to the coordinator; it stays open as a follow-up (P2-I1's human run covers the same path through the web app).

@@ -1,6 +1,6 @@
 # Phase 2: Web + plugin UI (overview)
 
-> Overview only. The coordinator writes task files when P1-I2 is `done`.
+> Task files are in [phase-2-web/](phase-2-web/README.md). This overview is kept for history.
 
 **Goal:** install `@keith/web` and get the same Threads in a browser, with tool results rendered as UI blocks. Nothing in the Mind or in tool plugins changes (S-8, I-9, I-12).
 

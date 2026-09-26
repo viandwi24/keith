@@ -21,7 +21,7 @@ One decision per file. Accepted ADRs are never edited except for their status li
 
 Copy the template below to `NNNN-<slug>.md` (the next free number). Agents create ADRs with `status: proposed`. Only the coordinator sets `accepted` and updates this index, so agents never edit this file.
 
-**Reserved numbers:** `0010` for P1-F1 (TUI framework). Other agents start at `0011`. If two agents collide on a number, the coordinator renumbers the later one.
+**Reserved numbers:** `0011` for P2-K1 (browser side of client-app plugins), `0012` for P2-C1 (web bundler). Other agents start at `0013`. If two agents collide on a number, the coordinator renumbers the later one.
 
 ```markdown
 # ADR-NNNN: <decision as a short statement>
