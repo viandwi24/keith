@@ -4,7 +4,7 @@ title: Memory v1 (visibility, recall, core memories, awareness digest)
 phase: 1
 wave: 1
 lane: M
-status: review
+status: done
 owner: agent-P1-M1
 depends: [P0-04]
 owns:
