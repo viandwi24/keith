@@ -91,7 +91,7 @@ Each plugin section is validated by that plugin's own `config` schema. The core 
 
 ### `keith setup`
 
-`keith setup` asks which provider to use (DeepSeek or OpenRouter), enables only that plugin (also listed in `required`), asks for a model id (it offers a default, `deepseek-flash` or `~openai/gpt-sol-latest`, labelled as possibly outdated since vendor ids change), and maps all three roles to it. The API key is written as `env:DEEPSEEK_API_KEY` / `env:OPENROUTER_API_KEY`, never literally. Users split roles across models later by editing the file.
+`keith setup` asks which provider to use (DeepSeek or OpenRouter), enables only that plugin (also listed in `required`), asks for a model id (it offers a default, `deepseek-flash` or `~openai/gpt-sol-latest`, labelled as possibly outdated since vendor ids change), and maps all three roles to it. The API key is written as `env:DEEPSEEK_API_KEY` / `env:OPENROUTER_API_KEY`, never literally. Users split roles across models later by editing the file. It then asks whether to enable the optional `@keith/web` (the browser app) and `@keith/tool-weather` plugins (default yes). They go into `enabled` but not `required`, each with a commented `[plugins."<id>"]` section. On an existing config it only prints how to add a missing one.
 
 It also creates `KEITH_HOME` with `files/`, `plugins/` and `logs/`, writes `persona.md` from `defaultPersona(mind.name)`, applies the migrations, and creates the **owner** Person (name, username, password asked twice, at least 8 characters, hashed with `Bun.password`).
 

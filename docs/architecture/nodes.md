@@ -64,7 +64,7 @@ Implemented in `packages/core/src/server/`.
 | `input.text` / `input.cancel` for a thread this node has not opened | `error { FORBIDDEN }` |
 | `thread.close` or socket close | Node detached from the thread (or from all threads). The person becomes away when their last node detaches (`person.left`). `node.disconnected` on socket close |
 | `<namespace>.*` frame registered by a plugin | Payload validated with the plugin's schema, then its handler runs |
-| Unknown type | `error { UNKNOWN_FRAME }`. `ui.action` answers this way until phase 2, binary frames get `INVALID_FRAME` until phase 3 |
+| Unknown type | `error { UNKNOWN_FRAME }`. Binary frames get `INVALID_FRAME` until phase 3 |
 
 Frames from one node are handled in order. `input.text` is handed to the ThreadManager without waiting for the turn, so a later `input.cancel` is not blocked. Errors thrown by the ThreadManager become `error` frames (`NOT_FOUND`, `FORBIDDEN` and `PROVIDER_ERROR` pass through, everything else is `INTERNAL`).
 
