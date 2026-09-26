@@ -1,0 +1,162 @@
+import { Database } from 'bun:sqlite'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { isKeithError, type LlmMessage } from '@keith/sdk'
+import type { MessageId } from '../shared/types.ts'
+import { seed, testId } from './fixtures.ts'
+import { createTestDb, type TestDb } from './testing.ts'
+import type { AssistantMessageRecord, MessageRecord, ToolMessageRecord, UserMessageRecord } from './types.ts'
+
+let db: TestDb
+beforeEach(async () => {
+  db = createTestDb()
+  await seed(db.repos, 1)
+})
+afterEach(() => db.close())
+
+const threadId = testId('thr', 1)
+const personId = testId('per', 1)
+
+function userMessage(n: number, createdAt: number, content = `m${n}`): UserMessageRecord {
+  return {
+    id: testId('msg', n),
+    threadId,
+    role: 'user',
+    authorPersonId: personId,
+    nodeId: testId('nod', 1),
+    modality: 'text',
+    content,
+    meta: null,
+    createdAt,
+  }
+}
+
+const assistant: AssistantMessageRecord = {
+  id: testId('msg', 2),
+  threadId,
+  role: 'assistant',
+  authorPersonId: null,
+  nodeId: null,
+  modality: 'text',
+  content: 'Let me check.',
+  meta: { proactive: true },
+  toolCalls: [{ id: 'call_abc', name: 'weather.current', args: { city: 'Lyon' } }],
+  ui: [
+    {
+      block: { type: 'markdown', id: 'b1', text: '**sunny**' },
+      toolCallId: 'call_abc',
+      toolName: 'weather.current',
+    },
+  ],
+  createdAt: 20,
+}
+
+const tool: ToolMessageRecord = {
+  id: testId('msg', 3),
+  threadId,
+  role: 'tool',
+  authorPersonId: null,
+  nodeId: null,
+  modality: 'text',
+  content: '{"temp":21}',
+  meta: null,
+  toolCallId: 'call_abc',
+  toolName: 'weather.current',
+  isError: false,
+  createdAt: 21,
+}
+
+/** The replay mapping the context builder does; proves the stored shape is enough for it. */
+function toLlmMessage(m: MessageRecord): LlmMessage {
+  switch (m.role) {
+    case 'user':
+      return { role: 'user', content: m.content }
+    case 'assistant':
+      return m.toolCalls
+        ? { role: 'assistant', content: m.content, toolCalls: m.toolCalls }
+        : { role: 'assistant', content: m.content }
+    case 'tool':
+      return { role: 'tool', toolCallId: m.toolCallId, content: m.content }
+  }
+}
+
+describe('messages', () => {
+  test('round-trips user, assistant and tool messages', async () => {
+    const user = userMessage(1, 10)
+    for (const m of [user, assistant, tool]) await db.repos.messages.append(m)
+    expect(await db.repos.messages.get(user.id)).toEqual(user)
+    expect(await db.repos.messages.get(assistant.id)).toEqual(assistant)
+    expect(await db.repos.messages.get(tool.id)).toEqual(tool)
+    expect(await db.repos.messages.get(testId('msg', 99))).toBeNull()
+  })
+
+  test('assistant tool calls and tool results replay into LlmMessage shapes', async () => {
+    for (const m of [userMessage(1, 10), assistant, { ...tool, isError: true }])
+      await db.repos.messages.append(m)
+    const page = await db.repos.messages.page({ threadId, limit: 10 })
+    expect(page.messages.map(toLlmMessage)).toEqual([
+      { role: 'user', content: 'm1' },
+      {
+        role: 'assistant',
+        content: 'Let me check.',
+        toolCalls: [{ id: 'call_abc', name: 'weather.current', args: { city: 'Lyon' } }],
+      },
+      { role: 'tool', toolCallId: 'call_abc', content: '{"temp":21}' },
+    ])
+    expect((page.messages[2] as ToolMessageRecord).isError).toBe(true)
+  })
+
+  test('append bumps the thread updated_at', async () => {
+    await db.repos.messages.append(userMessage(1, 50_000))
+    expect((await db.repos.threads.get(threadId))?.updatedAt).toBe(50_000)
+  })
+
+  test('pages by before + limit, oldest first, stable on equal timestamps', async () => {
+    // Messages 1..7; 3, 4 and 5 share a timestamp, so id breaks the tie.
+    const times = [10, 20, 30, 30, 30, 40, 50]
+    for (const [i, t] of times.entries()) await db.repos.messages.append(userMessage(i + 1, t))
+    const ids = (ms: MessageRecord[]) => ms.map((m) => m.id)
+    const msg = (n: number): MessageId => testId('msg', n)
+
+    const latest = await db.repos.messages.page({ threadId, limit: 3 })
+    expect(ids(latest.messages)).toEqual([msg(5), msg(6), msg(7)])
+    expect(latest.hasMore).toBe(true)
+
+    const middle = await db.repos.messages.page({ threadId, before: msg(5), limit: 3 })
+    expect(ids(middle.messages)).toEqual([msg(2), msg(3), msg(4)])
+    expect(middle.hasMore).toBe(true)
+
+    const first = await db.repos.messages.page({ threadId, before: msg(2), limit: 3 })
+    expect(ids(first.messages)).toEqual([msg(1)])
+    expect(first.hasMore).toBe(false)
+
+    const all = await db.repos.messages.page({ threadId, limit: 7 })
+    expect(ids(all.messages)).toEqual([1, 2, 3, 4, 5, 6, 7].map(msg))
+    expect(all.hasMore).toBe(false)
+
+    expect(await db.repos.messages.page({ threadId, before: testId('msg', 99), limit: 3 })).toEqual({
+      messages: [],
+      hasMore: false,
+    })
+  })
+
+  test('filters pages by role', async () => {
+    for (const m of [userMessage(1, 10), assistant, tool, userMessage(4, 30)])
+      await db.repos.messages.append(m)
+    const page = await db.repos.messages.page({ threadId, limit: 10, roles: ['user', 'assistant'] })
+    expect(page.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user'])
+  })
+
+  test('a malformed JSON column throws STORAGE_CORRUPT', async () => {
+    await db.repos.messages.append(assistant)
+    const raw = new Database(db.path)
+    raw.run('update messages set tool_calls = \'[{"id":1}]\' where id = ?', [assistant.id])
+    raw.close()
+    let error: unknown
+    try {
+      await db.repos.messages.get(assistant.id)
+    } catch (e) {
+      error = e
+    }
+    expect(isKeithError(error, 'STORAGE_CORRUPT')).toBe(true)
+  })
+})
