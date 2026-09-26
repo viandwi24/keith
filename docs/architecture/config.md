@@ -18,7 +18,7 @@ Tests always set `KEITH_HOME` to a temporary directory.
 
 ## `config.toml`
 
-Parsed with Bun's built-in TOML support and validated with a zod schema in `core/src/config`. Unknown keys are an error (typos fail loudly). Any string value may be `"env:NAME"`, which is resolved from the environment at load. Missing env vars are an error naming the key.
+Parsed with Bun's built-in TOML support and validated with a zod schema in `core/src/config`. Unknown keys are an error (typos fail loudly). Any string value may be `"env:NAME"`, which is resolved from the environment at load. Missing env vars are an error naming the key. Every key has a default (the values below, except `mind.timezone`, which defaults to the system time zone), so an empty file is valid. A missing file, invalid TOML or an invalid value is `CONFIG_INVALID` naming the key. Under `[plugins]`, the keys `enabled`, `required` and `stopTimeoutMs` belong to the core and every table is a plugin section; any other key is an error.
 
 ```toml
 [server]
@@ -94,11 +94,13 @@ Each plugin section is validated by that plugin's own `config` schema. The core 
 ## Secrets
 
 - Never store secrets in `config.toml` literally in shared examples. Use `env:`.
-- The logger redacts any config value whose key matches `/key|token|secret|password/i`.
+- The logger redacts any config value whose key matches `/key|token|secret|password/i`: every log field with such a key, at any depth, is written as `[redacted]`.
 - An encrypted credential store is out of scope until a plugin needs per-person OAuth tokens. It needs an ADR then.
 
 ## Precedence
 
 Config file < environment overrides < CLI flags (`keith start --port 5000`).
 
-Environment overrides use `KEITH__` plus the key path, with `__` between segments. Segments are matched to schema keys case-insensitively: `KEITH__SERVER__PORT=5000`, `KEITH__MIND__TURN__MAXSTEPS=12` → `mind.turn.maxSteps`. Values are parsed as JSON when possible, otherwise as strings. Plugin sections can't be overridden this way. Use `env:` inside them.
+Environment overrides use `KEITH__` plus the key path, with `__` between segments. Segments are matched to schema keys case-insensitively: `KEITH__SERVER__PORT=5000`, `KEITH__MIND__TURN__MAXSTEPS=12` → `mind.turn.maxSteps`. Values are parsed as JSON when possible, otherwise as strings (`KEITH__PLUGINS__ENABLED='["@keith/provider-openrouter"]'`). Plugin sections and `[services]` can't be overridden this way. Use `env:` inside them. A `KEITH__` variable that matches no key is an error. `env:` references are resolved after overrides, so an override may itself be `"env:NAME"`.
+
+In code: `loadConfig({ home, flags })` reads `<home>/config.toml`; `parseConfig(table, { env, flags })` does the rest and is what tests use. `keithPaths(home)` gives the layout above. `DEFAULT_PERSONA_TEMPLATE` / `defaultPersona(name)` hold the default `persona.md` text that `keith setup` writes.
