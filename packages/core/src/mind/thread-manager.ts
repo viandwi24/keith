@@ -651,6 +651,8 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
   /**
    * Queues a user input for the next turn and echoes it as `message.user` to the thread's other
    * nodes, or to all of them with `echoToSender` (a click, which the sending node didn't type).
+   * A spoken input (`modality: 'audio'`) is echoed to the sender too: its transcript comes from the
+   * core's STT, so the speaking node has no other way to show it.
    */
   async function input(a: InputArgs, echoToSender = false): Promise<void> {
     const rt = await runtimeFor(a.threadId)
@@ -674,7 +676,7 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
     const dto = toMessageDto(record)
     if (dto) {
       const frame = makeFrame('message.user', { message: dto }, frameOpts())
-      broadcast(rt, frame, echoToSender ? undefined : a.nodeId)
+      broadcast(rt, frame, echoToSender || a.modality === 'audio' ? undefined : a.nodeId)
     }
     rt.focus = a.nodeId
     if (rt.listening === a.nodeId) rt.listening = null

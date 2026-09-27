@@ -70,7 +70,7 @@ Implemented in `packages/core/src/server/`.
 | Any audio frame while voice is off (the server has no `VoiceInput`) | `error { INVALID_FRAME, "voice is not configured" }` |
 | Unknown type | `error { UNKNOWN_FRAME }` |
 
-Frames from one node, text and binary, are handled in order, so a chunk never overtakes its `audio.start`. Socket close also drops the node's open audio streams (`VoiceInput.detach`). The core sends audio to a node with `AttachmentRegistry.sendBinary`. `input.text` is handed to the ThreadManager without waiting for the turn, so a later `input.cancel` is not blocked. Errors thrown by the ThreadManager become `error` frames (`NOT_FOUND`, `FORBIDDEN` and `PROVIDER_ERROR` pass through, everything else is `INTERNAL`).
+Frames from one node, text and binary, are handled in order, so a chunk never overtakes its `audio.start`. Socket close also drops the node's open audio streams (`VoiceInput.detach`). The core sends audio to a node with `AttachmentRegistry.sendBinary`. A spoken input's transcript reaches the speaking node too, as `message.user` (see [voice.md](voice.md#turn-taking-with-voice)); typed input is echoed only to the other nodes. `input.text` is handed to the ThreadManager without waiting for the turn, so a later `input.cancel` is not blocked. Errors thrown by the ThreadManager become `error` frames (`NOT_FOUND`, `FORBIDDEN` and `PROVIDER_ERROR` pass through, everything else is `INTERNAL`).
 
 ## Auth (phase 1)
 

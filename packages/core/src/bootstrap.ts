@@ -32,9 +32,10 @@ import {
   createPresence,
 } from './server/index.ts'
 import { createIds, createLogger, systemClock } from './shared/index.ts'
-import type { Clock, Logger, ThreadId } from './shared/types.ts'
+import type { Clock, Logger, NodeId, ThreadId } from './shared/types.ts'
 import { openDb } from './storage/index.ts'
 import type { Repositories } from './storage/types.ts'
+import { checkVoiceProviders, createVoice } from './voice/index.ts'
 
 /** Keith's version, reported by `/v1/health`, `welcome` and `keith --version`. */
 export const KEITH_VERSION: string = pkg.version
@@ -127,6 +128,32 @@ export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
     const presence = createPresence({ config, clock, log, events, persons: repos.persons })
     closers.push({ name: 'presence', run: () => presence.dispose() })
 
+    // 4b. voice pipeline (phase 3), only with a `[voice]` section. It needs the ThreadManager and
+    // the ThreadManager needs its output, so the ThreadManager is reached through a late binding.
+    // Providers are looked up by id per stream; the ids are checked once the plugins started (11).
+    let threadsRef: MindThreadManager | null = null
+    const lateThreads = (): MindThreadManager => {
+      if (!threadsRef) throw new Error('voice used before the ThreadManager was built')
+      return threadsRef
+    }
+    const nodeCapabilities = trackNodeCapabilities(events)
+    closers.push({ name: 'voice.capabilities', run: () => nodeCapabilities.dispose() })
+    const voice = config.voice
+      ? createVoice({
+          providers,
+          config: config.voice,
+          threads: {
+            input: (a) => lateThreads().input(a),
+            voiceActivity: (a) => lateThreads().voiceActivity(a),
+          },
+          nodes: attachments,
+          capabilities: (nodeId) => nodeCapabilities.of(nodeId),
+          ids,
+          clock,
+          log,
+        })
+      : undefined
+
     // 5. run loop
     const runLoop = createRunLoop({
       providers,
@@ -174,7 +201,10 @@ export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
       // ui.action: clicks reach the originating tool's onAction, which may use services.
       tools,
       services,
+      // Phase 3: spoken replies on the focus node; `config.voice` also sets barge-in.
+      voice: voice?.output,
     })
+    threadsRef = threads
     const turns = trackRunningTurns(events)
     closers.push({ name: 'threads', run: () => threads.stop() })
 
@@ -192,6 +222,7 @@ export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
       version: KEITH_VERSION,
       filesDir: paths.filesDir,
       timing: opts.timing,
+      voice: voice?.input,
     })
 
     // 10. built-in tools
@@ -219,6 +250,8 @@ export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
     closers.push({ name: 'plugins', run: () => plugins.stopAll() })
     await plugins.load(config, opts.plugins ?? [])
     await plugins.startAll()
+    // Every `[voice]` id must name a registered provider (CONFIG_INVALID otherwise).
+    checkVoiceProviders(config.voice, providers)
 
     // 12. scheduler start, server listen → core.started
     await scheduling.start()
@@ -281,6 +314,21 @@ export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
     await unwind(log)
     throw error
   }
+}
+
+type NodeCapabilities = { of(nodeId: NodeId): readonly string[]; dispose(): void }
+
+/**
+ * The capabilities each node declared in its latest `hello` (`node.connected`), for the voice
+ * pipeline's `audio.out@1` check. Kept after a disconnect: a node id's next hello replaces them,
+ * and speech to a gone node goes nowhere anyway.
+ */
+function trackNodeCapabilities(events: CoreEventBus): NodeCapabilities {
+  const byNode = new Map<NodeId, readonly string[]>()
+  const off = events.on('node.connected', (e) => {
+    byNode.set(e.data.nodeId, e.data.capabilities)
+  })
+  return { of: (nodeId) => byNode.get(nodeId) ?? [], dispose: off }
 }
 
 type RunningTurns = { threads(): ThreadId[]; dispose(): void }

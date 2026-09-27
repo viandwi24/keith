@@ -76,6 +76,79 @@ export const OPTIONAL_PLUGINS: readonly OptionalPlugin[] = [
   },
 ]
 
+/** A voice plugin `keith setup` can enable, with its `[plugins."<id>"]` lines. */
+export type VoicePlugin = { pluginId: string; lines: string[] }
+
+const VAD_ENERGY: VoicePlugin = {
+  pluginId: '@keith/vad-energy',
+  lines: [
+    '# startDb = 12        # dB above the noise floor that starts speech',
+    '# hangoverMs = 500    # silence that ends it',
+  ],
+}
+const VOICE_GROQ: VoicePlugin = {
+  pluginId: '@keith/voice-groq',
+  lines: ['apiKey = "env:GROQ_API_KEY"', '# model = "whisper-large-v3-turbo"'],
+}
+const VOICE_OPENAI: VoicePlugin = {
+  pluginId: '@keith/voice-openai',
+  lines: ['apiKey = "env:OPENAI_API_KEY"', '# model = "gpt-4o-mini-tts"', '# voice = "alloy"'],
+}
+const VOICE_SPEACHES: VoicePlugin = {
+  pluginId: '@keith/voice-speaches',
+  lines: [
+    '# baseUrl = "http://127.0.0.1:8000/v1"',
+    '# sttModel = "Systran/faster-whisper-small"',
+    '# ttsModel = "speaches-ai/Kokoro-82M-v1.0-ONNX"',
+    '# voice = "af_heart"',
+  ],
+}
+
+/** The speaches container (https://speaches.ai/installation/, CPU image). */
+export const SPEACHES_DOCKER_RUN =
+  'docker run --rm --detach --publish 8000:8000 --name speaches --volume hf-hub-cache:/home/ubuntu/.cache/huggingface/hub ghcr.io/speaches-ai/speaches:latest-cpu'
+
+/** The voice answers of `keith setup` (docs/architecture/voice.md, ADR-0013). */
+export type VoiceChoice = {
+  key: 'none' | 'cloud' | 'local' | 'mixed'
+  label: string
+  /** `[voice]` provider ids; null for `none`. */
+  providers: { vad: string; stt: string; tts: string } | null
+  plugins: readonly VoicePlugin[]
+  /** Env vars the person must export. */
+  envVars: readonly string[]
+  /** Needs a local speaches server. */
+  speaches: boolean
+}
+
+export const VOICE_CHOICES: readonly VoiceChoice[] = [
+  { key: 'none', label: 'none', providers: null, plugins: [], envVars: [], speaches: false },
+  {
+    key: 'cloud',
+    label: 'cloud (Groq STT + OpenAI TTS)',
+    providers: { vad: 'energy', stt: 'groq', tts: 'openai' },
+    plugins: [VAD_ENERGY, VOICE_GROQ, VOICE_OPENAI],
+    envVars: ['GROQ_API_KEY', 'OPENAI_API_KEY'],
+    speaches: false,
+  },
+  {
+    key: 'local',
+    label: 'local (speaches)',
+    providers: { vad: 'energy', stt: 'speaches', tts: 'speaches' },
+    plugins: [VAD_ENERGY, VOICE_SPEACHES],
+    envVars: [],
+    speaches: true,
+  },
+  {
+    key: 'mixed',
+    label: 'mixed (Groq STT + local speaches TTS)',
+    providers: { vad: 'energy', stt: 'groq', tts: 'speaches' },
+    plugins: [VAD_ENERGY, VOICE_GROQ, VOICE_SPEACHES],
+    envVars: ['GROQ_API_KEY'],
+    speaches: true,
+  },
+]
+
 /**
  * The config.toml `keith setup` writes: the chosen provider (enabled and required), every role on
  * one model, plus the optional plugins the person enabled.
@@ -84,10 +157,21 @@ export function renderConfig(
   choice: ProviderChoice,
   model: string,
   optional: readonly OptionalPlugin[] = [],
+  voice: VoiceChoice = VOICE_CHOICES[0] as VoiceChoice,
 ): string {
   const ref = JSON.stringify(`${choice.providerId}:${model}`)
   const plugin = JSON.stringify(choice.pluginId)
-  const enabled = [plugin, ...optional.map((p) => JSON.stringify(p.pluginId))]
+  const enabled = [plugin, ...[...optional, ...voice.plugins].map((p) => JSON.stringify(p.pluginId))]
+  const voiceSection = voice.providers
+    ? [
+        '[voice]                            # docs/architecture/voice.md',
+        `vad = ${JSON.stringify(voice.providers.vad)}`,
+        `stt = ${JSON.stringify(voice.providers.stt)}`,
+        `tts = ${JSON.stringify(voice.providers.tts)}`,
+        '# language = "en"                  # hint for STT and TTS; omitted = detected',
+        '',
+      ]
+    : []
   return [
     '# Keith configuration. Every key and its default: docs/architecture/config.md',
     '',
@@ -109,6 +193,8 @@ export function renderConfig(
     ...choice.extra,
     '',
     ...optional.flatMap((p) => [`[plugins.${JSON.stringify(p.pluginId)}]`, ...p.hints, '']),
+    ...voice.plugins.flatMap((p) => [`[plugins.${JSON.stringify(p.pluginId)}]`, ...p.lines, '']),
+    ...voiceSection,
   ].join('\n')
 }
 
@@ -141,10 +227,15 @@ export async function runSetup(opts: SetupOptions): Promise<SetupResult> {
   let configWritten = false
   let choice: ProviderChoice | undefined
   const optional: OptionalPlugin[] = []
+  let voice: VoiceChoice = VOICE_CHOICES[0] as VoiceChoice
   if (await configFile.exists()) {
     out(`Keeping the existing ${paths.configFile}`)
-    for (const p of await missingOptionalPlugins(paths.configFile)) {
+    const existing = await readRawConfig(paths.configFile)
+    for (const p of missingOptionalPlugins(existing)) {
       out(`To enable ${p.pluginId}, add "${p.pluginId}" to plugins.enabled in config.toml.`)
+    }
+    if (existing !== null && !('voice' in existing)) {
+      out('To turn voice on, add a [voice] section and enable its plugins (docs/architecture/voice.md).')
     }
   } else {
     choice = await askProvider(prompter)
@@ -156,7 +247,8 @@ export async function runSetup(opts: SetupOptions): Promise<SetupResult> {
     for (const p of OPTIONAL_PLUGINS) {
       if (await askYesNo(prompter, p.question, p.enable)) optional.push(p)
     }
-    await Bun.write(paths.configFile, renderConfig(choice, model, optional))
+    voice = await askVoice(prompter)
+    await Bun.write(paths.configFile, renderConfig(choice, model, optional, voice))
     configWritten = true
     out(`Wrote ${paths.configFile}`)
   }
@@ -182,6 +274,15 @@ export async function runSetup(opts: SetupOptions): Promise<SetupResult> {
       if (optional.some((p) => p.key === 'web')) {
         out("Web app: build it once with 'bun run --cwd plugins/web build', then open http://127.0.0.1:4824/")
       }
+      if (voice.envVars.length > 0) {
+        out(`Voice: export ${voice.envVars.map((v) => `${v}=<your key>`).join(' and ')}.`)
+      }
+      if (voice.speaches) {
+        out(`Voice: start a local speaches server first (http://127.0.0.1:8000/v1):`)
+        out(`  ${SPEACHES_DOCKER_RUN}`)
+      }
+      if (voice.providers)
+        out('Voice needs the web app (mic and speaker) and a secure context: localhost or HTTPS.')
     }
     return { paths, configWritten, personaWritten, owner }
   } finally {
@@ -237,6 +338,15 @@ async function askProvider(prompter: Prompter): Promise<ProviderChoice> {
   }
 }
 
+async function askVoice(prompter: Prompter): Promise<VoiceChoice> {
+  const options = VOICE_CHOICES.map((c, i) => `${i + 1}) ${c.label}`).join('  ')
+  for (;;) {
+    const answer = (await prompter.ask(`Voice: ${options}`, '1')).trim().toLowerCase()
+    const found = VOICE_CHOICES[Number(answer) - 1] ?? VOICE_CHOICES.find((c) => c.key === answer)
+    if (found) return found
+  }
+}
+
 async function askNonEmpty(prompter: Prompter, question: string, fallback?: string): Promise<string> {
   for (let i = 0; i < 5; i++) {
     const answer = (await prompter.ask(question, fallback)).trim()
@@ -259,18 +369,24 @@ async function askNewPassword(prompter: Prompter): Promise<string> {
   throw new KeithError('INTERNAL', 'no valid password entered')
 }
 
-/** The optional plugins an existing config.toml does not enable (unreadable config: none). */
-async function missingOptionalPlugins(configFile: string): Promise<OptionalPlugin[]> {
+/** An existing config.toml as a raw table, without resolving `env:` values (unreadable: null). */
+async function readRawConfig(configFile: string): Promise<object | null> {
   try {
     const raw: unknown = Bun.TOML.parse(await Bun.file(configFile).text())
-    const plugins = typeof raw === 'object' && raw !== null && 'plugins' in raw ? raw.plugins : undefined
-    const enabled =
-      typeof plugins === 'object' && plugins !== null && 'enabled' in plugins ? plugins.enabled : undefined
-    const list = Array.isArray(enabled) ? enabled : []
-    return OPTIONAL_PLUGINS.filter((p) => !list.includes(p.pluginId))
+    return typeof raw === 'object' && raw !== null ? raw : null
   } catch {
-    return []
+    return null
   }
+}
+
+/** The optional plugins an existing config.toml does not enable (unreadable config: none). */
+function missingOptionalPlugins(raw: object | null): OptionalPlugin[] {
+  if (raw === null) return []
+  const plugins = 'plugins' in raw ? raw.plugins : undefined
+  const enabled =
+    typeof plugins === 'object' && plugins !== null && 'enabled' in plugins ? plugins.enabled : undefined
+  const list = Array.isArray(enabled) ? enabled : []
+  return OPTIONAL_PLUGINS.filter((p) => !list.includes(p.pluginId))
 }
 
 /** `mind.name` from config.toml without resolving `env:` values (the key may not be set yet). */

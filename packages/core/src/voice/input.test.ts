@@ -111,17 +111,18 @@ describe('VoiceInput', () => {
     expect(t.voice.input.end({ nodeId: NODE, streamId: START.streamId })).toBe(false)
   })
 
-  test('bargeInMinMs: speech shorter than it sends no voiceActivity, but its transcript still counts', async () => {
+  test('bargeInMinMs is not applied here: VAD start is reported at once, short speech still counts', async () => {
+    // The Mind applies bargeInMinMs (only it knows whether a turn runs); the pipeline reports raw
+    // VAD start and stop, so the delay is not applied twice (P3-I1).
     const t = setup({ config: voiceConfig({ bargeInMinMs: 300 }), texts: ['yes'] })
     t.voice.input.start(START)
-    t.feed(200, LOUD)
+    t.feed(40, LOUD)
+    expect(t.activity.map((a) => a.speaking)).toEqual([true])
+    t.feed(160, LOUD)
     t.feed(100, 0)
     await settle()
-    expect(t.activity).toEqual([])
-    expect(t.inputs.map((i) => i.text)).toEqual(['yes'])
-
-    t.feed(400, LOUD)
     expect(t.activity.map((a) => a.speaking)).toEqual([true])
+    expect(t.inputs.map((i) => i.text)).toEqual(['yes'])
   })
 
   test('out-of-order chunks are dropped and logged at debug; unknown streams return false', () => {

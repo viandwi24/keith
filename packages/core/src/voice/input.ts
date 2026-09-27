@@ -35,8 +35,6 @@ type Stream = {
   inSpeech: boolean
   utterance: Int16Array[]
   utteranceSamples: number
-  /** Samples since `speech.start`, for `bargeInMinMs`. */
-  speechSamples: number
   /** `voiceActivity({ speaking: true })` was sent for the current speech. */
   activitySent: boolean
   /** Ended utterances that had sent `speaking: true` and wait for STT. */
@@ -154,7 +152,6 @@ export function createVoiceInput(deps: VoiceDeps): VoiceInput {
       appended = true
       s.utterance.push(pcm)
       s.utteranceSamples += pcm.length
-      s.speechSamples += pcm.length
     }
     for (const e of events) {
       if (e.type === 'speech.start' && !s.inSpeech) {
@@ -163,8 +160,9 @@ export function createVoiceInput(deps: VoiceDeps): VoiceInput {
         s.utteranceSamples = s.prerollSamples
         s.preroll = []
         s.prerollSamples = 0
-        s.speechSamples = 0
         append()
+        // Raw VAD start. `voice.bargeInMinMs` is applied by the Mind, which knows the turn state.
+        activity(s, true)
       } else if (e.type === 'speech.end' && s.inSpeech) {
         append()
         s.inSpeech = false
@@ -173,7 +171,6 @@ export function createVoiceInput(deps: VoiceDeps): VoiceInput {
     }
     if (s.inSpeech) {
       append()
-      if (s.speechSamples >= msToSamples(config.bargeInMinMs)) activity(s, true)
       if (s.utteranceSamples >= msToSamples(config.maxUtteranceMs)) {
         flushUtterance(s, config, 'maxUtteranceMs', false)
       }
@@ -240,7 +237,6 @@ export function createVoiceInput(deps: VoiceDeps): VoiceInput {
         inSpeech: false,
         utterance: [],
         utteranceSamples: 0,
-        speechSamples: 0,
         activitySent: false,
         inflightActive: 0,
         queue: Promise.resolve(),

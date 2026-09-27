@@ -59,7 +59,15 @@ describe('chat client against the fake core', () => {
 
     expect(client.send('  Research venue options.  ')).toEqual({ ok: true })
     expect(core.received.length).toBeGreaterThanOrEqual(2)
-    await waitUntil(() => messages(client).some((m) => m.role === 'assistant' && !m.streaming), 3000, 'reply')
+    // `thread.state idle` follows `message.completed` in a separate frame: wait for both, so the
+    // final turnState check below never races the last frame.
+    await waitUntil(
+      () =>
+        messages(client).some((m) => m.role === 'assistant' && !m.streaming) &&
+        client.state.turnState === 'idle',
+      3000,
+      'reply',
+    )
 
     expect(core.received.find((f) => f.type === 'input.text')).toMatchObject({
       data: { threadId: core.thread.id, text: 'Research venue options.' },

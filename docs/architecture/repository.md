@@ -19,7 +19,11 @@ keith/
 │  ├─ provider-openrouter/   # @keith/provider-openrouter
 │  ├─ provider-deepseek/     # @keith/provider-deepseek
 │  ├─ web/                   # @keith/web (phase 2): client-app plugin (src/ = server side, app/ = browser app, a Node)
-│  └─ tool-weather/          # @keith/tool-weather (phase 2): reference tool plugin with UI
+│  ├─ tool-weather/          # @keith/tool-weather (phase 2): reference tool plugin with UI
+│  ├─ vad-energy/            # @keith/vad-energy (phase 3): energy VAD
+│  ├─ voice-groq/            # @keith/voice-groq (phase 3): cloud STT
+│  ├─ voice-openai/          # @keith/voice-openai (phase 3): cloud TTS
+│  └─ voice-speaches/        # @keith/voice-speaches (phase 3): local STT + TTS
 ├─ apps/
 │  └─ tui/                   # @keith/tui: terminal node
 └─ nodes/                    # (phase 7) Rust, out-of-process nodes
@@ -41,11 +45,12 @@ The protocol client every TypeScript Node is built on: the TUI now, the web brow
 |---|---|
 | `http.ts` | `normalizeBaseUrl`, `wsUrl`, `login`, `logout`, `getMe`, `listThreads`, `listMessages(…, { before, limit })` (history paging). `fetch` is injectable. Errors are `ClientError { code }` (`LOGIN_FAILED`, `UNAUTHORIZED`, `NOT_FOUND`, `HTTP_ERROR`, `NETWORK`, `INVALID_RESPONSE`, `INVALID_URL`, `ABORTED`) |
 | `session.ts` | `StoredSession` (url, token, person, expiresAt, nodeId), `SessionStore` (injected storage: the TUI's `tui.json`, the browser's `localStorage`), `parseStoredSession`, `memorySessionStore`, `webStorageSessionStore(localStorage)`, and `createAuth({ baseUrl, store })` with `restore`, `login`, `logout`, `rememberNodeId`, `expire` |
-| `chat.ts` | `createChatClient({ baseUrl, token, nodeId, client, capabilities, onState, onNodeId, … })`: `hello` (default `chat.text@1`; a UI node adds `ui.render@1`), `thread.open` of the main thread, `ping` → `pong`, reconnect with exponential backoff (500 ms → 15 s) that reopens the same thread. Methods: `start`, `send`, `cancel`, `sendUiAction`, `loadOlder`, `reconnect(token?)` (after 4003 and a new login), `close` |
+| `chat.ts` | `createChatClient({ baseUrl, token, nodeId, client, capabilities, audio, onState, onNodeId, onAudio, … })`: `hello` (default `chat.text@1`; a UI node adds `ui.render@1`; `clientCapabilities` adds `audio.in@1` / `audio.out@1` only from the `audio: { input, output }` option), `thread.open` of the main thread, `ping` → `pong`, reconnect with exponential backoff (500 ms → 15 s) that reopens the same thread. Methods: `start`, `send`, `cancel`, `sendUiAction`, `loadOlder`, `startAudio()` (`audio.start`, PCM16 16 kHz, new bare-ULID stream id), `sendAudio(streamId, sequence, pcm16)` (a kind-1 binary frame), `endAudio(streamId)`, `reconnect(token?)` (after 4003 and a new login), `close`. `onAudio` gets `start`, `chunk`, `end`, `stop` (from the core's audio frames) and `flush` (a new user input) |
+| `audio.ts` | `AudioEvent`, `newStreamId`, `pcm16ToBytes` / `pcm16FromBytes` / `pcm16ToFloat32`, and `createPlaybackQueue({ sink })`: a platform-free queue behind a `PlaybackSink` that plays each stream in `sequence` order and stops at once on `stop` / `flush` (the web app's sink is Web Audio) |
 | `state.ts` | `ChatState` and the pure reducer (`applyFrame`, `applyLocal`): connection status, person, thread, turn state, entries (messages with streaming text, the proactive mark and their `ui` blocks; tool activity; notices; floating UI blocks) and `history { hasMore, loading }` |
 | `labels.ts` | `turnLabel`, `connectionLabel` for status bars |
 
-`@keith/client/testing` (Bun only, for tests): `startFakeCore`, a stand-in core on `Bun.serve` built on the protocol schemas (HTTP API, WS handshake, streamed replies, tool activity, proactive messages, `ui.render`, history), and `waitUntil`.
+`@keith/client/testing` (Bun only, for tests): `startFakeCore`, a stand-in core on `Bun.serve` built on the protocol schemas (HTTP API, WS handshake, streamed replies, tool activity, proactive messages, `ui.render`, history, audio frames both ways), and `waitUntil`.
 
 ### `@keith/core`
 The running process. Internal folders:
