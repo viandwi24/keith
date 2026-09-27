@@ -144,7 +144,7 @@ describe('deliveries', () => {
       ui: { type: 'list', id: 'l', items: [{ title: 'Venue A' }] },
     })
     await db.repos.deliveries.create(d)
-    expect(await db.repos.deliveries.get(d.id)).toEqual(d)
+    expect(await db.repos.deliveries.get(d.id)).toEqual({ ...d, messageId: null })
     expect(await db.repos.deliveries.get(testId('dlv', 9))).toBeNull()
   })
 
@@ -170,5 +170,55 @@ describe('deliveries', () => {
       deliveredAt: 99,
     })
     expect((await db.repos.deliveries.pendingFor(t1)).map((d) => d.id)).toEqual([testId('dlv', 2)])
+  })
+
+  async function appendAssistant(n: number) {
+    await db.repos.messages.append({
+      id: testId('msg', n),
+      threadId: t1,
+      role: 'assistant',
+      authorPersonId: null,
+      nodeId: null,
+      modality: 'text',
+      content: 'Here is what came in.',
+      meta: null,
+      toolCalls: null,
+      ui: null,
+      createdAt: 50,
+    })
+  }
+
+  test('markDelivered stores the delivering message id', async () => {
+    await appendAssistant(1)
+    await db.repos.deliveries.create(delivery(1, 'normal', 1))
+    await db.repos.deliveries.create(delivery(2, 'normal', 2))
+    await db.repos.deliveries.create(delivery(3, 'normal', 3))
+    await db.repos.deliveries.markDelivered([testId('dlv', 1), testId('dlv', 2)], 99, testId('msg', 1))
+    await db.repos.deliveries.markDelivered([testId('dlv', 3)], 99)
+    for (const n of [1, 2]) {
+      expect(await db.repos.deliveries.get(testId('dlv', n))).toMatchObject({
+        status: 'delivered',
+        messageId: testId('msg', 1),
+      })
+    }
+    expect((await db.repos.deliveries.get(testId('dlv', 3)))?.messageId).toBeNull()
+    // A delivered row keeps its first message.
+    await appendAssistant(2)
+    await db.repos.deliveries.markDelivered([testId('dlv', 1)], 120, testId('msg', 2))
+    expect((await db.repos.deliveries.get(testId('dlv', 1)))?.messageId).toBe(testId('msg', 1))
+  })
+
+  test('pending deliveries have no message id, and pendingFor returns plain deliveries', async () => {
+    const d = delivery(1, 'normal', 1)
+    await db.repos.deliveries.create(d)
+    expect((await db.repos.deliveries.get(d.id))?.messageId).toBeNull()
+    expect(await db.repos.deliveries.pendingFor(t1)).toEqual([d])
+  })
+
+  test('markDelivered with an unknown message id fails (foreign key)', async () => {
+    await db.repos.deliveries.create(delivery(1, 'normal', 1))
+    await expect(
+      db.repos.deliveries.markDelivered([testId('dlv', 1)], 99, testId('msg', 9)),
+    ).rejects.toThrow()
   })
 })

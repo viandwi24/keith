@@ -21,10 +21,10 @@ One SQLite file (`~/.keith/keith.db`) plus one data folder (`~/.keith/files/`). 
 | `nodes` | id, name, kind (`attended`/`headless`), capabilities (json), last_seen_at | 1 |
 | `threads` | id, kind (`direct`/`group`), slug (e.g. `main`), title, owner_person_id, summary, created_at, updated_at. Unique (owner_person_id, slug) | 1 |
 | `thread_participants` | thread_id, person_id, joined_at, left_at | 1 |
-| `messages` | id, thread_id, role (`user`/`assistant`/`tool`), author_person_id, node_id, modality, content, tool_calls (json), tool_call_id, tool_name, is_error, ui (json), meta (json), created_at. See below | 1 |
+| `messages` | id, thread_id, role (`user`/`assistant`/`tool`), author_person_id, node_id, modality, content, tool_calls (json), tool_call_id, tool_name, is_error, ui (json), meta (json), seq, created_at. Unique (thread_id, seq). See below | 1 |
 | `tasks` | id, person_id, thread_id, agent_id, goal, status, attempt, summary, detail, ui (json), visibility, created_at, started_at, finished_at | 1 |
 | `commitments` | id, thread_id, person_id, task_id, promise, status, created_at, resolved_at, expires_at | 1 |
-| `deliveries` | id, thread_id, person_id, kind, author_person_id, source, urgency, content, ui (json), status, created_at, delivered_at | 1 |
+| `deliveries` | id, thread_id, person_id, kind, author_person_id, source, urgency, content, ui (json), status, created_at, delivered_at, message_id (nullable) | 1 |
 | `memories` (+ `memories_fts`) | see [memory.md](memory.md) | 1 |
 | `plugin_data` | plugin_id, key, value (json), updated_at. PK (plugin_id, key) | 1 |
 | `files` | id, name, path, mime, size, owner_person_id, created_at. See [Files](#files) | 2 |
@@ -43,7 +43,8 @@ Group-thread columns (`threads.kind`, `thread_participants`, `messages.author_pe
 
 - After a schema change, run `bunx drizzle-kit generate --name=<slug>` in `packages/core`. Raw SQL that Drizzle can't express (FTS5, triggers) goes in a custom migration: `bunx drizzle-kit generate --custom --name=<slug>`, then write the SQL into the generated file before it is ever applied.
 - `openDb` applies migrations with Drizzle's migrator, which records them in `__drizzle_migrations`. Reopening a migrated file applies nothing.
-- Foreign keys: child rows of a person or thread (`relationships`, `auth_tokens`, `thread_participants`, `messages`) cascade on delete. Other references have no action. `node_id` columns have no foreign key, because nodes are registered on `hello`, independently of tokens and messages.
+- A new NOT NULL column that existing rows need a value for takes three migrations, all from drizzle-kit: add it nullable (`generate`), fill it (`generate --custom`, e.g. `message-seq-backfill`), then make it NOT NULL (`generate`, which rebuilds the table and copies the column).
+- Foreign keys: child rows of a person or thread (`relationships`, `auth_tokens`, `thread_participants`, `messages`) cascade on delete. `deliveries.message_id` is set null when its message is deleted. Other references have no action. `node_id` columns have no foreign key, because nodes are registered on `hello`, independently of tokens and messages.
 
 ## Messages and tool calls
 
@@ -58,12 +59,14 @@ One row per message. Columns used depend on `role`:
 - Tool call ids are the provider's `LlmToolCall.id`, persisted as-is (no `tcl_` prefix).
 - `ui` entries remember which tool produced each block. `ui.action` frames carry `messageId` + `blockId`, so the core can find the tool's `onAction` handler (see [ui.md](ui.md#interactivity)).
 - `tool` rows are internal. They are never sent to nodes, but they are replayed into `LlmMessage[]` for later turns.
-- `messages.page` orders by `(created_at, id)`. `before` is exclusive, and an unknown `before` returns an empty page. `append` also sets the thread's `updated_at` (never moving it backwards).
+- `seq` is the message's position in its thread: 1, 2, 3, ... with no gaps, assigned by `append` inside the insert (`max(seq) + 1` for the thread, in the same transaction). A `seq` passed to `append` is ignored. `seq` defines message order; `created_at` is only a timestamp and two messages may share one. `get` and `page` always set `seq` on the records they return (the type has it optional only so callers can build a record for `append`).
+- `messages.page` orders by `seq`. `before` is exclusive (messages with a smaller `seq` than the anchor), and an unknown `before` returns an empty page. `append` also sets the thread's `updated_at` (never moving it backwards).
+- Messages written before `seq` existed were numbered by the `message-seq-backfill` migration in their old order, `(created_at, id)` per thread.
 
 ## Other repository semantics
 
 - `commitments.resolve` only changes an `open` commitment, so a second resolve keeps the first outcome.
-- `deliveries.pendingFor` orders by urgency (`critical`, `high`, `normal`, `low`), then `created_at`, then id. `markDelivered` only changes `pending` rows.
+- `deliveries.pendingFor` orders by urgency (`critical`, `high`, `normal`, `low`), then `created_at`, then id. `markDelivered(ids, at, messageId?)` only changes `pending` rows, and stores `messageId` (the assistant message whose turn delivered them) on each, or null without one. `get` returns the `DeliveryRecord` with `messageId` (null while pending and for items delivered before the column existed); `pendingFor` returns plain `Delivery` values.
 - `pluginData.get` returns `undefined` for a missing key. `list(pluginId, prefix)` returns keys in ascending order.
 
 ## Memory search filter

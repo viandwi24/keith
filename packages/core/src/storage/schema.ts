@@ -142,9 +142,11 @@ export const messages = sqliteTable(
     ui: text('ui'),
     /** JSON: MessageMeta. */
     meta: text('meta'),
+    /** Position in the thread (1, 2, ...). Assigned by the repository on insert; defines order. */
+    seq: integer('seq').notNull(),
     createdAt: integer('created_at').notNull(),
   },
-  (t) => [index('messages_thread_created_idx').on(t.threadId, t.createdAt, t.id)],
+  (t) => [uniqueIndex('messages_thread_seq_idx').on(t.threadId, t.seq)],
 )
 
 export const tasks = sqliteTable(
@@ -230,6 +232,10 @@ export const deliveries = sqliteTable(
     status: text('status', { enum: DELIVERY_STATUSES }).notNull(),
     createdAt: integer('created_at').notNull(),
     deliveredAt: integer('delivered_at'),
+    /** The assistant message that delivered the item; null while pending. */
+    messageId: text('message_id')
+      .$type<MessageId>()
+      .references(() => messages.id, { onDelete: 'set null' }),
   },
   (t) => [index('deliveries_thread_status_idx').on(t.threadId, t.status)],
 )

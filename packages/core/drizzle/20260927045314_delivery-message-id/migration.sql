@@ -1,0 +1,1 @@
+ALTER TABLE `deliveries` ADD `message_id` text REFERENCES messages(id) ON DELETE SET NULL;

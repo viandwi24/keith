@@ -5,7 +5,7 @@ import { and, asc, count, eq, inArray, lte, sql } from 'drizzle-orm'
 import type { Commitment, Delivery, Task } from '../shared/types.ts'
 import { definedOnly, type Orm, parseJsonOrNull, toJsonOrNull } from './orm.ts'
 import { commitments, deliveries, tasks } from './schema.ts'
-import type { CommitmentsRepository, DeliveriesRepository, TasksRepository } from './types.ts'
+import type { CommitmentsRepository, DeliveriesRepository, DeliveryRecord, TasksRepository } from './types.ts'
 
 type TaskRow = typeof tasks.$inferSelect
 
@@ -117,11 +117,17 @@ export function createCommitmentsRepository(db: Orm): CommitmentsRepository {
 
 type DeliveryRow = typeof deliveries.$inferSelect
 
-function toDelivery(row: DeliveryRow): Delivery {
+function toDeliveryRecord(row: DeliveryRow): DeliveryRecord {
   return {
     ...row,
     ui: parseJsonOrNull(UiBlock, row.ui, { table: 'deliveries', column: 'ui', id: row.id }),
   }
+}
+
+/** A pending item has no delivering message, so `pendingFor` returns the plain domain type. */
+function toDelivery(row: DeliveryRow): Delivery {
+  const { messageId: _, ...delivery } = toDeliveryRecord(row)
+  return delivery
 }
 
 /** Critical first (0), low last (3). */
@@ -136,7 +142,7 @@ export function createDeliveriesRepository(db: Orm): DeliveriesRepository {
     },
     async get(id) {
       const row = db.select().from(deliveries).where(eq(deliveries.id, id)).get()
-      return row ? toDelivery(row) : null
+      return row ? toDeliveryRecord(row) : null
     },
     async pendingFor(threadId) {
       return db
@@ -147,11 +153,10 @@ export function createDeliveriesRepository(db: Orm): DeliveriesRepository {
         .all()
         .map(toDelivery)
     },
-    // Placeholder (P3-K2): the optional `messageId` is ignored; P3-H3 stores it (D4).
-    async markDelivered(ids, deliveredAt) {
+    async markDelivered(ids, deliveredAt, messageId) {
       if (ids.length === 0) return
       db.update(deliveries)
-        .set({ status: 'delivered', deliveredAt })
+        .set({ status: 'delivered', deliveredAt, messageId: messageId ?? null })
         .where(and(inArray(deliveries.id, ids), eq(deliveries.status, 'pending')))
         .run()
     },
