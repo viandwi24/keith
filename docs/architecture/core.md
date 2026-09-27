@@ -990,12 +990,15 @@ Each Thread has one `TurnState` held in memory (not persisted) and broadcast as 
 ```
 
 Rules:
-- **Input while `thinking` or `speaking`.** Text input is queued and becomes the next turn. Nothing is lost, and the model sees both messages. Voice barge-in is phase 3.
+- **Input while `thinking` or `speaking`.** Text input is queued and becomes the next turn. Nothing is lost, and the model sees both messages. Spoken input can also barge in (below).
 - **`input.cancel`** aborts the running turn's `AbortSignal`. The partial assistant text is persisted with `meta.cancelled = true`.
 - **Focus** is set to the node of each new input. Audio output goes to the focus node only. Text and UI go to every node attached to the Thread (I-7).
 - Each new user input is echoed to the *other* attached nodes as `message.user`.
 - **Queue details.** One turn runs per thread at a time. Inputs that arrive while a turn runs wait in a FIFO; when the turn ends, *all* waiting inputs become the next turn together. A queued input is echoed right away but persisted when its turn starts, so history reads `user → reply → next user` rather than two user messages before the reply.
 - **Focus fallback.** When the focus node detaches, focus is empty until the next input; a turn without focus uses the capabilities of the first attached node.
+- **Listening (phase 3).** `voiceActivity({ speaking: true })` moves an `idle` thread to `listening`. The input that follows (from the voice pipeline) starts the turn as usual (`thinking`). `speaking: false` without an input, or the speaking node detaching, returns `listening` to `idle`. Speech on any node while a turn runs doesn't change the state unless it is a barge-in.
+- **Spoken replies (phase 3).** When the turn's latest input has `modality: 'audio'`, the Mind has a `VoiceOutput` (`ThreadManagerDeps.voice`) and the focus node declared `audio.out@1`, the Mind calls `VoiceOutput.begin` for the focus node and pushes every text delta to the `SpeechHandle`. Text still goes to every attached node (I-7). The reply is stored with `modality: 'audio'`. The turn stays `speaking` until the handle's `done` settles, and `message.completed` is sent after that, so a barge-in during playback can still cut the stored text. Without `voice` deps the Mind behaves exactly as in phase 2.
+- **Barge-in (phase 3).** `voiceActivity({ speaking: true })` from the focus node while `thinking` or `speaking` stops the speech right away (`SpeechHandle.stop()`, which sends `audio.stop`) and cancels the turn as `input.cancel` does. A cancelled spoken reply (barge-in or `input.cancel`) is stored with `content` cut to the `spokenChars` that `stop()` returned and `meta: { cancelled: true, spokenChars }`, the same in `message.completed` and history. After a barge-in the thread goes to `listening`. The Mind applies `voice.bargeIn` (false: speech never cuts a reply) and `voice.bargeInMinMs`: the barge-in happens only if no `speaking: false` from that node arrives within that time. Without a `[voice]` section, barge-in is on with no minimum. The voice pipeline reports raw VAD start and stop and does not apply the minimum itself.
 
 ## The turn loop
 

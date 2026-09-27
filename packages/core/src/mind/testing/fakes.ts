@@ -52,6 +52,7 @@ import type {
   ThreadParticipantRecord,
   ThreadRecord,
 } from '../../storage/types.ts'
+import type { SpeechHandle, VoiceOutput } from '../../voice/types.ts'
 
 /** Deterministic ids: `<prefix>_000…<n>` (valid ULID bodies, increasing). */
 export function createFakeIds(): Ids {
@@ -473,4 +474,65 @@ export function testConfig(mind: Partial<KeithConfig['mind']> = {}): Pick<KeithC
       ...mind,
     },
   }
+}
+
+// Voice output (voice/types.ts)
+
+export type FakeSpeech = SpeechHandle & {
+  nodeId: NodeId
+  messageId: MessageId
+  pushed: string
+  ended: boolean
+  stopCalls: number
+  /** What `stop()` returns. Default: every pushed character. */
+  spokenChars: number | null
+  /** Settles `done` (a real handle does it when the last frame was sent). */
+  finish(): void
+}
+
+export type FakeVoiceOutput = VoiceOutput & {
+  speeches: FakeSpeech[]
+  /** `done` settles right after `end()`. Default true; false holds it until `finish()`. */
+  autoFinish: boolean
+}
+
+/** Returns a handle for every `begin` (the Mind checks `audio.out@1` itself). */
+export function createFakeVoiceOutput(): FakeVoiceOutput {
+  const voice: FakeVoiceOutput = {
+    speeches: [],
+    autoFinish: true,
+    begin(a) {
+      let settle: () => void = () => {}
+      const done = new Promise<void>((resolve) => {
+        settle = resolve
+      })
+      let stopped: number | null = null
+      const speech: FakeSpeech = {
+        nodeId: a.nodeId,
+        messageId: a.messageId,
+        pushed: '',
+        ended: false,
+        stopCalls: 0,
+        spokenChars: null,
+        done,
+        push(text) {
+          if (!speech.ended && stopped === null) speech.pushed += text
+        },
+        end() {
+          speech.ended = true
+          if (voice.autoFinish) settle()
+        },
+        stop() {
+          speech.stopCalls += 1
+          stopped ??= speech.spokenChars ?? speech.pushed.length
+          settle()
+          return stopped
+        },
+        finish: () => settle(),
+      }
+      voice.speeches.push(speech)
+      return speech
+    },
+  }
+  return voice
 }

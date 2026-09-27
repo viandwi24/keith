@@ -29,6 +29,7 @@ export function toMessageDto(m: MessageRecord): MessageDto | null {
     const meta: NonNullable<MessageDto['meta']> = {}
     if (m.meta.cancelled !== undefined) meta.cancelled = m.meta.cancelled
     if (m.meta.proactive !== undefined) meta.proactive = m.meta.proactive
+    if (m.meta.spokenChars !== undefined) meta.spokenChars = m.meta.spokenChars
     if (Object.keys(meta).length > 0) dto.meta = meta
   }
   return dto

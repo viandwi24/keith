@@ -5,8 +5,8 @@ import { CoreFrame } from '@keith/protocol'
 import type { Logger, NodeId, ThreadId } from '../shared/types.ts'
 import type { AttachmentRegistry } from './types.ts'
 
-/** Where a connected node's text frames go. Implemented by the WS connection. */
-export type FrameOutlet = { sendText(text: string): void }
+/** Where a connected node's frames go. Implemented by the WS connection. */
+export type FrameOutlet = { sendText(text: string): void; sendBinary(bytes: Uint8Array): void }
 
 /** The registry plus the connection bookkeeping only the server uses. */
 export interface ServerAttachmentRegistry extends AttachmentRegistry {
@@ -72,9 +72,8 @@ export function createAttachmentRegistry(deps: AttachmentRegistryDeps): ServerAt
       }
       outlet.sendText(JSON.stringify(frame))
     },
-    // Placeholder (P3-K1): P3-A2 gives the outlet a binary path.
     sendBinary(nodeId, bytes) {
-      log.debug('binary frame dropped (not supported yet)', { nodeId, bytes: bytes.byteLength })
+      outlets.get(nodeId)?.sendBinary(bytes)
     },
     connect(nodeId, outlet) {
       outlets.set(nodeId, outlet)

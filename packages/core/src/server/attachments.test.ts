@@ -27,7 +27,7 @@ describe('attachment registry', () => {
     const log = createMemoryLogger()
     const reg = createAttachmentRegistry({ log })
     const sent: string[] = []
-    reg.connect(node(1), { sendText: (t) => sent.push(t) })
+    reg.connect(node(1), { sendText: (t) => sent.push(t), sendBinary: () => {} })
     const frame = makeFrame('notice', { level: 'info', text: 'hi' }, { id: 'a', ts: 1 })
     reg.send(node(1), frame)
     reg.send(node(2), frame)
@@ -40,11 +40,24 @@ describe('attachment registry', () => {
     expect(sent).toHaveLength(1)
   })
 
+  test('sendBinary goes to the connected node only, and is a no-op for a gone node', () => {
+    const reg = createAttachmentRegistry({ log: createMemoryLogger() })
+    const sent: Uint8Array[] = []
+    reg.connect(node(1), { sendText: () => {}, sendBinary: (b) => sent.push(b) })
+    const bytes = new Uint8Array([2, 1, 2, 3])
+    reg.sendBinary(node(1), bytes)
+    reg.sendBinary(node(2), bytes)
+    expect(sent).toEqual([bytes])
+    reg.disconnect(node(1))
+    reg.sendBinary(node(1), bytes)
+    expect(sent).toHaveLength(1)
+  })
+
   test('an invalid outgoing frame is dropped and logged', () => {
     const log = createMemoryLogger()
     const reg = createAttachmentRegistry({ log })
     const sent: string[] = []
-    reg.connect(node(1), { sendText: (t) => sent.push(t) })
+    reg.connect(node(1), { sendText: (t) => sent.push(t), sendBinary: () => {} })
     const bad = makeFrame('thread.state', { threadId: threadId(1), state: 'idle' }, { id: '', ts: 1 })
     reg.send(node(1), bad)
     expect(sent).toEqual([])

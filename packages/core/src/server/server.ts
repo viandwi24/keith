@@ -7,6 +7,7 @@ import type { CoreEventBus } from '../events/types.ts'
 import type { ThreadManager } from '../mind/types.ts'
 import type { Clock, Ids, Logger } from '../shared/types.ts'
 import type { Repositories } from '../storage/types.ts'
+import type { VoiceInput } from '../voice/types.ts'
 import type { ServerAttachmentRegistry } from './attachments.ts'
 import { type AuthSession, createAuth } from './auth.ts'
 import { type Connection, type ConnectionTiming, DEFAULT_TIMING, openConnection } from './connection.ts'
@@ -35,6 +36,11 @@ export type CoreServerDeps = {
   filesDir?: string | undefined
   /** Tests shorten the handshake and heartbeat timers. */
   timing?: Partial<ConnectionTiming> | undefined
+  /**
+   * Phase 3: where node audio goes (`audio.start`, kind-1 binary frames, `audio.end`). Without it
+   * audio frames get `error { INVALID_FRAME, "voice is not configured" }`.
+   */
+  voice?: VoiceInput | undefined
 }
 
 type WsData = { session: AuthSession | null; conn: Connection | null; done: Promise<void> | null }
@@ -71,6 +77,7 @@ export function createCoreServer(deps: CoreServerDeps): CoreServer {
     threads: deps.threads,
     attachments: deps.attachments,
     presence: deps.presence,
+    voice: deps.voice,
     pluginWs: ws,
     timing,
     server: { name: 'keith', version: deps.version },
@@ -123,7 +130,11 @@ export function createCoreServer(deps: CoreServerDeps): CoreServer {
             sockets.add(socket)
             socket.data.conn = openConnection(
               connectionDeps,
-              { sendText: (text) => socket.send(text), close: (code, reason) => socket.close(code, reason) },
+              {
+                sendText: (text) => socket.send(text),
+                sendBinary: (bytes) => socket.sendBinary(bytes),
+                close: (code, reason) => socket.close(code, reason),
+              },
               socket.data.session,
             )
           },

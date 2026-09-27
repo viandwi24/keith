@@ -47,12 +47,14 @@ import type {
   ThreadRecord,
   UserMessageRecord,
 } from '../storage/types.ts'
+import type { SpeechHandle, VoiceOutput } from '../voice/types.ts'
 import { lowestTier, toMessageDto } from './messages.ts'
 import type { Arrival, ContextBuilder, RunLoop, RunLoopEvent, RunLoopResult, ThreadManager } from './types.ts'
 import { findUiAction, idsFreeIn, validUiBlock } from './ui.ts'
 
 export type ThreadManagerDeps = {
-  config: Pick<KeithConfig, 'mind'>
+  /** `voice` (phase 3) sets barge-in; absent, barge-in is on with no minimum duration. */
+  config: Pick<KeithConfig, 'mind'> & Partial<Pick<KeithConfig, 'voice'>>
   repos: Pick<Repositories, 'persons' | 'threads' | 'messages' | 'nodes'>
   nodes: NodeSink
   presence: Pick<Presence, 'isPresent'>
@@ -71,6 +73,11 @@ export type ThreadManagerDeps = {
   tools?: Pick<CoreToolRegistry, 'get'> | undefined
   /** `t.services` for `onAction` runs. Without it, `get` throws `SERVICE_MISSING`. */
   services?: Pick<CoreServiceRegistry, 'get' | 'find'> | undefined
+  /**
+   * Phase 3: speaks audio-modality replies on the focus node. Without it every reply is text
+   * only, exactly as in phase 2.
+   */
+  voice?: VoiceOutput | undefined
 }
 
 /** The ThreadManager plus lifecycle hooks for bootstrap and tests. */
@@ -85,11 +92,21 @@ export interface MindThreadManager extends ThreadManager {
 export const APOLOGY_TEXT = "Sorry, I couldn't finish that reply. Please try again."
 
 const UI_CAPABILITY = 'ui.render@1'
+const AUDIO_OUT_CAPABILITY = 'audio.out@1'
 const MAIN_SLUG = 'main'
 
 type Hold = { kind: 'greeting' | 'grace'; timer: ReturnType<typeof setTimeout> }
 
-type Running = { controller: AbortController; messageId: MessageId | null; text: string }
+type Running = {
+  controller: AbortController
+  messageId: MessageId | null
+  text: string
+  /** The spoken reply of an audio-modality turn (phase 3). */
+  speech: SpeechHandle | null
+}
+
+/** Speech on the focus node that becomes a barge-in once it lasts `voice.bargeInMinMs`. */
+type PendingBargeIn = { nodeId: NodeId; timer: ReturnType<typeof setTimeout> }
 
 type Runtime = {
   threadId: ThreadId
@@ -110,6 +127,9 @@ type Runtime = {
   flushRequested: boolean
   /** Work that must not interleave with a turn (appending a `ui.action` result). Runs first. */
   jobs: (() => Promise<void>)[]
+  /** Phase 3: the node whose VAD reported speech that no input has followed yet. */
+  listening: NodeId | null
+  bargeIn: PendingBargeIn | null
 }
 
 type Work = { kind: TurnKind; inputs: UserMessageRecord[]; deliveries: Delivery[] }
@@ -203,6 +223,8 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
           briefingDue: false,
           flushRequested: false,
           jobs: [],
+          listening: null,
+          bargeIn: null,
         }
         ready.set(threadId, rt)
         return rt
@@ -368,7 +390,12 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
   // Turns
 
   async function runTurn(rt: Runtime, work: Work): Promise<Outcome> {
-    const running: Running = { controller: new AbortController(), messageId: null, text: '' }
+    const running: Running = {
+      controller: new AbortController(),
+      messageId: null,
+      text: '',
+      speech: null,
+    }
     rt.running = running
     const turnId = ids.next('trn')
     setState(rt, 'thinking')
@@ -395,6 +422,7 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
       }
       return outcome.outcome
     } catch (error) {
+      running.speech?.stop()
       if (running.controller.signal.aborted) {
         events.emit('turn.completed', { threadId: rt.threadId, turnId, steps: 0, cancelled: true })
         return 'cancelled'
@@ -405,7 +433,9 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
       return 'failed'
     } finally {
       rt.running = null
-      setState(rt, 'idle')
+      clearBargeIn(rt)
+      // After a barge-in the thread goes on listening to the speaker.
+      setState(rt, rt.listening === null ? 'idle' : 'listening')
     }
   }
 
@@ -431,6 +461,11 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
     running.messageId = messageId
     const proactive = work.kind !== 'user'
     broadcast(rt, makeFrame('message.started', { threadId, messageId, proactive }, frameOpts()))
+    // Phase 3: a spoken input gets a spoken reply on the focus node (voice.md), plus text everywhere.
+    const spoken = work.inputs.at(-1)?.modality === 'audio'
+    if (spoken && deps.voice && focus && capabilities.get(focus)?.includes(AUDIO_OUT_CAPABILITY)) {
+      running.speech = deps.voice.begin({ threadId, nodeId: focus, messageId })
+    }
 
     const ui: MessageUiEntry[] = []
     let result: RunLoopResult | null = null
@@ -452,24 +487,42 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
     } catch (error) {
       failure = error
     }
-    const cancelled = result ? result.stoppedBy === 'cancelled' : signal.aborted
+    let cancelled = result ? result.stoppedBy === 'cancelled' : signal.aborted
     const failed = failure !== undefined && !cancelled
     if (failed) {
       log.error('turn failed', { threadId, error: String(failure) })
       sendError(rt, failure)
     }
-    const partial = result?.text ?? running.text
+    let partial = result?.text ?? running.text
+    let spokenChars: number | undefined
+    const speech = running.speech
+    if (speech) {
+      if (!cancelled && !failed) {
+        // The turn stays `speaking` until the audio is sent, so a barge-in can still cut it.
+        speech.end()
+        await untilDoneOrAborted(speech, running.controller.signal)
+        if (running.controller.signal.aborted) cancelled = true
+      }
+      if (cancelled) {
+        // Keep only what was actually spoken (meta.spokenChars).
+        spokenChars = speech.stop()
+        partial = partial.slice(0, spokenChars)
+      } else if (failed) {
+        speech.stop()
+      }
+    }
     const content = failed ? (partial === '' ? APOLOGY_TEXT : `${partial}\n\n${APOLOGY_TEXT}`) : partial
     const meta: MessageMeta = {}
     if (proactive) meta.proactive = true
     if (cancelled) meta.cancelled = true
+    if (spokenChars !== undefined) meta.spokenChars = spokenChars
     const record: AssistantMessageRecord = {
       id: messageId,
       threadId,
       role: 'assistant',
       authorPersonId: null,
       nodeId: null,
-      modality: 'text',
+      modality: speech ? 'audio' : 'text',
       content,
       meta: Object.keys(meta).length > 0 ? meta : null,
       createdAt: clock.now(),
@@ -508,6 +561,7 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
       case 'text.delta':
         if (rt.state === 'thinking') setState(rt, 'speaking')
         running.text += e.text
+        running.speech?.push(e.text)
         broadcast(rt, makeFrame('message.delta', { threadId, messageId, text: e.text }, frameOpts()))
         return
       case 'tool.started':
@@ -623,6 +677,7 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
       broadcast(rt, frame, echoToSender ? undefined : a.nodeId)
     }
     rt.focus = a.nodeId
+    if (rt.listening === a.nodeId) rt.listening = null
     if (rt.hold) {
       // The first input after an arrival ends the hold (or the briefing grace) and carries the briefing.
       clearHold(rt)
@@ -755,6 +810,50 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
     if (dto) broadcast(rt, makeFrame('message.completed', { message: dto }, frameOpts()))
   }
 
+  // Voice activity (phase 3, docs/architecture/voice.md#turn-taking-with-voice)
+
+  function clearBargeIn(rt: Runtime): void {
+    if (rt.bargeIn) clearTimeout(rt.bargeIn.timer)
+    rt.bargeIn = null
+  }
+
+  /** Stops the spoken reply right away and cancels the turn, as `input.cancel` does. */
+  function bargeIn(rt: Runtime, nodeId: NodeId): void {
+    clearBargeIn(rt)
+    const running = rt.running
+    if (!running || rt.focus !== nodeId) return
+    log.debug('barge-in', { threadId: rt.threadId, nodeId })
+    running.speech?.stop()
+    running.controller.abort()
+  }
+
+  function voiceActivity(a: Parameters<ThreadManager['voiceActivity']>[0]): void {
+    const rt = ready.get(a.threadId)
+    if (!rt) return
+    if (!a.speaking) {
+      if (rt.bargeIn?.nodeId === a.nodeId) clearBargeIn(rt)
+      if (rt.listening !== a.nodeId) return
+      rt.listening = null
+      if (rt.state === 'listening') setState(rt, 'idle')
+      return
+    }
+    rt.listening = a.nodeId
+    if (rt.state === 'idle') {
+      setState(rt, 'listening')
+      return
+    }
+    const turnActive = rt.state === 'thinking' || rt.state === 'speaking'
+    const voice = config.voice
+    if (!turnActive || rt.focus !== a.nodeId || voice?.bargeIn === false || rt.bargeIn) return
+    const minMs = voice?.bargeInMinMs ?? 0
+    if (minMs <= 0) {
+      bargeIn(rt, a.nodeId)
+      return
+    }
+    // Short noise must not cut the reply: speech has to last `bargeInMinMs`.
+    rt.bargeIn = { nodeId: a.nodeId, timer: setTimeout(() => bargeIn(rt, a.nodeId), minMs) }
+  }
+
   // The interface
 
   return {
@@ -795,6 +894,11 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
       for (const rt of ready.values()) {
         if (a.threadId !== undefined && rt.threadId !== a.threadId) continue
         if (rt.focus === a.nodeId) rt.focus = null
+        if (rt.bargeIn?.nodeId === a.nodeId) clearBargeIn(rt)
+        if (rt.listening === a.nodeId) {
+          rt.listening = null
+          if (rt.state === 'listening') setState(rt, 'idle')
+        }
       }
     },
 
@@ -806,8 +910,7 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
 
     action,
 
-    // Placeholder (P3-K1): P3-A2 adds the `listening` state and barge-in.
-    voiceActivity() {},
+    voiceActivity,
 
     state(threadId) {
       return ready.get(threadId)?.state ?? 'idle'
@@ -819,9 +922,25 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
 
     stop() {
       unsubscribe()
-      for (const rt of ready.values()) clearHold(rt)
+      for (const rt of ready.values()) {
+        clearHold(rt)
+        clearBargeIn(rt)
+      }
     },
   }
+}
+
+/** Settles when the speech is done or the signal aborts, whichever comes first. */
+function untilDoneOrAborted(speech: SpeechHandle, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve()
+  return new Promise<void>((resolve) => {
+    const onAbort = () => resolve()
+    signal.addEventListener('abort', onAbort, { once: true })
+    void speech.done.then(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    })
+  })
 }
 
 function keithCode(error: unknown): KeithErrorCode {

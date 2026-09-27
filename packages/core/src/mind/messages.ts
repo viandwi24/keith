@@ -78,6 +78,7 @@ function stripUndefined(meta: NonNullable<MessageRecord['meta']>): NonNullable<M
   const out: NonNullable<MessageDto['meta']> = {}
   if (meta.cancelled !== undefined) out.cancelled = meta.cancelled
   if (meta.proactive !== undefined) out.proactive = meta.proactive
+  if (meta.spokenChars !== undefined) out.spokenChars = meta.spokenChars
   return out
 }
 

@@ -64,9 +64,13 @@ Implemented in `packages/core/src/server/`.
 | `input.text` / `input.cancel` for a thread this node has not opened | `error { FORBIDDEN }` |
 | `thread.close` or socket close | Node detached from the thread (or from all threads). The person becomes away when their last node detaches (`person.left`). `node.disconnected` on socket close |
 | `<namespace>.*` frame registered by a plugin | Payload validated with the plugin's schema, then its handler runs |
-| Unknown type | `error { UNKNOWN_FRAME }`. Binary frames get `INVALID_FRAME` until phase 3 |
+| `audio.start` (phase 3) | `FORBIDDEN` unless the node declared `audio.in@1` and has the thread open. Then `VoiceInput.start`; a refusal (e.g. `opus` in v1) becomes `error { INVALID_FRAME, message }` |
+| `audio.end` (phase 3) | `VoiceInput.end`; an unknown stream gets `INVALID_FRAME` |
+| Binary frame (phase 3) | Header parsed with `decodeAudioFrame`. A kind-1 chunk goes to `VoiceInput.chunk`. A malformed header, a kind-2 frame, or a chunk of a stream this node hasn't started gets `error { INVALID_FRAME }`; the connection stays open |
+| Any audio frame while voice is off (the server has no `VoiceInput`) | `error { INVALID_FRAME, "voice is not configured" }` |
+| Unknown type | `error { UNKNOWN_FRAME }` |
 
-Frames from one node are handled in order. `input.text` is handed to the ThreadManager without waiting for the turn, so a later `input.cancel` is not blocked. Errors thrown by the ThreadManager become `error` frames (`NOT_FOUND`, `FORBIDDEN` and `PROVIDER_ERROR` pass through, everything else is `INTERNAL`).
+Frames from one node, text and binary, are handled in order, so a chunk never overtakes its `audio.start`. Socket close also drops the node's open audio streams (`VoiceInput.detach`). The core sends audio to a node with `AttachmentRegistry.sendBinary`. `input.text` is handed to the ThreadManager without waiting for the turn, so a later `input.cancel` is not blocked. Errors thrown by the ThreadManager become `error` frames (`NOT_FOUND`, `FORBIDDEN` and `PROVIDER_ERROR` pass through, everything else is `INTERNAL`).
 
 ## Auth (phase 1)
 

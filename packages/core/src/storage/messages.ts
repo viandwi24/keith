@@ -12,6 +12,7 @@ import type { MessageMeta, MessageRecord, MessagesRepository, MessageUiEntry } f
 const MessageMetaSchema: z.ZodType<MessageMeta> = z.object({
   cancelled: z.boolean().optional(),
   proactive: z.boolean().optional(),
+  spokenChars: z.number().int().nonnegative().optional(),
 })
 
 const LlmToolCallSchema: z.ZodType<LlmToolCall> = z
