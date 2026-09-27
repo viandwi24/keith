@@ -80,6 +80,16 @@ A real `keith start` reflects on idle threads, keeps summaries, fires reminders 
 - The e2e harness maps `utility` to `fake:chat`. Tests that count `fake:chat` requests will see reflection and summary calls once the jobs run. Either give the utility role its own scripted model in the harness (P4-I2 owns `tests/e2e/**`), or make sure `idleMinutes` and the tick keep the jobs out of the old tests. Record which.
 - Reflection and summaries are on by default. For a home where the utility model is a paid API, config.md must say what they cost roughly (one completion per idle thread per idle period, and one per `minMessages` rows).
 
+
+## Wiring notes from wave 2 (coordinator)
+
+- D1: `createSkillRegistry({ log })` in bootstrap, so "plugin replaces a default skill" / "default restored" are logged.
+- B1: build `createThreadSummaries({ config, repos, runLoop, scheduler: scheduling.scheduler, events, clock, ids, log })` in step 7; `job.start()` after startup, `job.stop()` at shutdown. `ThreadSummariesDeps.repos` now also needs `persons` (full `repos` covers it).
+- C1: remove the shared phase-4 `> Planned` note in config.md that names P4-B1/P4-C1 (and any other P4 lane) once wired.
+- E1: add a reminder to `seed` in `cli/backup-testing.ts` and assert it survives in `restore.test.ts`; export `MIGRATIONS_FOLDER` from `storage/index.ts` and import it from there in `cli/backup.ts`.
+- K1: `reminders: { service: scheduling.reminders, config, clock }` to `registerBuiltins`.
+- A1: see its Outcome when merged.
+
 ## Outcome
 
 _Filled by the agent when finishing: what was built, decisions (ADR links), deviations, follow-ups._
