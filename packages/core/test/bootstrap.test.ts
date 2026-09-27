@@ -9,12 +9,15 @@ import type { ThreadId } from '../src/shared/types.ts'
 import { openDb } from '../src/storage/index.ts'
 import {
   createOwner,
+  createSplitFake,
   createTestHome,
   FAKE_CONFIG,
   login,
   quietLogger,
+  splitModelConfig,
   type TestHome,
   testClock,
+  tick,
   wsUrl,
 } from './helpers.ts'
 
@@ -125,6 +128,45 @@ describe('bootstrap', () => {
       expect(last?.role).toBe('assistant')
       expect(last?.content).toBe('Partial')
       expect(last?.meta?.cancelled).toBe(true)
+    } finally {
+      db.close()
+    }
+  })
+
+  test('shutdown during a running reflection pass ends within stopTimeoutMs and the pass writes nothing', async () => {
+    const home = await createTestHome(splitModelConfig())
+    cleanups.push(() => home.remove())
+    const clock = testClock()
+    const owner = await createOwner(home.dir, clock)
+    const utility = createFakeLlm([
+      [fakeDelay(30_000), ...fakeText(JSON.stringify({ facts: [{ content: 'Never stored' }] }))],
+    ])
+    const keith = await bootstrap({
+      home: home.dir,
+      env: {},
+      plugins: [createFakeLlmPlugin(createSplitFake(createFakeLlm([fakeText('Ok.')]), utility))],
+      clock,
+      log: quietLogger(clock),
+    })
+    cleanups.push(() => keith.stop())
+    const { client, threadId } = await openMain(keith)
+    client.send('input.text', { threadId, text: 'I like green tea.' })
+    await client.next('message.completed')
+    await keith.threads.idle()
+
+    clock.advance(21 * 60_000)
+    tick(keith.events, clock)
+    while (utility.calls === 0) await Bun.sleep(5)
+
+    const began = Date.now()
+    await keith.stop()
+    expect(Date.now() - began).toBeLessThan(keith.config.plugins.stopTimeoutMs)
+
+    const db = openDb(keith.paths.dbFile)
+    try {
+      const filter = { allowHousehold: true, allowOwner: true, subjectPersonId: owner, threadIds: [threadId] }
+      expect(await db.repos.memories.list(filter)).toEqual([])
+      expect((await db.repos.threads.get(threadId))?.reflectedThroughSeq ?? null).toBeNull()
     } finally {
       db.close()
     }

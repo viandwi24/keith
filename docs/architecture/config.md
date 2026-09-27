@@ -78,7 +78,7 @@ tickMs = 30000
 [models]                           # model refs: "<providerId>:<modelId>"
 foreground = "deepseek:deepseek-flash"
 background = "deepseek:deepseek-flash"
-utility    = "deepseek:deepseek-flash"   # validated at start; first used in phase 4 (reflection, addressing)
+utility    = "deepseek:deepseek-flash"   # reflection and thread summaries (phase 4); addressing later
 
 [auth]
 tokenTtlDays = 30
@@ -112,7 +112,7 @@ bargeInMinMs = 600                 # minimum speech before it counts as a barge-
 
 The phase-4 keys (`[mind.reminder]`, `[memory.reflect]`, `[memory.summary]`) all have defaults, so `KEITH__` overrides work for them, e.g. `KEITH__MEMORY__REFLECT__IDLEMINUTES=0.5`. Reflection and summaries call the `utility` model: one completion per idle thread per idle period (plus one more when a fact matches existing memories), and one per `minMessages` rows that leave the window.
 
-> Planned (phase 4, P4-A1 / P4-B1 / P4-C1 / P4-I1): the keys are parsed and validated now; the jobs and reminders that read them are built by those tasks.
+Both jobs run in every `keith start` unless `enabled = false`. On a paid API, point `utility` at a cheap model or turn the jobs off: a household with a handful of active threads a day makes a few dozen short utility calls a day.
 
 `[voice]` picks providers by id; each voice plugin's own section (API key, base URL, model, voice) stays under `[plugins."<id>"]`. The config schema checks only the shape. `KEITH__VOICE__…` overrides are not supported, because the section has no defaults to override.
 
@@ -122,7 +122,7 @@ Each plugin section is validated by that plugin's own `config` schema. The core 
 
 ### `keith setup`
 
-`keith setup` asks which provider to use (DeepSeek or OpenRouter), enables only that plugin (also listed in `required`), asks for a model id (it offers a default, `deepseek-flash` or `~openai/gpt-sol-latest`, labelled as possibly outdated since vendor ids change), and maps all three roles to it. The API key is written as `env:DEEPSEEK_API_KEY` / `env:OPENROUTER_API_KEY`, never literally. Users split roles across models later by editing the file. It then asks whether to enable the optional `@keith/web` (the browser app) and `@keith/tool-weather` plugins (default yes). They go into `enabled` but not `required`, each with a commented `[plugins."<id>"]` section. On an existing config it only prints how to add a missing one.
+`keith setup` asks which provider to use (DeepSeek or OpenRouter), enables only that plugin (also listed in `required`), asks for a model id (it offers a default, `deepseek-flash` or `~openai/gpt-sol-latest`, labelled as possibly outdated since vendor ids change), and maps all three roles to it. The API key is written as `env:DEEPSEEK_API_KEY` / `env:OPENROUTER_API_KEY`, never literally. Users split roles across models later by editing the file. The file also shows `[memory.reflect]`, `[memory.summary]` and `[mind.reminder]` with their defaults as comments (no question: they are on by default), with a pointer to the utility cost above. It then asks whether to enable the optional `@keith/web` (the browser app) and `@keith/tool-weather` plugins (default yes). They go into `enabled` but not `required`, each with a commented `[plugins."<id>"]` section. On an existing config it only prints how to add a missing one.
 
 Last, it asks about voice: **none** (default), **cloud** (`@keith/voice-groq` STT + `@keith/voice-openai` TTS), **local** (`@keith/voice-speaches` for both) or **mixed** (Groq STT + speaches TTS). Every choice but none also enables `@keith/vad-energy` and writes a `[voice]` section (`vad = "energy"` plus the `stt` / `tts` ids). The voice plugins go into `enabled` but not `required`, each with its `[plugins."<id>"]` section; keys are written as `env:GROQ_API_KEY` / `env:OPENAI_API_KEY`. At the end setup says which keys to export, and for local or mixed it prints the `docker run` command of a CPU speaches server (`ghcr.io/speaches-ai/speaches:latest-cpu` on port 8000). On an existing config without `[voice]` it prints how to turn voice on.
 

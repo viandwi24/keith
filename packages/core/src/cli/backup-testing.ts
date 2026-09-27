@@ -8,7 +8,7 @@ import { createFakeLlm, createFakeLlmPlugin } from '@keith/sdk/testing'
 import { createOwner, createTestHome, quietLogger, testClock } from '../../test/helpers.ts'
 import { bootstrap, type Keith } from '../bootstrap.ts'
 import { createIds } from '../shared/index.ts'
-import type { MemoryId, MessageId, PersonId, ThreadId } from '../shared/types.ts'
+import type { MemoryId, MessageId, PersonId, ReminderId, ThreadId } from '../shared/types.ts'
 import type { CliIo } from './index.ts'
 
 export type Cleanups = (() => Promise<void> | void)[]
@@ -41,15 +41,16 @@ export async function startKeith(home: string, cleanups: Cleanups): Promise<Keit
   return keith
 }
 
-export type Seeded = { threadId: ThreadId; messageId: MessageId; memoryId: MemoryId }
+export type Seeded = { threadId: ThreadId; messageId: MessageId; memoryId: MemoryId; reminderId: ReminderId }
 
-/** A thread with one message and one memory, owned by `owner`. */
+/** A thread with one message, one memory and one pending reminder (due in a day), owned by `owner`. */
 export async function seed(keith: Keith, owner: PersonId): Promise<Seeded> {
   const clock = testClock()
   const ids = createIds({ clock })
   const threadId = ids.next('thr')
   const messageId = ids.next('msg')
   const memoryId = ids.next('mem')
+  const reminderId = ids.next('rem')
   const at = clock.now()
   await keith.repos.threads.create(
     {
@@ -88,7 +89,19 @@ export async function seed(keith: Keith, owner: PersonId): Promise<Seeded> {
     updatedAt: at,
     lastRecalledAt: null,
   })
-  return { threadId, messageId, memoryId }
+  await keith.repos.reminders.create({
+    id: reminderId,
+    personId: owner,
+    threadId,
+    text: 'Water the tomatoes',
+    dueAt: at + 86_400_000,
+    status: 'pending',
+    createdAt: at,
+    firedAt: null,
+    cancelledAt: null,
+    deliveryId: null,
+  })
+  return { threadId, messageId, memoryId, reminderId }
 }
 
 export function cliIo(home: string): CliIo & { lines: string[]; errors: string[] } {

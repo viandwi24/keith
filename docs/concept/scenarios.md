@@ -48,6 +48,8 @@ Phase 1: the Thread's history and the Task result are persisted and available af
 
 **Test (phase 1):** restart the core between turns. History and task results survive, and the next turn's context includes them.
 
+**Test (phase 4, integration):** on the real core with a scripted utility model, a thread that has been idle past `memory.reflect.idleMinutes` is reflected on the next scheduler tick: the utility model gets that thread's messages, an `inferred` memory is stored and `memory.reflected` is emitted. A thread longer than `recentMessages + minMessages` gets a summary, and the next turn's system prompt holds `# Earlier in this thread`. A home the core wrote (stated and inferred memories, a pending reminder) survives `keith backup` / `keith restore` into a new home. **Test (phase 4, end to end, P4-I2):** a fact stated on day 1 is recalled on day 2 through `memory.recall` without the raw message in context.
+
 ## S-4 Two people, two conversations, one mind
 
 *Tony asks for work A from his laptop. At the same time Pepper asks for work B from her phone. Keith handles both like a person chatting with two friends.*

@@ -6,8 +6,9 @@
 │   Mind                                                                               │
 │   ├─ ThreadManager ── turn loop ── context builder ── LLM (via provider registry)     │
 │   ├─ Scheduler (lanes: foreground > delivery > background)                           │
-│   ├─ Tasks · Commitments · Deliveries                                                │
+│   ├─ Tasks · Commitments · Deliveries · Reminders                                    │
 │   └─ Memory (episodic messages + semantic memories, visibility-filtered)             │
+│      └─ memory jobs: reflection (idle threads) · thread summaries (utility model)    │
 │                                                                                      │
 │   Plugin host ── registries: services · events · tools · skills · agents ·           │
 │                               providers · http · ws                                  │
@@ -30,8 +31,8 @@
 
 | Part | Responsibility | Doc |
 |---|---|---|
-| **Mind** | Threads, turns, context, scheduling, tasks, commitments, deliveries | [core.md](core.md) |
-| **Memory** | Episodic history, semantic memories, visibility, recall | [memory.md](memory.md) |
+| **Mind** | Threads, turns, context, scheduling, tasks, commitments, deliveries, reminders (phase 4: `reminder.*` tools, fired on the scheduler tick as `reminder` deliveries) | [core.md](core.md) |
+| **Memory** | Episodic history, semantic memories, visibility, recall. Phase 4 memory jobs in the `background` lane on the `utility` model: reflection turns idle threads into inferred memories and card notes; thread summaries fold rows that left the window into `threads.summary` | [memory.md](memory.md) |
 | **Plugin host** | Loads plugins from config, runs `setup`/`start`/`stop`, owns the registries | [plugin-system.md](plugin-system.md) |
 | **Providers** | Adapter seams for LLM (now) and voice (phase 3) | [providers.md](providers.md) |
 | **Server** | HTTP + WS on one port, auth, node handshake, frame routing | [nodes.md](nodes.md), [protocol](../contracts/protocol.md) |
@@ -48,6 +49,7 @@ The `keith` command is the `bin` of `@keith/core` (`packages/core/src/cli/main.t
 | `keith setup` | Creates `KEITH_HOME`, `config.toml`, `persona.md`, the database and the owner Person, offers to enable the web app (`@keith/web`) and the weather tool (`@keith/tool-weather`), and offers voice (none / cloud / local / mixed) (see [config.md](config.md#keith-setup), [ui.md](ui.md#enabling-the-web-app-s-8)) |
 | `keith start [--port N] [--host H]` | Runs `bootstrap()` and serves until SIGINT/SIGTERM. Refuses (exit 1) while another Keith holds the home's lock (I-1, [config.md](config.md#logs-and-lock)) |
 | `keith migrate` | Applies pending database migrations (`keith start` does this too) |
+| `keith backup [--out <dir>]` / `keith restore <dir> [--force]` | A consistent copy of the home while Keith runs, and restoring one into a home ([config.md](config.md#keith-backup-and-keith-restore)) |
 | `keith --version` | Prints the version |
 
 `bootstrap({ home, flags, env?, plugins?, clock?, log? })` in `core/src/bootstrap.ts` takes the `KEITH_HOME` lock, builds everything in the order of [core.md](core.md#construction-order-bootstrap) and returns a running `Keith` (`url`, `port`, `stop()`, …). Without `log` it logs JSON lines to stdout and to `logs/keith.log`. Tests pass `plugins` (the SDK's fake LLM plugin), a fake clock, their own `log` and `flags: { port: 0 }`. If any step fails, what was already built is torn down again (the lock is released) and the error is rethrown.
@@ -57,7 +59,7 @@ The `keith` command is the `bin` of `@keith/core` (`packages/core/src/cli/main.t
 1. `core.stop_requested`, then `presence.flushPresence()` (last-seen times of everyone still here).
 2. The server stops listening and closes every socket.
 3. The ThreadManager stops (no new turns or holds), then `cancelAll()` cancels every running turn and waits for it. Its partial text is persisted with `meta.cancelled = true`.
-4. Presence is disposed, the scheduler stops (running tasks are aborted but keep their stored status, so the next start recovers them), memory unsubscribes, plugins stop in reverse order, the event bus drains, and the database closes.
+4. Presence is disposed, the memory jobs stop (running reflection and summary passes are aborted and write nothing), the scheduler stops (running tasks are aborted but keep their stored status, so the next start recovers them), memory unsubscribes, plugins stop in reverse order, the event bus drains, and the database closes.
 5. The log file closes, and the home lock is released last.
 
 ## Life of a text turn

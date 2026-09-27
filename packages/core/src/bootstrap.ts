@@ -10,7 +10,7 @@ import { keithPaths, loadConfig } from './config/index.ts'
 import type { ConfigFlags, KeithConfig, KeithPaths } from './config/types.ts'
 import { createEventBus } from './events/index.ts'
 import type { CoreEventBus } from './events/types.ts'
-import { MemoryStore } from './memory/index.ts'
+import { createReflection, createThreadSummaries, MemoryStore } from './memory/index.ts'
 import type { MindThreadManager } from './mind/index.ts'
 import { createContextBuilder, createRunLoop, createThreadManager, personaFromFile } from './mind/index.ts'
 import {
@@ -146,7 +146,7 @@ export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
     // 3. registries
     const services = createServiceRegistry({ winners: config.services, log })
     const tools = createToolRegistry({ log, clock, services, events })
-    const skills = createSkillRegistry()
+    const skills = createSkillRegistry({ log: log.child({ component: 'skills' }) })
     const agents = createAgentRegistry({ tools })
     const providers = createProviderRegistries({ models: config.models })
     const data = createPluginDataStores({ repo: repos.pluginData, clock })
@@ -201,6 +201,30 @@ export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
     // 7. memory
     const memory = new MemoryStore({ repos, events, config, clock, ids, log })
     closers.push({ name: 'memory', run: () => memory.stop() })
+    // Phase 4 memory jobs (ADR-0014): reflection on idle threads (per `scheduler.ticked`) and
+    // thread summaries (per `turn.completed`). Both run utility-model calls in the background lane.
+    // Started in step 12; stopped (running passes aborted) before scheduling stops.
+    const reflection = createReflection({
+      config,
+      repos,
+      memory,
+      runLoop,
+      scheduler: scheduling.scheduler,
+      events,
+      clock,
+      ids,
+      log: log.child({ component: 'reflection' }),
+    })
+    const summaries = createThreadSummaries({
+      config,
+      repos,
+      runLoop,
+      scheduler: scheduling.scheduler,
+      events,
+      clock,
+      ids,
+      log: log.child({ component: 'summaries' }),
+    })
 
     // 8. ThreadManager
     const context = createContextBuilder({
@@ -257,7 +281,14 @@ export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
     })
 
     // 10. built-in tools
-    registerBuiltins({ tools, tasks: scheduling.tasks, memory, persons: repos.persons, skills })
+    registerBuiltins({
+      tools,
+      tasks: scheduling.tasks,
+      memory,
+      persons: repos.persons,
+      skills,
+      reminders: { service: scheduling.reminders, config, clock },
+    })
 
     // 11. plugin host → load → setup → start
     const plugins = createPluginHost(
@@ -287,6 +318,11 @@ export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
 
     // 12. scheduler start, server listen → core.started
     await scheduling.start()
+    // Closers run in reverse, so on a failed start the jobs stop before scheduling does.
+    reflection.job.start()
+    closers.push({ name: 'reflection', run: () => reflection.job.stop() })
+    summaries.job.start()
+    closers.push({ name: 'summaries', run: () => summaries.job.stop() })
     const bound = await server.listen()
     closers.push({ name: 'server', run: () => server.stop() })
     const url = `http://${bound.host.includes(':') ? `[${bound.host}]` : bound.host}:${bound.port}`
@@ -314,6 +350,10 @@ export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
       await step('threads.stop', () => threads.stop())
       await step('threads.cancelAll', () => threads.cancelAll())
       await step('presence.dispose', () => presence.dispose())
+      // Memory jobs: unsubscribe and abort running passes (an aborted pass writes nothing), before
+      // scheduling stops its lanes.
+      await step('reflection', () => reflection.job.stop())
+      await step('summaries', () => summaries.job.stop())
       // Aborts running tasks without changing their stored status (recovered on the next start).
       await step('scheduling', () => scheduling.stop())
       await step('memory', () => memory.stop())

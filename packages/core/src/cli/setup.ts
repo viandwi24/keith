@@ -150,6 +150,27 @@ export const VOICE_CHOICES: readonly VoiceChoice[] = [
 ]
 
 /**
+ * Memory jobs and reminders (phase 4) with their defaults, commented out: they are on without any
+ * config. Reflection and summaries call the `utility` model (cost: docs/architecture/config.md).
+ */
+export const PHASE4_DEFAULTS: readonly string[] = [
+  '# Reflection and summaries call the utility model (costs: docs/architecture/config.md).',
+  '# [memory.reflect]                 # learn from idle threads (memory.md#reflection)',
+  '# enabled = true',
+  '# idleMinutes = 20',
+  '# maxMessages = 200',
+  '# cardMaxChars = 1000',
+  '#',
+  '# [memory.summary]                 # summarize long threads (memory.md#thread-summary)',
+  '# enabled = true',
+  '# minMessages = 20',
+  '# maxChars = 2000',
+  '#',
+  '# [mind.reminder]',
+  '# maxPerPerson = 50                # pending reminders per person',
+]
+
+/**
  * The config.toml `keith setup` writes: the chosen provider (enabled and required), every role on
  * one model, plus the optional plugins the person enabled.
  */
@@ -183,6 +204,8 @@ export function renderConfig(
     `foreground = ${ref}`,
     `background = ${ref}`,
     `utility    = ${ref}`,
+    '',
+    ...PHASE4_DEFAULTS,
     '',
     '[plugins]',
     `enabled  = [${enabled.join(', ')}]`,
