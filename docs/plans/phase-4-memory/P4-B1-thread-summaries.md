@@ -4,7 +4,7 @@ title: "Thread summaries: a rolling summary in threads.summary, used by the cont
 phase: 4
 wave: 2
 lane: B
-status: in-progress
+status: review
 owner: agent-P4-B1
 depends: [P4-K1]
 owns:
@@ -56,22 +56,22 @@ A long thread stays coherent. Rows that leave the recent-messages window are fol
 
 ## Acceptance criteria
 
-- [ ] `memory/summary/summarizer.test.ts` (fake repos, `createFakeLlm`):
+- [x] `memory/summary/summarizer.test.ts` (fake repos, `createFakeLlm`):
   - Below `minMessages` there is no model call and the result is false.
   - At the threshold, the model gets the previous summary and the pending rows (and no tool rows). The summary and cursor are stored, and `thread.summarized` is emitted.
   - Output over `maxChars` is cut.
   - A provider error leaves the summary unchanged.
-- [ ] `memory/summary/job.test.ts`:
+- [x] `memory/summary/job.test.ts`:
   - `turn.completed` triggers one background update.
   - A burst of five events for one thread makes at most two updates.
   - `enabled = false` does nothing.
   - `stop()` aborts.
-- [ ] `mind/context-builder.test.ts`:
+- [x] `mind/context-builder.test.ts`:
   - With a summary, the system prompt has `# Earlier in this thread` between commitments and deliveries.
   - The window starts right after `summaryThroughSeq`, and its size stays inside the bounds above.
   - Without a summary, the output is byte-identical to today's (the existing tests don't change).
-- [ ] `mind/context-sections.test.ts`: the briefing hint appears only when `morning_briefing` is registered.
-- [ ] `bun run check` passes.
+- [x] `mind/context-sections.test.ts`: the briefing hint appears only when `morning_briefing` is registered.
+- [x] `bun run check` passes.
 
 ## Notes
 
@@ -81,4 +81,28 @@ A long thread stays coherent. Rows that leave the recent-messages window are fol
 
 ## Outcome
 
-_Filled by the agent when finishing: what was built, decisions (ADR links), deviations, follow-ups._
+**Built**
+- `memory/summary/`:
+  - `summarizer.ts` (`createSummarizer`): pending rows are `(summaryThroughSeq ?? 0, lastSeq − recentMessages]`, counted as rows (not seq distance). Fewer than `minMessages` → false, no model call. User rows and final assistant rows become a `<name>: <text>` transcript (the Mind as `<mind.name> (you)`); tool rows and tool-step assistant rows are skipped but move the cursor. One `runLoop` call (`utility`, no tools, `maxSteps: 1`, `persist: null`, `runCtx` = the thread's owner or first participant). The reply is cut at a sentence boundary to `maxChars`, stored with `setSummary`, and `thread.summarized` is emitted. An empty, cancelled or failed reply returns false and leaves summary and cursor unchanged (logged).
+  - `job.ts` (`createSummaryJob`): subscribes to `turn.completed` only when `memory.summary.enabled`; each event runs an update in the `background` lane; events for a thread with an update queued or running set one follow-up flag (a burst of five = two updates). `stop()` unsubscribes, aborts and awaits running updates. `start()` is idempotent.
+  - `prompts.ts`: system and user prompts (keep names, decisions, promises, dates, open questions; drop small talk) and `cutAtSentence`.
+  - `index.ts`: `createThreadSummaries` composes both (placeholder replaced).
+- `mind/context-sections.ts`: `summarySection` (`# Earlier in this thread`), `BRIEFING_SKILL`, and `deliveriesSection(deliveries, kind, skillNames = [])`, which adds "If the skills index lists `morning_briefing`, load it first." to briefing and arrival instructions only when that name is among `skillNames`. Delivery turns never get it.
+- `mind/context-builder.ts`: reads the thread (`repos.threads`) in parallel with the other sections; the summary section goes after commitments and before deliveries; the window rule: no cursor → `page({ limit: recentMessages })` exactly as before; with a cursor → `page({ limit: recentMessages + minMessages })`, keep rows with `seq > cursor` when there are at least `recentMessages` of them, else the last `recentMessages` rows. `ContextBuilderDeps.config` is `mind | memory`, `repos` gains `threads`. Bootstrap passes full `config` and `repos`, so it compiles unchanged.
+- `mind/testing/fakes.ts`: `testConfig(mind, { summary })` now returns `mind` and `memory` (config defaults).
+- Tests: `memory/summary/summarizer.test.ts`, `memory/summary/job.test.ts` (real event bus, `createRunLoop` with `createFakeLlm`, mind fakes), new cases in `context-builder.test.ts` (placement, window bounds on both sides) and `context-sections.test.ts` (briefing hint, summary section). The existing tests are unchanged and pass.
+- Docs: core.md (Context builder: the summary section, the window rule, the briefing hint; memory-jobs prose; the `(P4-B1)` markers removed, the remaining note is `(P4-A1)` only) and memory.md (Thread summary section rewritten as built).
+
+**Decisions**
+- `ThreadSummariesDeps.repos` gains `persons`, so the transcript names speakers ("keep names"). This widens the Pick; P4-I1 passes the full `repos`, so no call site changes. core.md says so.
+- One update reads at most `SUMMARY_MAX_ROWS` (400) rows, so a long pre-phase-4 thread catches up over several turns instead of sending thousands of rows in one call. Not a config key.
+- When every pending row is a tool row (no transcript lines), the cursor moves and the previous summary is stored as is, without a model call.
+- The window takes the latest rows in both clamped cases: fewer than `recentMessages` after the cursor (overlap with the summary), or more than the upper bound (a gap while the job is behind or off).
+
+**Deviations**
+- None outside `owns`. `docs/architecture/config.md` still has the shared phase-4 Planned note naming P4-B1; it is not in this task's `updates` and P4-I1 removes it.
+
+**Follow-ups**
+- P4-I1: build `createThreadSummaries({ config, repos, runLoop, scheduler: scheduling.scheduler, events, clock, ids, log })` in step 7, `job.start()` after start-up and `job.stop()` in shutdown.
+
+**Check:** `bun run check` green (1216 pass, 3 skip, 0 fail).

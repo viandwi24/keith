@@ -1171,11 +1171,11 @@ The digest builds its activity picture from events (`thread.state_changed`, `tas
 **Memory jobs (phase 4, [ADR-0014](../decisions/0014-reflection-writes-conservative-inferred-memories.md)).** Two factories, exported from `memory/index.ts`, each return the worker and a `MemoryJob` that bootstrap starts and stops:
 
 - `createReflection(deps): { reflector: Reflector; job: MemoryJob }` (`memory/reflect/`). Deps: `config` (`memory`, `mind`), `repos` (`threads`, `messages`, `memories`, `relationships`, `persons`), `memory` (the `MemoryService`), `runLoop`, `scheduler` (`run`), `events`, `clock`, `ids`, `log`. The job reacts to `scheduler.ticked`.
-- `createThreadSummaries(deps): { summarizer: ThreadSummarizer; job: MemoryJob }` (`memory/summary/`). Same deps without `memory`, and `repos` is `threads` and `messages`. The job reacts to `turn.completed`.
+- `createThreadSummaries(deps): { summarizer: ThreadSummarizer; job: MemoryJob }` (`memory/summary/`). Same deps without `memory`, and `repos` is `threads`, `messages` and `persons` (speaker names in the transcript). The job reacts to `turn.completed`: each event schedules one update of its thread, and events for a thread whose update is queued or running are coalesced into at most one follow-up.
 
 Both call the `utility` model through `RunLoop` (no tools, one step, `persist: null`) and run in the `background` lane. See [memory.md](memory.md#reflection).
 
-> Planned (phase 4, P4-A1 / P4-B1): both factories are placeholders today: `reflect` returns null, `update` returns false, and the jobs subscribe to nothing. Bootstrap doesn't build them yet (P4-I1).
+> Planned (phase 4, P4-A1): `createReflection` is a placeholder today: `reflect` returns null and its job subscribes to nothing. Bootstrap doesn't build either job yet (P4-I1).
 
 ### Construction order (bootstrap)
 
@@ -1262,12 +1262,13 @@ Builds `{ system, messages, tools }` for a Viewer. The system prompt is assemble
 5. **Memory index:** `MemoryService.index(viewer)`, so the model knows recall is worth trying.
 6. **Awareness digest:** `MemoryService.digest(...)`, 5 lines at most.
 7. **Open commitments** in this Thread.
-8. **Pending deliveries:** only in delivery turns and arrival turns, with instructions to phrase them naturally.
+   - **Thread summary (phase 4):** `# Earlier in this thread` with `threads.summary` ([memory.md](memory.md#thread-summary)). Left out when the thread has no summary.
+8. **Pending deliveries:** only in delivery turns and arrival turns, with instructions to phrase them naturally. When a skill named `morning_briefing` is registered, the briefing and arrival instructions add "If the skills index lists `morning_briefing`, load it first." (the builder passes the registered skill names to the section).
 9. **Skills index:** name + one-line description of every registered skill (full text loads through `skill.load`).
 
-**Messages:** the last `mind.context.recentMessages` stored rows (default 40). The window counts every row, including the tool-step assistant rows and `tool` rows that nodes don't see, so a turn with many tool steps leaves fewer visible messages in it.
+**Messages:** without a summary cursor (`threads.summary_through_seq` is null), the last `mind.context.recentMessages` stored rows (default 40). The window counts every row, including the tool-step assistant rows and `tool` rows that nodes don't see, so a turn with many tool steps leaves fewer visible messages in it.
 
-> Planned (phase 4, P4-B1): **Thread summary.** A section `# Earlier in this thread` with `threads.summary` goes between section 7 (open commitments) and section 8 (pending deliveries), and is left out when the thread has no summary. With a summary, the messages are the rows with `seq > summaryThroughSeq`: at least `recentMessages` and at most `recentMessages + memory.summary.minMessages`, so no row falls between the summary and the window. Without a summary, the window is unchanged. Briefing and arrival instructions tell the model to load `morning_briefing` first when the skills index lists it.
+**Window rule with a summary.** The messages are the rows with `seq > summaryThroughSeq`, but at least `recentMessages` and at most `recentMessages + memory.summary.minMessages` (the latest ones in both cases). The summary job folds rows once `minMessages` of them have left the `recentMessages` window, so while it keeps up no row falls between the summary and the window. Fewer rows after the cursor than `recentMessages` (the setting grew) means some overlap with the summary; more than the upper bound (the job fell behind or is off) means a gap until it catches up. The replay rules for orphan tool rows apply to this window as well.
 
 **Tools:** every tool in the registry, built-ins included, where `tool.minTier` is at or below the lowest participant tier (owner > member > guest) and `tool.requires ⊆` the focus node's capabilities.
 

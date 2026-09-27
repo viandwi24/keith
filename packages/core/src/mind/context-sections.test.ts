@@ -10,6 +10,7 @@ import {
   participantsSection,
   personaSection,
   skillsSection,
+  summarySection,
 } from './context-sections.ts'
 import { PEPPER, TONY } from './testing/harness.ts'
 
@@ -144,6 +145,29 @@ describe('context sections', () => {
     expect(deliveriesSection([], 'user')).toBeNull()
     expect(deliveriesSection([], 'delivery')).toBeNull()
     expect(deliveriesSection([], 'briefing')).toContain('Greet them')
+  })
+
+  test('8. deliveries: the briefing hint appears only when morning_briefing is registered', () => {
+    const hint = 'If the skills index lists `morning_briefing`, load it first.'
+    const items = [delivery('Shortlist ready')]
+    const withSkill = ['expo', 'morning_briefing']
+    expect(deliveriesSection(items, 'briefing', withSkill)).toContain(hint)
+    expect(deliveriesSection([], 'briefing', withSkill)).toContain(hint)
+    expect(deliveriesSection(items, 'user', withSkill)).toContain(hint)
+    expect(deliveriesSection(items, 'delivery', withSkill)).not.toContain(hint)
+    for (const kind of ['briefing', 'user', 'delivery'] as const) {
+      expect(deliveriesSection(items, kind, ['expo'])).not.toContain(hint)
+      expect(deliveriesSection(items, kind)).not.toContain('morning_briefing')
+    }
+  })
+
+  test('7b. thread summary', () => {
+    expect(summarySection('  Tony chose Rome for the expo.\n')).toBe(
+      '# Earlier in this thread\nTony chose Rome for the expo.',
+    )
+    expect(summarySection(null)).toBeNull()
+    expect(summarySection(undefined)).toBeNull()
+    expect(summarySection('  ')).toBeNull()
   })
 
   test('9. skills index', () => {
