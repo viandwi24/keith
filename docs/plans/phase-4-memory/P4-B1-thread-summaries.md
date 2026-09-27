@@ -4,7 +4,7 @@ title: "Thread summaries: a rolling summary in threads.summary, used by the cont
 phase: 4
 wave: 2
 lane: B
-status: review
+status: done
 owner: agent-P4-B1
 depends: [P4-K1]
 owns:
