@@ -4,7 +4,7 @@ title: "Integration: wire reflection, summaries, reminders and briefing skills i
 phase: 4
 wave: 3
 lane: I
-status: review
+status: done
 owner: agent-P4-I1
 depends: [P4-S1, P4-A1, P4-B1, P4-C1, P4-D1, P4-E1]
 owns:
