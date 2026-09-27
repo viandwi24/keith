@@ -291,6 +291,8 @@ export type FrameOfType<T extends CoreFrameType> = Extract<CoreFrame, { type: T 
 export interface E2eNode {
   /** Every core frame received, in order (validated with `parseCoreFrame`). */
   readonly frames: CoreFrame[]
+  /** Every binary (audio) frame received, in order, as raw bytes. */
+  readonly binary: Uint8Array[]
   readonly nodeId: string
   /** The next not yet taken frame of `type` that satisfies `match`. */
   next<T extends CoreFrameType>(
@@ -331,11 +333,18 @@ export async function connectNode(
   const url = `${keith.url.replace(/^http/, 'ws')}/v1/ws?token=${encodeURIComponent(token)}`
   const ws = new WebSocket(url)
   const frames: CoreFrame[] = []
+  const binary: Uint8Array[] = []
   const taken = new Set<CoreFrame>()
   const waiters = new Set<() => void>()
   const problems: string[] = []
 
+  ws.binaryType = 'arraybuffer'
   ws.addEventListener('message', (e) => {
+    if (typeof e.data !== 'string') {
+      binary.push(new Uint8Array(e.data as ArrayBuffer))
+      for (const w of [...waiters]) w()
+      return
+    }
     const parsed = parseCoreFrame(String(e.data))
     if (!parsed.ok) {
       problems.push(`${parsed.code}: ${parsed.message}`)
@@ -360,6 +369,7 @@ export async function connectNode(
 
   const node: E2eNode = {
     frames,
+    binary,
     nodeId: '',
     async next(type, match = () => true, timeoutMs = WAIT_MS) {
       const deadline = Date.now() + timeoutMs
