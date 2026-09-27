@@ -19,12 +19,13 @@ One decision per file. Accepted ADRs are never edited except for their status li
 | [0011](0011-client-app-browser-side.md) | The browser side of a client-app plugin follows the app rules | accepted |
 | [0012](0012-web-bundler.md) | Bun's HTML bundler for the web app | accepted |
 | [0013](0013-voice-v1-transport-and-providers.md) | Voice v1: PCM16 on the wire, energy VAD, OpenAI-compatible STT/TTS | accepted |
+| [0014](0014-reflection-writes-conservative-inferred-memories.md) | Reflection writes conservative inferred memories; thread summaries run on their own | proposed |
 
 ## Writing an ADR
 
 Copy the template below to `NNNN-<slug>.md` (the next free number). Agents create ADRs with `status: proposed`. Only the coordinator sets `accepted` and updates this index, so agents never edit this file.
 
-**Reserved numbers:** `0011` for P2-K1 (browser side of client-app plugins), `0012` for P2-C1 (web bundler), `0013` for P3-K1 (voice v1 transport and providers). Other agents start at `0014`. If two agents collide on a number, the coordinator renumbers the later one.
+**Reserved numbers:** `0011` for P2-K1 (browser side of client-app plugins), `0012` for P2-C1 (web bundler), `0013` for P3-K1 (voice v1 transport and providers), `0014` for the phase-4 plan (reflection), `0015` for P4-A1 (only if FTS recall fails). Other agents start at `0016`. If two agents collide on a number, the coordinator renumbers the later one.
 
 ```markdown
 # ADR-NNNN: <decision as a short statement>

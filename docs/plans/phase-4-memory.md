@@ -1,6 +1,6 @@
 # Phase 4: Memory + proactivity (overview)
 
-> Overview only.
+> Task files are in [phase-4-memory/](phase-4-memory/README.md). This overview is kept for history.
 
 **Goal:** Keith learns from conversations without being told, keeps long threads coherent, and reminds you of things on time.
 
