@@ -4,7 +4,7 @@ title: "keith backup and keith restore"
 phase: 4
 wave: 2
 lane: E
-status: review
+status: done
 owner: agent-P4-E1
 depends: [P4-K1]
 owns:
