@@ -92,6 +92,14 @@
         "zod": "^4.6.5",
       },
     },
+    "plugins/vad-energy": {
+      "name": "@keith/vad-energy",
+      "version": "0.0.0",
+      "dependencies": {
+        "@keith/sdk": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "plugins/web": {
       "name": "@keith/web",
       "version": "0.0.0",
@@ -299,6 +307,8 @@
     "@keith/tool-weather": ["@keith/tool-weather@workspace:plugins/tool-weather"],
 
     "@keith/tui": ["@keith/tui@workspace:apps/tui"],
+
+    "@keith/vad-energy": ["@keith/vad-energy@workspace:plugins/vad-energy"],
 
     "@keith/web": ["@keith/web@workspace:plugins/web"],
 
