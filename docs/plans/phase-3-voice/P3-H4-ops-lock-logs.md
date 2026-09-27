@@ -4,7 +4,7 @@ title: "Hardening: single-instance lock and rotating log files"
 phase: 3
 wave: 6
 lane: H
-status: review
+status: done
 owner: agent-P3-H4
 depends: [P3-K2]
 owns:
