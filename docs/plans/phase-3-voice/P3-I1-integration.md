@@ -4,8 +4,8 @@ title: "Integration: wire voice into bootstrap, setup and config"
 phase: 3
 wave: 3
 lane: I
-status: todo
-owner: null
+status: in-progress
+owner: agent-P3-I1
 depends: [P3-A1, P3-A2, P3-B1, P3-D1, P3-E1]
 owns:
   - packages/core/**
@@ -25,6 +25,8 @@ updates:
   - docs/architecture/voice.md
   - docs/architecture/config.md
   - docs/architecture/overview.md
+  - docs/architecture/repository.md
+  - docs/architecture/nodes.md
 scenarios: [S-7]
 ---
 
@@ -46,6 +48,8 @@ A real `keith start` with a `[voice]` section runs the whole cascade: bootstrap 
   - `voice.bargeInMinMs` is applied twice: P3-A1's pipeline holds `voiceActivity({ speaking: true })` until speech lasted `bargeInMinMs`, and P3-A2's Mind applies it again. Keep it in the Mind (only the Mind knows whether a turn is running). The pipeline reports raw VAD start/stop. Add a test through the real pipeline and Mind that a barge-in fires after about `bargeInMinMs`, not twice that.
   - `createVoice` needs `capabilities(nodeId)` (P3-A1). Supply it from the capabilities the server records at `hello`.
   - Pass `voice.output` to `createThreadManager({ voice })` with a `config` that includes `voice`, and `voice.input` to `createCoreServer({ voice })` (P3-A2).
+  - Docs P3-E1 could not touch: `voice.md` (browser side is built now) and `repository.md` (the `@keith/client` audio API). Add both to this task's doc changes.
+  - `packages/client/src/chat.test.ts` has a pre-existing race (reads `turnState` before the idle state arrives; about 1 failure in 7 runs). Make it deterministic.
   - P3-A2 keeps a spoken reply `speaking` until playback ends and sends `message.completed` only then, also to nodes without audio. Check that this is acceptable in the S-7 test (the text still streams live via `message.delta`), and record it in voice.md.
 - Clear the coordinator notes from P2-I1: nodes.md (the "ui.action until phase 2" clause) and config.md (setup offers the optional plugins).
 

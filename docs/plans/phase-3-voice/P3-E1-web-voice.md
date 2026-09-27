@@ -4,7 +4,7 @@ title: "Web and client: mic capture, playback queue, audio.in@1 / audio.out@1"
 phase: 3
 wave: 2
 lane: E
-status: review
+status: done
 owner: agent-P3-E1
 depends: [P3-K1]
 owns:
