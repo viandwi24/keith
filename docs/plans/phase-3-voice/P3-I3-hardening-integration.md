@@ -4,8 +4,8 @@ title: "Hardening integration: wiring, e2e gaps and doc fixes"
 phase: 3
 wave: 8
 lane: I
-status: todo
-owner: null
+status: in-progress
+owner: agent-P3-I3
 depends: [P3-H1, P3-H2, P3-H3, P3-H4, P3-H5, P3-H6, P3-H7]
 owns:
   - packages/**
@@ -45,6 +45,7 @@ Wire the hardening lanes into a real `keith start`, close the e2e gaps, and appl
   - H1: shutdown uses `threads.cancelAll()`; drop `trackRunningTurns` / `cancelRunningTurns` from bootstrap.
   - H2: pass `pluginStatus: () => host.status()` and `voiceConfigured` to `createCoreServer`.
   - H4: `acquireHomeLock(paths.home)` first and release last in bootstrap (the CLI does not take it for `start`); logger gets `file: createLogFile({ dir: paths.logsDir })`, closed on stop; remove config.md's `> Planned (phase 3, P3-I3)` note.
+  - H7: document in plugin-api.md-adjacent architecture docs (ui.md / plugin-system.md, not the contract) that a click on a block attached by a delivery becomes the input `(clicked: <label>)`; routing it to a plugin handler would need a contract change. Add it to hardening-audit.md as a known limitation.
   - H5: root `package.json` gets `"core-docs": "bun scripts/check-core-docs.ts"` and `bun run core-docs` in `check` after `deps`; add `core-docs` to the AGENTS.md command table (AGENTS.md is in owns for this).
 
 **Out:** anything not listed; items owned by another hardening task.
