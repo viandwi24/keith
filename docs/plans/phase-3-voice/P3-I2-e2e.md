@@ -4,7 +4,7 @@ title: "S-7 end to end: switch device and modality mid-conversation"
 phase: 3
 wave: 4
 lane: I
-status: review
+status: done
 owner: agent-P3-I2
 depends: [P3-I1]
 owns:
@@ -45,7 +45,7 @@ S-7 runs in CI with synthetic audio. Then a human runs it with real providers.
 
 - [x] `tests/e2e/s7-voice.test.ts` passes 5 runs in a row locally and in CI. (Locally: yes. CI: the workflow runs it 5 times; not yet observed on a CI run.)
 - [x] The page has no JS errors. The TUI node never receives a binary frame.
-- [ ] The human run is recorded in the Outcome (the coordinator asks the owner, because it needs real API keys).
+- [ ] The human run is recorded in the Outcome (the coordinator asks the owner, because it needs real API keys). **Deferred by the owner on 2026-09-27**; see the phase-3 README exit notes.
 - [x] `bun run check` passes.
 
 ## Human run (owner, real keys)

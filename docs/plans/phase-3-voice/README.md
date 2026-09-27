@@ -34,3 +34,13 @@ The coordinator's audit found gaps across phases 0–3: [hardening-audit.md](har
 | 6 | [P3-H6 TUI logout, scrollback](P3-H6-tui-logout-scrollback.md) | `apps/tui` |
 | 7 | [P3-H7 Delivery UI, order by seq](P3-H7-delivery-ui.md) | `core/src/{mind,scheduler}` |
 | 8 | [P3-I3 Hardening integration](P3-I3-hardening-integration.md) | wiring, e2e, docs |
+
+## Exit (2026-09-27)
+
+Closed by the owner's decision with two items still open:
+
+- [x] Integration tasks done (P3-I1, P3-I2, P3-I3); S-7 and S-8 pass locally 5 runs in a row, and `bun run check` is green.
+- [ ] **CI:** the e2e tests have not run in CI yet. The owner pushes `main` manually.
+- [ ] **Human run with real keys:** deferred by the owner. The steps are in [P3-I2](P3-I2-e2e.md#human-run-owner-real-keys). The same goes for the human runs of P1-I1, P1-I2 and P2-I1, re-recording the synthetic provider fixtures, and tuning the energy VAD with a real mic ([hardening-audit.md](hardening-audit.md#manual-owner)).
+- [x] No `> Planned (phase 3)` markers left in `docs/architecture`.
+- [x] Phase-4 task files written ([phase-4-memory/](../phase-4-memory/README.md)).
