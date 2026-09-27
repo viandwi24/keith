@@ -2,8 +2,10 @@
 // See docs/architecture/nodes.md#connection-lifecycle and docs/contracts/protocol.md.
 
 import {
+  AUDIO_FRAME_KIND,
   type CoreFrame,
   type CoreFrameType,
+  decodeAudioFrame,
   type ErrorCode,
   type FrameData,
   FrameEnvelope,
@@ -18,6 +20,7 @@ import type { CoreEventBus } from '../events/types.ts'
 import type { ThreadManager } from '../mind/types.ts'
 import type { Clock, Ids, Logger, NodeId, PersonDto, ThreadId } from '../shared/types.ts'
 import type { Repositories } from '../storage/types.ts'
+import type { VoiceInput } from '../voice/types.ts'
 import type { ServerAttachmentRegistry } from './attachments.ts'
 import type { AuthSession } from './auth.ts'
 import { toPersonDto } from './dto.ts'
@@ -40,7 +43,14 @@ export const DEFAULT_TIMING: ConnectionTiming = {
 }
 
 /** The socket as a connection sees it. */
-export type Socket = { sendText(text: string): void; close(code: number, reason: string): void }
+export type Socket = {
+  sendText(text: string): void
+  sendBinary(bytes: Uint8Array): void
+  close(code: number, reason: string): void
+}
+
+const AUDIO_IN_CAPABILITY = 'audio.in@1'
+const VOICE_OFF = 'voice is not configured'
 
 export type ConnectionDeps = {
   log: Logger
@@ -51,6 +61,8 @@ export type ConnectionDeps = {
   threads: ThreadManager
   attachments: ServerAttachmentRegistry
   presence: ServerPresence
+  /** Phase 3: node audio. Without it audio frames get `INVALID_FRAME`. */
+  voice?: VoiceInput | undefined
   pluginWs: PluginWs
   timing: ConnectionTiming
   server: { name: string; version: string }
@@ -92,6 +104,7 @@ export function openConnection(
   let log = baseLog.child({ personId: person.id })
   let phase: 'awaiting-hello' | 'handshaking' | 'ready' | 'closed' = 'awaiting-hello'
   let nodeId: NodeId | null = null
+  let capabilities: string[] = []
   let chain: Promise<void> = Promise.resolve()
 
   const send = <T extends CoreFrameType>(type: T, data: FrameData<T>, re?: string | undefined) => {
@@ -144,8 +157,12 @@ export function openConnection(
       // Checked again without an await in between, so two sockets never share a node id.
       if (deps.attachments.isConnected(id)) id = deps.ids.next('nod')
       if (phase !== 'handshaking') return // closed meanwhile
-      deps.attachments.connect(id, { sendText: (text) => socket.sendText(text) })
+      deps.attachments.connect(id, {
+        sendText: (text) => socket.sendText(text),
+        sendBinary: (bytes) => socket.sendBinary(bytes),
+      })
       nodeId = id
+      capabilities = frame.data.capabilities
       log = log.child({ nodeId: id })
       await deps.repos.nodes.upsert({
         id,
@@ -288,6 +305,41 @@ export function openConnection(
           return
         case 'pong':
           return
+        case 'audio.start': {
+          const voice = deps.voice
+          if (!voice) {
+            sendError('INVALID_FRAME', VOICE_OFF, frame.id)
+            return
+          }
+          if (!capabilities.includes(AUDIO_IN_CAPABILITY)) {
+            sendError('FORBIDDEN', `audio needs the ${AUDIO_IN_CAPABILITY} capability`, frame.id)
+            return
+          }
+          if (!isOpenHere(frame.data.threadId)) {
+            sendError('FORBIDDEN', 'thread is not open on this node', frame.id)
+            return
+          }
+          const started = voice.start({
+            nodeId: node,
+            personId: person.id,
+            threadId: frame.data.threadId,
+            streamId: frame.data.streamId,
+            codec: frame.data.codec,
+            sampleRate: frame.data.sampleRate,
+          })
+          if (!started.ok) sendError(started.code, started.message, frame.id)
+          return
+        }
+        case 'audio.end': {
+          if (!deps.voice) {
+            sendError('INVALID_FRAME', VOICE_OFF, frame.id)
+            return
+          }
+          if (!deps.voice.end({ nodeId: node, streamId: frame.data.streamId })) {
+            sendError('INVALID_FRAME', 'unknown audio stream', frame.id)
+          }
+          return
+        }
         case 'ui.action': {
           if (!isOpenHere(frame.data.threadId)) {
             sendError('FORBIDDEN', 'thread is not open on this node', frame.id)
@@ -314,17 +366,40 @@ export function openConnection(
     }
   }
 
+  /** A binary frame: a kind-1 audio chunk of a stream this node started (protocol.md#binary-frames). */
+  const handleBinary = (bytes: Uint8Array) => {
+    const voice = deps.voice
+    if (!voice) {
+      sendError('INVALID_FRAME', VOICE_OFF)
+      return
+    }
+    if (phase !== 'ready' || !nodeId) {
+      sendError('INVALID_FRAME', 'expected hello first')
+      return
+    }
+    const decoded = decodeAudioFrame(bytes)
+    if (!decoded.ok) {
+      sendError(decoded.code, decoded.message)
+      return
+    }
+    const { kind, streamId, sequence, payload } = decoded.frame
+    if (kind !== AUDIO_FRAME_KIND.in) {
+      sendError('INVALID_FRAME', 'nodes send only audio.in chunks (kind 1)')
+      return
+    }
+    if (!voice.chunk({ nodeId, streamId, sequence, payload })) {
+      sendError('INVALID_FRAME', 'unknown audio stream')
+    }
+  }
+
   return {
     message(raw) {
       if (phase === 'closed') return
       resetSilence()
-      if (typeof raw !== 'string') {
-        sendError('INVALID_FRAME', 'binary frames are not supported yet (phase 3)')
-        return
-      }
-      // Frames are handled one at a time, in order.
+      // Frames are handled one at a time, in order (a chunk never overtakes its audio.start).
+      const handle = typeof raw === 'string' ? () => handleText(raw) : () => handleBinary(raw)
       chain = chain
-        .then(() => handleText(raw))
+        .then(handle)
         .catch((error: unknown) => log.error('frame handling failed', { error: String(error) }))
     },
     async closed() {
@@ -338,6 +413,7 @@ export function openConnection(
       const node = nodeId
       const hadThreads = deps.attachments.threadsOf(node).length > 0
       deps.attachments.disconnect(node)
+      deps.voice?.detach(node)
       if (!wasReady) return
       deps.threads.detach({ nodeId: node })
       try {

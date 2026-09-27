@@ -19,6 +19,7 @@ import type {
   ThreadParticipantRecord,
   ThreadRecord,
 } from '../storage/types.ts'
+import type { VoiceInput } from '../voice/types.ts'
 import { createAttachmentRegistry, type ServerAttachmentRegistry } from './attachments.ts'
 import type { ConnectionTiming } from './connection.ts'
 import { createPresence, type ServerPresence } from './presence.ts'
@@ -338,6 +339,45 @@ export function createFakeThreadManager(repos: FakeRepos): FakeThreadManager {
   return tm
 }
 
+// VoiceInput
+
+export type FakeVoiceInput = VoiceInput & {
+  calls: {
+    start: Parameters<VoiceInput['start']>[0][]
+    chunk: Parameters<VoiceInput['chunk']>[0][]
+    end: Parameters<VoiceInput['end']>[0][]
+    detach: NodeId[]
+  }
+}
+
+/** Accepts any `pcm16` stream; `chunk` and `end` know only streams `start` accepted. */
+export function createFakeVoiceInput(): FakeVoiceInput {
+  const open = new Set<string>()
+  const key = (nodeId: NodeId, streamId: string) => `${nodeId}/${streamId}`
+  const calls: FakeVoiceInput['calls'] = { start: [], chunk: [], end: [], detach: [] }
+  return {
+    calls,
+    start(a) {
+      calls.start.push({ ...a })
+      if (a.codec !== 'pcm16') return { ok: false, code: 'INVALID_FRAME', message: 'codec not supported' }
+      open.add(key(a.nodeId, a.streamId))
+      return { ok: true }
+    },
+    chunk(a) {
+      calls.chunk.push({ ...a })
+      return open.has(key(a.nodeId, a.streamId))
+    },
+    end(a) {
+      calls.end.push({ ...a })
+      return open.delete(key(a.nodeId, a.streamId))
+    },
+    detach(nodeId) {
+      calls.detach.push(nodeId)
+      for (const k of open) if (k.startsWith(`${nodeId}/`)) open.delete(k)
+    },
+  }
+}
+
 // Config and a full test server
 
 export function testConfig(overrides: { awayAfterMinutes?: number } = {}): KeithConfig {
@@ -391,6 +431,8 @@ export type TestServerOptions = {
   awayAfterMinutes?: number
   /** `KEITH_HOME/files` for `/v1/files`; omitted = files disabled. */
   filesDir?: string
+  /** Phase 3: node audio goes here; omitted = voice off. */
+  voice?: VoiceInput
 }
 
 let ownerHash: Promise<string> | null = null
@@ -434,6 +476,7 @@ export async function startTestServer(opts: TestServerOptions = {}): Promise<Tes
     version: '0.1.0',
     timing: opts.timing,
     filesDir: opts.filesDir,
+    voice: opts.voice,
   })
   const { host, port } = await server.listen()
   const base = `http://${host}:${port}`
@@ -474,6 +517,8 @@ export type ReceivedFrame = { type: string; id: string; re?: string; data: Recor
 export type TestClient = {
   ws: WebSocket
   frames: ReceivedFrame[]
+  /** Binary frames received, in order. */
+  binary: Uint8Array[]
   /** Resolves with the next frame of `type` not yet taken (waits up to `timeoutMs`). */
   next(type: string, timeoutMs?: number): Promise<ReceivedFrame>
   send(type: string, data: unknown, extra?: Record<string, unknown>): string
@@ -488,11 +533,14 @@ let clientFrameSeq = 0
 
 export async function connect(url: string): Promise<TestClient> {
   const ws = new WebSocket(url)
+  ws.binaryType = 'arraybuffer'
   const frames: ReceivedFrame[] = []
+  const binary: Uint8Array[] = []
   const taken = new Set<ReceivedFrame>()
   const waiters: (() => void)[] = []
   ws.addEventListener('message', (e) => {
-    frames.push(JSON.parse(String(e.data)) as ReceivedFrame)
+    if (e.data instanceof ArrayBuffer) binary.push(new Uint8Array(e.data))
+    else frames.push(JSON.parse(String(e.data)) as ReceivedFrame)
     for (const w of waiters.splice(0)) w()
   })
   const closed = new Promise<{ code: number; reason: string }>((resolve) => {
@@ -506,6 +554,7 @@ export async function connect(url: string): Promise<TestClient> {
   const client: TestClient = {
     ws,
     frames,
+    binary,
     async next(type, timeoutMs = 2_000) {
       const deadline = Date.now() + timeoutMs
       for (;;) {

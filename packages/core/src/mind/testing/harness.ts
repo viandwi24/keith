@@ -12,6 +12,7 @@ import {
 } from '@keith/sdk/testing'
 import type { KeithConfig } from '../../config/types.ts'
 import type { NodeId, PersonId, ThreadId, Tier } from '../../shared/types.ts'
+import type { VoiceOutput } from '../../voice/types.ts'
 import { createContextBuilder } from '../context-builder.ts'
 import { createRunLoop } from '../run-loop.ts'
 import { createThreadManager, type MindThreadManager } from '../thread-manager.ts'
@@ -46,13 +47,19 @@ export type HarnessOptions = {
   tools?: Tool[]
   skills?: Skill[]
   llmSleep?: (ms: number, signal: AbortSignal) => Promise<void>
+  /** Phase 3: the Mind's VoiceOutput. */
+  voice?: VoiceOutput
+  /** Phase 3: the `[voice]` config section (barge-in knobs). */
+  voiceConfig?: KeithConfig['voice']
+  /** Overrides the capabilities of the test nodes. */
+  capabilities?: Partial<Record<NodeId, string[]>>
 }
 
 export async function createHarness(opts: HarnessOptions = {}) {
   const clock: FakeClock = createFakeClock(1_790_000_000_000)
   const ids = createFakeIds()
   const log = createMemoryLogger()
-  const config = testConfig(opts.mind)
+  const config = { ...testConfig(opts.mind), voice: opts.voiceConfig }
   const repos = createFakeRepos()
   const bus = createFakeBus(clock)
   const sink = createRecordingSink()
@@ -97,7 +104,13 @@ export async function createHarness(opts: HarnessOptions = {}) {
     [PEPPER_PHONE, ['chat.text@1']],
   ]
   for (const [id, capabilities] of caps) {
-    await repos.nodes.upsert({ id, name: 'test', kind: 'attended', capabilities, lastSeenAt: null })
+    await repos.nodes.upsert({
+      id,
+      name: 'test',
+      kind: 'attended',
+      capabilities: opts.capabilities?.[id] ?? capabilities,
+      lastSeenAt: null,
+    })
   }
 
   const runLoop = createRunLoop({
@@ -134,6 +147,7 @@ export async function createHarness(opts: HarnessOptions = {}) {
     clock,
     log,
     tools,
+    voice: opts.voice,
   })
 
   /** Attaches the node, marks the person present, and opens their main thread (like the server). */

@@ -89,6 +89,22 @@ describe('messages', () => {
     expect(await db.repos.messages.get(testId('msg', 99))).toBeNull()
   })
 
+  test('round-trips meta.spokenChars of a reply cut by barge-in', async () => {
+    const spoken: AssistantMessageRecord = {
+      ...assistant,
+      id: testId('msg', 4),
+      modality: 'audio',
+      content: 'Hello.',
+      meta: { cancelled: true, spokenChars: 6 },
+      toolCalls: null,
+      ui: null,
+    }
+    await db.repos.messages.append(spoken)
+    expect(await db.repos.messages.get(spoken.id)).toEqual(spoken)
+    const page = await db.repos.messages.page({ threadId, limit: 10 })
+    expect(page.messages[0]?.meta).toEqual({ cancelled: true, spokenChars: 6 })
+  })
+
   test('assistant tool calls and tool results replay into LlmMessage shapes', async () => {
     for (const m of [userMessage(1, 10), assistant, { ...tool, isError: true }])
       await db.repos.messages.append(m)
