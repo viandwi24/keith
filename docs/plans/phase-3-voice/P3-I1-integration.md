@@ -60,7 +60,7 @@ A real `keith start` with a `[voice]` section runs the whole cascade: bootstrap 
 - [x] Starting with a bad `voice.stt` id fails with a readable error. Starting without `[voice]` is exactly phase-2 behavior (existing tests are unchanged).
 - [x] The integration test above passes, and so does barge-in through the real pipeline (fake providers).
 - [x] Setup tests cover the three voice choices.
-- [ ] No `> Planned (phase 3)` markers remain in `docs/architecture`, except items ADR-0013 defers.
+- [x] No `> Planned (phase 3)` markers remain in `docs/architecture`, except items ADR-0013 defers.
 - [x] `bun run check` passes.
 
 ## Outcome
