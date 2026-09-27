@@ -5,8 +5,8 @@ import type { KeithConfig } from '../config/types.ts'
 import type { MemoryService } from '../memory/types.ts'
 import type { CoreSkillRegistry, CoreToolRegistry } from '../plugins/types.ts'
 import type { CommitmentService } from '../scheduler/types.ts'
-import type { Clock, PersonDto, PersonId } from '../shared/types.ts'
-import type { Repositories } from '../storage/types.ts'
+import type { Clock, PersonDto, PersonId, ThreadId } from '../shared/types.ts'
+import type { MessageRecord, Repositories, ThreadRecord } from '../storage/types.ts'
 import {
   commitmentsSection,
   coreMemoriesSection,
@@ -18,16 +18,19 @@ import {
   participantsSection,
   personaSection,
   skillsSection,
+  summarySection,
 } from './context-sections.ts'
 import { lowestTier, toLlmMessages } from './messages.ts'
 import type { ContextBuilder } from './types.ts'
 
 export type ContextBuilderDeps = {
-  config: Pick<KeithConfig, 'mind'>
+  /** `mind.context.recentMessages`, and `memory.summary.minMessages` for the window rule. */
+  config: Pick<KeithConfig, 'mind' | 'memory'>
   /** Reads the persona text (`persona.md`). Called once per turn so edits apply without a restart. */
   persona: () => Promise<string>
   clock: Clock
-  repos: Pick<Repositories, 'persons' | 'relationships' | 'messages'>
+  /** `threads` gives the summary and its cursor. */
+  repos: Pick<Repositories, 'persons' | 'relationships' | 'messages' | 'threads'>
   memory: MemoryService
   commitments: Pick<CommitmentService, 'openFor'>
   skills: Pick<CoreSkillRegistry, 'list'>
@@ -39,14 +42,16 @@ export function createContextBuilder(deps: ContextBuilderDeps): ContextBuilder {
   return {
     async build(a) {
       const cards = await loadCards(deps, a.viewer.participants)
-      const [persona, core, index, digest, commitments, page] = await Promise.all([
+      const [persona, core, index, digest, commitments, thread] = await Promise.all([
         deps.persona(),
         deps.memory.core(a.viewer),
         deps.memory.index(a.viewer),
         deps.memory.digest({ threadId: a.threadId, viewer: a.viewer }),
         deps.commitments.openFor(a.threadId),
-        deps.repos.messages.page({ threadId: a.threadId, limit: config.mind.context.recentMessages }),
+        deps.repos.threads.get(a.threadId),
       ])
+      const window = await messagesWindow(deps, a.threadId, thread)
+      const skills = deps.skills.list().map((s) => s.skill)
       const sections = [
         personaSection(persona, config.mind.name),
         nowSection({
@@ -59,19 +64,47 @@ export function createContextBuilder(deps: ContextBuilderDeps): ContextBuilder {
         memoryIndexSection(index),
         digestSection(digest),
         commitmentsSection(commitments),
-        deliveriesSection(a.deliveries, a.kind),
-        skillsSection(deps.skills.list().map((s) => s.skill)),
+        summarySection(thread?.summary),
+        deliveriesSection(
+          a.deliveries,
+          a.kind,
+          skills.map((s) => s.name),
+        ),
+        skillsSection(skills),
       ]
       const tools = deps.tools
         .list({ tier: lowestTier(cards.map((c) => c.person.tier)), capabilities: a.focusCapabilities })
         .map((t) => t.tool.name)
       return {
         system: sections.filter((s): s is string => s !== null).join('\n\n'),
-        messages: toLlmMessages(page.messages),
+        messages: toLlmMessages(window),
         tools,
       }
     },
   }
+}
+
+/**
+ * The recent-messages window. Without a summary cursor: the last `recentMessages` rows. With one:
+ * the rows after the cursor, but at least `recentMessages` and at most `recentMessages +
+ * memory.summary.minMessages`, so no row falls between the summary and the window while the
+ * summary job keeps up.
+ */
+async function messagesWindow(
+  deps: ContextBuilderDeps,
+  threadId: ThreadId,
+  thread: ThreadRecord | null,
+): Promise<MessageRecord[]> {
+  const recent = deps.config.mind.context.recentMessages
+  const through = thread?.summaryThroughSeq
+  if (through === null || through === undefined) {
+    return (await deps.repos.messages.page({ threadId, limit: recent })).messages
+  }
+  const rows = (
+    await deps.repos.messages.page({ threadId, limit: recent + deps.config.memory.summary.minMessages })
+  ).messages
+  const after = rows.filter((r) => (r.seq ?? 0) > through)
+  return after.length >= recent ? after : rows.slice(Math.max(0, rows.length - recent))
 }
 
 async function loadCards(deps: ContextBuilderDeps, ids: PersonId[]): Promise<ParticipantCard[]> {

@@ -82,9 +82,14 @@ Reflection turns what was said into semantic memories and relationship notes, wi
 
 ## Thread summary
 
-> Planned (phase 4, P4-B1): fixed by [ADR-0014](../decisions/0014-reflection-writes-conservative-inferred-memories.md) and P4-K1 (`ThreadSummarizer`, `MemoryJob`, `createThreadSummaries`). Built by P4-B1.
+Built by `createThreadSummaries` (`memory/summary/`), under [ADR-0014](../decisions/0014-reflection-writes-conservative-inferred-memories.md). A separate job from reflection: they share nothing but the `utility` role. Reflection never reads the summary, and this job never writes memories.
 
-A separate job from reflection. After a turn completes (`turn.completed`), if at least `memory.summary.minMessages` (default 20) rows have left the recent-messages window since the summary cursor (`threads.summary_through_seq`), the `utility` model folds them into `threads.summary` (at most `memory.summary.maxChars`, default 2 000). The job runs in the `background` lane and emits `thread.summarized`. The summary is built only from that thread's messages, so it is exactly as visible as the thread (I-3). The context builder shows it as its own system section, and the messages window starts right after the summary cursor ([core.md](core.md#context-builder)).
+- **Trigger.** The job subscribes to `turn.completed` when `memory.summary.enabled` (default true). Each event schedules `summarizer.update` for its thread in the `background` lane. Events for a thread whose update is queued or running are coalesced into one follow-up at most. `stop()` unsubscribes, aborts running updates and waits for them.
+- **Pending rows.** The stored rows with `seq` in `(summary_through_seq ?? 0, lastSeq − mind.context.recentMessages]`, that is the rows that left the recent-messages window since the summary cursor. Fewer than `memory.summary.minMessages` (default 20) → no model call. One update reads at most 400 of them, so a long thread from before phase 4 catches up over several turns.
+- **Fold.** User rows and final assistant rows go into a transcript (`<name>: <text>`, the Mind as `<mind.name> (you)`). Tool rows and tool-step assistant rows are skipped but still move the cursor. The `utility` model (`RunLoop`, no tools, one step, `persist: null`) gets the previous summary and the transcript and writes the new summary: names, decisions, promises, dates and open questions stay, small talk goes. The prompt is in `memory/summary/prompts.ts`.
+- **Store.** A reply over `memory.summary.maxChars` (default 2 000) is cut at the last sentence end that fits. `threads.setSummary` stores it with the last `seq` read, and `thread.summarized { threadId, throughSeq }` is emitted. An empty or failed reply leaves the summary and cursor as they were (logged); the next turn tries again.
+- **Visibility.** The summary is built only from that thread's messages and carries no memories, so it is exactly as visible as the thread (I-3). It is context only: nodes never see it.
+- **Use.** The context builder shows it as its own system section, and the messages window starts right after the summary cursor ([core.md](core.md#context-builder)).
 
 ## Awareness digest
 

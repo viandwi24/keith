@@ -520,7 +520,11 @@ export function createFakeProviders(llm: LlmProvider): Pick<CoreProviderRegistri
   }
 }
 
-export function testConfig(mind: Partial<KeithConfig['mind']> = {}): Pick<KeithConfig, 'mind'> {
+/** `mind` and `memory` with the config defaults; `memory.summary` overrides go in `memory`. */
+export function testConfig(
+  mind: Partial<KeithConfig['mind']> = {},
+  memory: { summary?: Partial<KeithConfig['memory']['summary']> } = {},
+): Pick<KeithConfig, 'mind' | 'memory'> {
   return {
     mind: {
       name: 'Keith',
@@ -532,6 +536,11 @@ export function testConfig(mind: Partial<KeithConfig['mind']> = {}): Pick<KeithC
       context: { recentMessages: 40 },
       reminder: { maxPerPerson: 50 },
       ...mind,
+    },
+    memory: {
+      coreMaxChars: 1_500,
+      reflect: { enabled: true, idleMinutes: 20, maxMessages: 200, cardMaxChars: 1_000 },
+      summary: { enabled: true, minMessages: 20, maxChars: 2_000, ...memory.summary },
     },
   }
 }

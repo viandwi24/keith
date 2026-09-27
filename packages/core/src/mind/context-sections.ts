@@ -1,4 +1,4 @@
-// The nine system-prompt sections, in core.md order. Each returns its text, or null when it has
+// The system-prompt sections, in core.md order (nine, plus the thread summary between 7 and 8). Each returns its text, or null when it has
 // nothing to say (the builder leaves it out). See docs/architecture/core.md#context-builder.
 
 import type { Skill } from '@keith/sdk'
@@ -75,26 +75,53 @@ export function commitmentsSection(commitments: Commitment[]): string | null {
   ].join('\n')
 }
 
-/** 8. Pending deliveries, with instructions that depend on the turn kind. */
-export function deliveriesSection(deliveries: Delivery[], kind: TurnKind): string | null {
+/**
+ * 7b. Thread summary (phase 4): what the thread said before the messages window. Null when the
+ * thread has no summary.
+ */
+export function summarySection(summary: string | null | undefined): string | null {
+  const text = summary?.trim() ?? ''
+  if (text === '') return null
+  return ['# Earlier in this thread', text].join('\n')
+}
+
+/** The default skill that briefing and arrival turns load first when it is registered (P4-D1). */
+export const BRIEFING_SKILL = 'morning_briefing'
+
+/**
+ * 8. Pending deliveries, with instructions that depend on the turn kind. `skillNames` are the
+ * registered skills: briefing and arrival instructions point at `BRIEFING_SKILL` only when it is
+ * one of them.
+ */
+export function deliveriesSection(
+  deliveries: Delivery[],
+  kind: TurnKind,
+  skillNames: readonly string[] = [],
+): string | null {
   if (deliveries.length === 0 && kind !== 'briefing') return null
   const lines = ['# Things to tell them']
   if (kind === 'briefing') {
     lines.push(
       'They just arrived after being away. Greet them, then summarize the items below naturally, most urgent first.',
     )
+    if (skillNames.includes(BRIEFING_SKILL)) lines.push(briefingHint())
   } else if (kind === 'delivery') {
     lines.push('Nobody asked yet: bring these up on your own. Phrase them naturally, most urgent first.')
   } else {
     lines.push(
       'They just arrived. If their message is a greeting or asks what they missed, lead with these items. Otherwise answer first, then mention them briefly.',
     )
+    if (skillNames.includes(BRIEFING_SKILL)) lines.push(briefingHint())
   }
   for (const d of deliveries) {
     const from = d.source === 'core' ? d.kind : `${d.kind} from ${d.source}`
     lines.push(`- [${d.urgency}] (${from}) ${d.content}`)
   }
   return lines.join('\n')
+}
+
+function briefingHint(): string {
+  return `If the skills index lists \`${BRIEFING_SKILL}\`, load it first.`
 }
 
 /** 9. Skills index: name and one-line description; the full text loads through `skill.load`. */

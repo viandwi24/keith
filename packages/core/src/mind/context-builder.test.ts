@@ -64,7 +64,7 @@ function toolRow(toolCallId: string, content: string): MessageRecord {
   }
 }
 
-async function setup(recentMessages = 40) {
+async function setup(recentMessages = 40, minMessages = 20) {
   const repos = createFakeRepos()
   for (const [id, name, tier] of [
     [TONY, 'Tony', 'owner'],
@@ -106,7 +106,7 @@ async function setup(recentMessages = 40) {
     tool('fs.read', 'guest', ['fs@1']),
   ])
   const builder = createContextBuilder({
-    config: testConfig({ context: { recentMessages } }),
+    config: testConfig({ context: { recentMessages } }, { summary: { minMessages } }),
     persona: async () => 'You are Keith.',
     clock: createFakeClock(0),
     repos,
@@ -212,6 +212,67 @@ describe('context builder', () => {
       { role: 'assistant', content: 'two' },
       { role: 'user', content: 'three' },
     ])
+  })
+})
+
+describe('context builder: thread summary', () => {
+  async function thread(repos: Awaited<ReturnType<typeof setup>>['repos'], count: number) {
+    await repos.threads.create(
+      {
+        id: THREAD,
+        kind: 'direct',
+        slug: 'main',
+        title: 'Main',
+        ownerPersonId: TONY,
+        summary: null,
+        createdAt: 0,
+        updatedAt: 0,
+      },
+      [TONY],
+    )
+    for (let i = 1; i <= count; i++)
+      await repos.messages.append(msg(i % 2 === 1 ? 'user' : 'assistant', `m${i}`))
+  }
+
+  const turn = { threadId: THREAD, viewer: { participants: [TONY] }, focusCapabilities: [] }
+
+  test('the summary is its own section, between open promises and deliveries', async () => {
+    const { repos, builder } = await setup()
+    await thread(repos, 2)
+    await repos.threads.setSummary(THREAD, { summary: 'Tony picked Rome for the expo.', throughSeq: 0 })
+    const built = await builder.build({ ...turn, kind: 'briefing', deliveries: [] })
+    const promises = built.system.indexOf('# Open promises')
+    const summary = built.system.indexOf('# Earlier in this thread\nTony picked Rome for the expo.')
+    const deliveries = built.system.indexOf('# Things to tell them')
+    expect(promises).toBeGreaterThanOrEqual(0)
+    expect(summary).toBeGreaterThan(promises)
+    expect(deliveries).toBeGreaterThan(summary)
+  })
+
+  test('no summary, no section', async () => {
+    const { repos, builder } = await setup()
+    await thread(repos, 2)
+    const built = await builder.build({ ...turn, kind: 'user', deliveries: [] })
+    expect(built.system).not.toContain('# Earlier in this thread')
+  })
+
+  test('the window starts right after the cursor, within [recent, recent + minMessages]', async () => {
+    // recentMessages 3, minMessages 2: the window holds 3 to 5 rows.
+    const { repos, builder } = await setup(3, 2)
+    await thread(repos, 10)
+    const windowAfter = async (throughSeq: number) => {
+      await repos.threads.setSummary(THREAD, { summary: 'Earlier.', throughSeq })
+      const built = await builder.build({ ...turn, kind: 'user', deliveries: [] })
+      return built.messages.map((m) => m.content)
+    }
+    // 4 rows after the cursor: exactly those.
+    expect(await windowAfter(6)).toEqual(['m7', 'm8', 'm9', 'm10'])
+    // 5 rows after the cursor: the upper bound, still exactly those.
+    expect(await windowAfter(5)).toEqual(['m6', 'm7', 'm8', 'm9', 'm10'])
+    // 2 rows after the cursor: at least recentMessages.
+    expect(await windowAfter(8)).toEqual(['m8', 'm9', 'm10'])
+    // 8 rows after the cursor (the job fell behind): at most recentMessages + minMessages.
+    expect(await windowAfter(2)).toEqual(['m6', 'm7', 'm8', 'm9', 'm10'])
   })
 })
 
