@@ -11,7 +11,8 @@
 ├─ keith.db           # SQLite
 ├─ files/             # uploaded and generated files
 ├─ plugins/<id>/      # per-plugin private data (ctx.paths.data)
-└─ logs/              # rotating JSON logs
+├─ keith.lock         # single-instance lock (pid + start time), present while Keith runs
+└─ logs/              # rotating JSON-lines logs: keith.log, keith.log.1 … keith.log.4
 ```
 
 Tests always set `KEITH_HOME` to a temporary directory.
@@ -115,6 +116,16 @@ Running it again is safe: an existing `config.toml` or `persona.md` is kept as i
 Answers are read from the terminal (raw mode, so the password is not echoed) or one per line from piped stdin. Code and tests drive it through a `Prompter` (`scriptedPrompter(answers)` in tests).
 
 The first-party provider plugins (`@keith/provider-deepseek`, `@keith/provider-openrouter`) are dependencies of `@keith/core`, so the plugin host's `import()` of a name in `plugins.enabled` resolves them. Third-party plugins must be installed where the core can resolve them.
+
+## Logs and lock
+
+**Lock (I-1, one Mind per home).** `acquireHomeLock(home)` (`core/src/shared/lock.ts`) creates `<home>/keith.lock` holding `{ pid, startedAt, token }`. The file is written under a temporary name and hard-linked into place, so it appears atomically. If the file exists and its pid is alive, acquiring fails with a `KeithError` (`INTERNAL`) whose message names the pid, the start time and the lock file. A lock whose pid is not alive, or whose file is unreadable, is stale and taken over. `release()` removes the file only if it is still ours, and is idempotent. `keith setup` and `keith migrate` hold the lock while they run (`withHomeLock`), so they refuse to touch a home that a started Keith is using.
+
+> Planned (phase 3, P3-I3): `keith start` (bootstrap) acquires the lock first and releases it last.
+
+**Log files.** `createLogFile({ dir })` (`core/src/shared/log-file.ts`) appends JSON lines to `logs/keith.log`. When a line would push the file past `LOG_FILE_MAX_BYTES` (10 MiB), it becomes `keith.log.1`, older files shift up, and at most `LOG_FILE_KEEP` (5) files are kept in total (the current one plus four rotated ones). Writes are synchronous, so no line is lost on exit. `createLogger({ clock, file })` writes each line to stdout and to the file; secrets are redacted before either sees the line. The sizes are constants, not config keys.
+
+> Planned (phase 3, P3-I3): bootstrap passes `createLogFile({ dir: paths.logsDir })` to the logger. Until then the logger writes to stdout only.
 
 ## Secrets
 
