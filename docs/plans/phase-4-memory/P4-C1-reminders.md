@@ -4,7 +4,7 @@ title: "Reminders: reminder.set/list/cancel and tick-driven reminder deliveries"
 phase: 4
 wave: 2
 lane: C
-status: review
+status: done
 owner: agent-P4-C1
 depends: [P4-K1]
 owns:
