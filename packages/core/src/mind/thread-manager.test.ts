@@ -494,3 +494,191 @@ describe('stall watchdog', () => {
     expect(h.tm.state(thread.id)).toBe('idle')
   })
 })
+
+describe('hardening (P3-H1)', () => {
+  test('B2: no delivery flush while the thread is listening; it runs once speech stops', async () => {
+    const h = await createHarness({ script: [fakeText('By the way: done.')] })
+    const { thread } = await h.open(TONY, LAPTOP)
+    await h.settle()
+    h.tm.voiceActivity({ threadId: thread.id, nodeId: LAPTOP, speaking: true })
+    expect(h.tm.state(thread.id)).toBe('listening')
+    await h.deliveries.enqueue({ personId: TONY, kind: 'task_result', content: 'done' })
+    await h.settle()
+    expect(h.llm.calls).toBe(0)
+    expect(h.tm.state(thread.id)).toBe('listening')
+    h.tm.voiceActivity({ threadId: thread.id, nodeId: LAPTOP, speaking: false })
+    await h.settle()
+    expect(h.bus.named('turn.started')).toMatchObject([{ kind: 'delivery' }])
+  })
+
+  test('B2: no briefing while the thread is listening; it runs once speech stops', async () => {
+    const h = await createHarness({
+      script: [fakeText('Welcome back, sir.')],
+      mind: { arrival: { awayAfterMinutes: 30, briefing: 'auto', holdMs: 120_000, graceMs: 1_500 } },
+    })
+    await tonyAway(h)
+    jest.useFakeTimers()
+    const { thread } = await h.open(TONY, LAPTOP, { awayMs: 5_000_000 })
+    h.tm.voiceActivity({ threadId: thread.id, nodeId: LAPTOP, speaking: true })
+    await advance(h.clock, 2_000)
+    expect(h.llm.calls).toBe(0)
+    h.tm.voiceActivity({ threadId: thread.id, nodeId: LAPTOP, speaking: false })
+    await advance(h.clock, 10)
+    expect(h.bus.named('turn.started')).toMatchObject([{ kind: 'briefing' }])
+  })
+
+  test('B3: a failed critical delivery turn does not pre-empt queued input again', async () => {
+    const gate = createGate()
+    const h = await createHarness({
+      llmSleep: gate.sleep,
+      script: [
+        [...fakeText('Hm'), fakeDelay(1)],
+        () => {
+          throw new ProviderError('auth', 'bad key')
+        },
+        fakeText('Answer'),
+      ],
+      fallback: fakeText('ALERT again'),
+    })
+    const { thread } = await h.open(TONY, LAPTOP)
+    await h.settle()
+    await say(h, thread.id, 'first')
+    await flushMicrotasks()
+    await say(h, thread.id, 'second')
+    await h.deliveries.enqueue({ personId: TONY, kind: 'plugin', urgency: 'critical', content: 'Breach' })
+    await h.bus.idle()
+    gate.release()
+    await h.settle()
+    expect(
+      h.bus
+        .named('turn.started')
+        .map((t) => t.kind)
+        .slice(0, 3),
+    ).toEqual(['user', 'delivery', 'user'])
+    expect(h.llm.requests[2]?.messages.at(-1)).toEqual({ role: 'user', content: 'second' })
+    const replies = framesOfType(h, LAPTOP, 'message.completed').map((f) => f.data.message.content)
+    expect(replies).toContain('Answer')
+  })
+
+  test('B4: a turn without focus uses the most recently attached node', async () => {
+    const h = await createHarness({ script: [fakeText('By the way: done.')] })
+    const { thread } = await h.open(TONY, LAPTOP)
+    await h.open(TONY, PEPPER_PHONE)
+    await h.open(TONY, PHONE)
+    await h.settle()
+    h.sink.detach(LAPTOP)
+    h.tm.detach({ nodeId: LAPTOP })
+    await h.deliveries.enqueue({ personId: TONY, threadId: thread.id, kind: 'task_result', content: 'done' })
+    await h.settle()
+    expect(h.llm.calls).toBe(1)
+    // Only PHONE (the newer of the two still attached) declared ui.render@1.
+    expect(h.llm.requests[0]?.system).toContain('ui.render@1')
+  })
+
+  test('B5: open honors historyLimit (default 50, max 200) and counts visible messages only', async () => {
+    const h = await createHarness()
+    const { thread } = await h.open(TONY, LAPTOP)
+    await h.settle()
+    let t = h.clock.now()
+    const base = { threadId: thread.id, modality: 'text' as const, meta: null }
+    for (let i = 0; i < 130; i++) {
+      await h.repos.messages.append({
+        ...base,
+        id: h.ids.next('msg'),
+        role: 'user',
+        authorPersonId: TONY,
+        nodeId: LAPTOP,
+        content: `u${i}`,
+        createdAt: ++t,
+      })
+      // A hidden tool step between each input and its reply.
+      await h.repos.messages.append({
+        ...base,
+        id: h.ids.next('msg'),
+        role: 'assistant',
+        authorPersonId: null,
+        nodeId: null,
+        content: '',
+        createdAt: ++t,
+        toolCalls: [{ id: `c${i}`, name: 'test.echo', args: {} }],
+        ui: null,
+      })
+      await h.repos.messages.append({
+        ...base,
+        id: h.ids.next('msg'),
+        role: 'tool',
+        authorPersonId: null,
+        nodeId: null,
+        content: 'x',
+        createdAt: ++t,
+        toolCallId: `c${i}`,
+        toolName: 'test.echo',
+        isError: false,
+      })
+      await h.repos.messages.append({
+        ...base,
+        id: h.ids.next('msg'),
+        role: 'assistant',
+        authorPersonId: null,
+        nodeId: null,
+        content: `a${i}`,
+        createdAt: ++t,
+        toolCalls: null,
+        ui: null,
+      })
+    }
+    const open = (historyLimit?: number) =>
+      h.tm.open({ personId: TONY, nodeId: LAPTOP, threadId: thread.id, arrival: null, historyLimit })
+    const byDefault = await open()
+    expect(byDefault.messages).toHaveLength(50)
+    expect(byDefault.messages.at(-1)?.content).toBe('a129')
+    const many = await open(120)
+    expect(many.messages).toHaveLength(120)
+    expect(many.messages[0]?.content).toBe('u70')
+    expect(many.messages.at(-1)?.content).toBe('a129')
+    expect((await open(500)).messages).toHaveLength(200)
+    expect((await open(3)).messages.map((m) => m.content)).toEqual(['a128', 'u129', 'a129'])
+    expect((await open(0)).messages).toEqual([])
+    await h.settle()
+  })
+
+  test('B6: cancelAll aborts every running turn and resolves once they are persisted', async () => {
+    const gate = createGate()
+    const turn = [...fakeText('Part'), fakeDelay(1), ...fakeText(' rest')]
+    const h = await createHarness({ llmSleep: gate.sleep, fallback: turn })
+    const tony = await h.open(TONY, LAPTOP)
+    const pepper = await h.open(PEPPER, PEPPER_PHONE)
+    await h.settle()
+    await say(h, tony.thread.id, 'story', LAPTOP, TONY)
+    await say(h, pepper.thread.id, 'story', PEPPER_PHONE, PEPPER)
+    await flushMicrotasks()
+    expect(gate.waiting).toBe(2)
+    await h.tm.cancelAll()
+    const replies = h.repos.all.messages.filter((m) => m.role === 'assistant')
+    expect(replies).toHaveLength(2)
+    for (const r of replies) expect(r).toMatchObject({ content: 'Part', meta: { cancelled: true } })
+    expect(h.tm.state(tony.thread.id)).toBe('idle')
+    expect(h.tm.state(pepper.thread.id)).toBe('idle')
+    await h.tm.cancelAll()
+    await h.settle()
+  })
+
+  test('C2: a turn failing on a provider rate_limited sends RATE_LIMITED', async () => {
+    const h = await createHarness({
+      script: [
+        () => {
+          throw new ProviderError('rate_limited', '429', { retryable: false })
+        },
+      ],
+    })
+    const { thread } = await h.open(TONY, LAPTOP)
+    await say(h, thread.id, 'hi')
+    await h.settle()
+    const [error] = framesOfType(h, LAPTOP, 'error')
+    expect(error?.data.code).toBe('RATE_LIMITED')
+    expect(CoreFrameSchema.safeParse(error).success).toBe(true)
+    const [completed] = framesOfType(h, LAPTOP, 'message.completed')
+    expect(completed?.data.message.content).toBe(APOLOGY_TEXT)
+    expect(h.bus.named('turn.failed')).toMatchObject([{ code: 'RATE_LIMITED' }])
+  })
+})

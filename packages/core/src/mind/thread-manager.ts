@@ -84,7 +84,12 @@ export type ThreadManagerDeps = {
 export interface MindThreadManager extends ThreadManager {
   /** Resolves when no turn runs and no check is pending in any thread. Hold timers are not awaited. */
   idle(): Promise<void>
-  /** Clears hold timers and unsubscribes from events (shutdown). */
+  /**
+   * Aborts every running turn and resolves when each has persisted its (cancelled) reply. No new
+   * turn starts until it resolves; afterwards queued work goes on unless `stop()` was called.
+   */
+  cancelAll(): Promise<void>
+  /** Clears hold timers, unsubscribes from events, and starts no new turn (shutdown). */
   stop(): void
 }
 
@@ -118,6 +123,8 @@ type Runtime = {
   queue: UserMessageRecord[]
   running: Running | null
   pumping: boolean
+  /** The running pump, if any (awaited by `cancelAll`). */
+  pump: Promise<void> | null
   /** Set when something changed while the pump was deciding. */
   dirty: boolean
   hold: Hold | null
@@ -154,6 +161,9 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
   const mainThreads = new Map<PersonId, Promise<ThreadRecord>>()
   const capabilities = new Map<NodeId, string[]>()
   const inflight = new Set<Promise<void>>()
+  /** `cancelAll` calls in progress; no new turn starts while any runs. */
+  let cancelling = 0
+  let stopped = false
 
   const unsubscribe = events.on('delivery.enqueued', (e) => {
     track(
@@ -217,6 +227,7 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
           queue: [],
           running: null,
           pumping: false,
+          pump: null,
           dirty: false,
           hold: null,
           arrivalDeliveries: false,
@@ -330,11 +341,21 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
       rt.dirty = true
       return
     }
-    track(pump(rt))
+    const p = pump(rt)
+    rt.pump = p
+    track(p)
+  }
+
+  /** No new turn starts during `cancelAll` or after `stop`. */
+  function turnsBlocked(): boolean {
+    return cancelling > 0 || stopped
   }
 
   async function pump(rt: Runtime): Promise<void> {
     rt.pumping = true
+    // After a delivery turn failed or was cancelled, queued input runs before any further
+    // critical pre-emption in this pump run, so a broken delivery can't starve the input (B3).
+    let preempt = true
     try {
       for (;;) {
         rt.dirty = false
@@ -343,24 +364,27 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
           await job()
           continue
         }
-        const work = await nextWork(rt)
+        const work = turnsBlocked() ? null : await nextWork(rt, preempt)
         if (!work) {
-          if (rt.dirty) continue
+          if (rt.dirty && !turnsBlocked()) continue
           return
         }
         const outcome = await runTurn(rt, work)
         // Flush trigger (b). Not after a failure or a cancel, so a broken delivery turn can't loop.
         if (outcome === 'ok') rt.flushRequested = true
+        else if (work.kind !== 'user') preempt = false
       }
     } finally {
       rt.pumping = false
+      rt.pump = null
     }
   }
 
-  async function nextWork(rt: Runtime): Promise<Work | null> {
-    const canFlush = rt.hold === null && present(rt)
+  async function nextWork(rt: Runtime, preempt: boolean): Promise<Work | null> {
+    // No delivery or briefing while someone is speaking to the thread (B2).
+    const canFlush = rt.hold === null && rt.listening === null && present(rt)
     if (rt.queue.length > 0) {
-      if (canFlush) {
+      if (canFlush && preempt) {
         const pending = await deps.deliveries.pendingFor(rt.threadId)
         if (pending.some((d) => d.urgency === 'critical')) {
           return { kind: 'delivery', inputs: [], deliveries: pending }
@@ -372,7 +396,7 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
       const deliveries = withDeliveries ? await deps.deliveries.pendingFor(rt.threadId) : []
       return { kind: 'user', inputs, deliveries }
     }
-    if (rt.briefingDue) {
+    if (rt.briefingDue && rt.listening === null) {
       rt.briefingDue = false
       if (present(rt)) {
         rt.flushRequested = false
@@ -397,6 +421,8 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
       speech: null,
     }
     rt.running = running
+    // A `cancelAll` that began while this turn was being picked cancels it right away.
+    if (turnsBlocked()) running.controller.abort()
     const turnId = ids.next('trn')
     setState(rt, 'thinking')
     events.emit('turn.started', { threadId: rt.threadId, turnId, kind: work.kind })
@@ -446,7 +472,8 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
     signal: AbortSignal,
   ): Promise<{ outcome: Outcome; steps: number; error?: unknown }> {
     const threadId = rt.threadId
-    const focus = rt.focus ?? nodes.attachedTo(threadId)[0]
+    // Without focus (the focus node detached), the most recently attached node stands in (B4).
+    const focus = rt.focus ?? nodes.attachedTo(threadId).at(-1)
     const focusCapabilities = focus ? (capabilities.get(focus) ?? []) : []
     const built = await deps.context.build({
       threadId,
@@ -641,9 +668,33 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
   }
 
   function sendError(rt: Runtime, error: unknown): void {
-    const code: ErrorCode = isKeithError(error, 'PROVIDER_ERROR') ? 'PROVIDER_ERROR' : 'INTERNAL'
-    const message = code === 'PROVIDER_ERROR' ? 'the model provider failed' : 'internal error'
-    broadcast(rt, makeFrame('error', { code, message }, frameOpts()))
+    const code = turnErrorCode(error)
+    broadcast(rt, makeFrame('error', { code, message: TURN_ERROR_TEXT[code] }, frameOpts()))
+  }
+
+  /**
+   * The latest `historyLimit` messages nodes see (default 50, at most 200), oldest first. Hidden
+   * rows (tool rows, tool-step assistant rows) don't count, so this may read more rows than that.
+   */
+  async function visibleHistory(threadId: ThreadId, historyLimit: number | undefined): Promise<MessageDto[]> {
+    const wanted = historyLimit ?? MESSAGES_PAGE.defaultLimit
+    const limit = Math.min(Math.max(0, wanted), MESSAGES_PAGE.maxLimit)
+    let out: MessageDto[] = []
+    let before: MessageId | undefined
+    while (out.length < limit) {
+      const page = await repos.messages.page({
+        threadId,
+        before,
+        limit: limit - out.length,
+        roles: ['user', 'assistant'],
+      })
+      const visible = page.messages.map(toMessageDto).filter((m): m is MessageDto => m !== null)
+      out = [...visible, ...out]
+      const first = page.messages[0]
+      if (!page.hasMore || !first) break
+      before = first.id
+    }
+    return out
   }
 
   // Input
@@ -829,14 +880,20 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
     running.controller.abort()
   }
 
+  /** Listening ended without input: back to idle, and run what waited for it (a flush, a briefing). */
+  function stopListening(rt: Runtime): void {
+    rt.listening = null
+    if (rt.state === 'listening') setState(rt, 'idle')
+    kick(rt)
+  }
+
   function voiceActivity(a: Parameters<ThreadManager['voiceActivity']>[0]): void {
     const rt = ready.get(a.threadId)
     if (!rt) return
     if (!a.speaking) {
       if (rt.bargeIn?.nodeId === a.nodeId) clearBargeIn(rt)
       if (rt.listening !== a.nodeId) return
-      rt.listening = null
-      if (rt.state === 'listening') setState(rt, 'idle')
+      stopListening(rt)
       return
     }
     rt.listening = a.nodeId
@@ -874,10 +931,9 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
       }
       await rememberNode(a.nodeId)
       if (rt.focus === null) rt.focus = a.nodeId
-      const [participants, page] = await Promise.all([
+      const [participants, messages] = await Promise.all([
         personDtos(rt.participants),
-        // Placeholder (P3-K2): `a.historyLimit` is not honored yet; P3-H1 implements it (B5).
-        repos.messages.page({ threadId: record.id, limit: MESSAGES_PAGE.defaultLimit }),
+        visibleHistory(record.id, a.historyLimit),
       ])
       const thread: ThreadDto = {
         id: record.id,
@@ -887,7 +943,6 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
         state: rt.state,
         updatedAt: record.updatedAt,
       }
-      const messages = page.messages.map(toMessageDto).filter((m): m is MessageDto => m !== null)
       events.emit('thread.opened', { threadId: record.id, personId: a.personId, nodeId: a.nodeId })
       applyArrival(rt, a.arrival)
       return { thread, messages }
@@ -898,10 +953,7 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
         if (a.threadId !== undefined && rt.threadId !== a.threadId) continue
         if (rt.focus === a.nodeId) rt.focus = null
         if (rt.bargeIn?.nodeId === a.nodeId) clearBargeIn(rt)
-        if (rt.listening === a.nodeId) {
-          rt.listening = null
-          if (rt.state === 'listening') setState(rt, 'idle')
-        }
+        if (rt.listening === a.nodeId) stopListening(rt)
       }
     },
 
@@ -923,7 +975,22 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
       while (inflight.size > 0) await Promise.all([...inflight])
     },
 
+    async cancelAll() {
+      cancelling++
+      try {
+        for (const rt of ready.values()) rt.running?.controller.abort()
+        // Each pump ends once its turn persisted: no new turn starts while `cancelling`.
+        while ([...ready.values()].some((rt) => rt.pump !== null)) {
+          await Promise.all([...ready.values()].map((rt) => rt.pump?.catch(() => {})))
+        }
+      } finally {
+        cancelling--
+      }
+      if (!turnsBlocked()) for (const rt of ready.values()) kick(rt)
+    },
+
     stop() {
+      stopped = true
       unsubscribe()
       for (const rt of ready.values()) {
         clearHold(rt)
@@ -944,6 +1011,21 @@ function untilDoneOrAborted(speech: SpeechHandle, signal: AbortSignal): Promise<
       resolve()
     })
   })
+}
+
+const TURN_ERROR_TEXT = {
+  RATE_LIMITED: 'the model provider is rate limiting requests',
+  PROVIDER_ERROR: 'the model provider failed',
+  INTERNAL: 'internal error',
+} as const satisfies Partial<Record<ErrorCode, string>>
+
+/**
+ * The `error` frame code of a failed turn. The run loop raises `RATE_LIMITED` when the provider
+ * answered `rate_limited` after its retries, and `PROVIDER_ERROR` for other provider failures.
+ */
+function turnErrorCode(error: unknown): keyof typeof TURN_ERROR_TEXT {
+  if (isKeithError(error, 'RATE_LIMITED')) return 'RATE_LIMITED'
+  return isKeithError(error, 'PROVIDER_ERROR') ? 'PROVIDER_ERROR' : 'INTERNAL'
 }
 
 function keithCode(error: unknown): KeithErrorCode {

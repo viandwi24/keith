@@ -10,6 +10,7 @@ import {
   type LlmProvider,
   type LlmToolCall,
   type LlmToolSpec,
+  type ProviderError,
   type ToolResult,
 } from '@keith/sdk'
 import { z } from 'zod'
@@ -94,15 +95,10 @@ export function createRunLoop(deps: RunLoopDeps): RunLoop {
     }
     return { text, steps: a.maxSteps, stoppedBy: 'step_limit' }
 
+    // `tool.called` / `tool.completed` bus events are the registry's (`invoke` emits them once per
+    // call); the loop only reports tool activity to its caller through `onEvent`.
     async function runTool(call: LlmToolCall, inv: ToolInvocation): Promise<ToolResult> {
       emit({ type: 'tool.started', toolCallId: call.id, name: call.name })
-      deps.events.emit('tool.called', {
-        threadId: inv.threadId,
-        taskId: inv.taskId,
-        toolCallId: call.id,
-        name: call.name,
-      })
-      const started = deps.clock.now()
       let result: ToolResult
       try {
         result = await deps.tools.invoke(call.name, call.args, inv)
@@ -118,12 +114,6 @@ export function createRunLoop(deps: RunLoopDeps): RunLoop {
         name: call.name,
         ok,
         summary: ok ? undefined : result.content.slice(0, TOOL_SUMMARY_MAX),
-      })
-      deps.events.emit('tool.completed', {
-        toolCallId: call.id,
-        name: call.name,
-        ok,
-        ms: deps.clock.now() - started,
       })
       // I-9: the core validates blocks; an invalid one is dropped and the turn goes on.
       const block =
@@ -205,11 +195,7 @@ export function createRunLoop(deps: RunLoopDeps): RunLoop {
         })
       } catch (error) {
         const retryable = isProviderError(error) && error.retryable && !emitted && attempt < retries
-        if (!retryable) {
-          throw isProviderError(error)
-            ? new KeithError('PROVIDER_ERROR', error.message, { cause: error, details: { code: error.code } })
-            : error
-        }
+        if (!retryable) throw isProviderError(error) ? fromProvider(error) : error
         const wait = retryBaseMs * 2 ** attempt
         deps.log.warn('llm call failed, retrying', {
           attempt: attempt + 1,
@@ -269,6 +255,7 @@ export function createRunLoop(deps: RunLoopDeps): RunLoop {
         })
       }
       if (isProviderError(error) && error.retryable && text === '' && calls.length === 0) throw error
+      if (isProviderError(error)) throw fromProvider(error)
       throw new KeithError('PROVIDER_ERROR', errorMessage(error), { cause: error })
     } finally {
       clearTimeout(timer)
@@ -295,6 +282,15 @@ async function loadPerson(deps: RunLoopDeps, id: PersonId): Promise<PersonDto> {
   const p = await deps.repos.persons.get(id)
   if (!p) throw new KeithError('NOT_FOUND', 'person not found', { details: { personId: id } })
   return { id: p.id, name: p.name, tier: p.tier }
+}
+
+/**
+ * A provider failure the loop gives up on: `RATE_LIMITED` when the provider answered
+ * `rate_limited` (after the retries), `PROVIDER_ERROR` otherwise.
+ */
+function fromProvider(error: ProviderError): KeithError {
+  const code = error.code === 'rate_limited' ? 'RATE_LIMITED' : 'PROVIDER_ERROR'
+  return new KeithError(code, error.message, { cause: error, details: { code: error.code } })
 }
 
 function errorMessage(error: unknown): string {

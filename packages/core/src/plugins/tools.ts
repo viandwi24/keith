@@ -152,26 +152,9 @@ export function createToolRegistry(deps: ToolRegistryDeps): CoreToolRegistry {
         return true
       })
     },
+    // The one place `tool.called` / `tool.completed` are emitted: once per invocation, refused
+    // ones (unknown, tier, invalid input, already aborted) included with `ok: false`.
     async invoke(name, rawArgs, call) {
-      const entry = tools.get(name)
-      if (!entry) return failure('NOT_FOUND', `there is no tool named '${name}'`)
-      const { tool } = entry
-      const people = call.participants.length > 0 ? call.participants : [call.person]
-      const tier = lowestTier(people.map((p) => p.tier))
-      if (tier === undefined || !tierAllows(tier, tool.minTier)) {
-        return failure(
-          'TIER_INSUFFICIENT',
-          `tool '${name}' needs tier '${tool.minTier}' and the lowest participant tier is '${tier ?? 'none'}'`,
-        )
-      }
-      const parsed = tool.input.safeParse(rawArgs)
-      if (!parsed.success) {
-        const issues = parsed.error.issues
-          .map((i) => `${i.path.length > 0 ? i.path.join('.') : '(input)'}: ${i.message}`)
-          .join('; ')
-        return failure('TOOL_INPUT_INVALID', `invalid arguments for '${name}': ${issues}`)
-      }
-      if (call.signal.aborted) return failure('INTERNAL', `tool '${name}' was cancelled`)
       const started = deps.clock.now()
       deps.events.emit('tool.called', {
         threadId: call.threadId,
@@ -179,7 +162,7 @@ export function createToolRegistry(deps: ToolRegistryDeps): CoreToolRegistry {
         toolCallId: call.toolCallId,
         name,
       })
-      const result = await run(entry, parsed.data, call)
+      const result = await attempt(name, rawArgs, call)
       deps.events.emit('tool.completed', {
         toolCallId: call.toolCallId,
         name,
@@ -188,5 +171,28 @@ export function createToolRegistry(deps: ToolRegistryDeps): CoreToolRegistry {
       })
       return result
     },
+  }
+
+  async function attempt(name: string, rawArgs: unknown, call: ToolInvocation): Promise<ToolResult> {
+    const entry = tools.get(name)
+    if (!entry) return failure('NOT_FOUND', `there is no tool named '${name}'`)
+    const { tool } = entry
+    const people = call.participants.length > 0 ? call.participants : [call.person]
+    const tier = lowestTier(people.map((p) => p.tier))
+    if (tier === undefined || !tierAllows(tier, tool.minTier)) {
+      return failure(
+        'TIER_INSUFFICIENT',
+        `tool '${name}' needs tier '${tool.minTier}' and the lowest participant tier is '${tier ?? 'none'}'`,
+      )
+    }
+    const parsed = tool.input.safeParse(rawArgs)
+    if (!parsed.success) {
+      const issues = parsed.error.issues
+        .map((i) => `${i.path.length > 0 ? i.path.join('.') : '(input)'}: ${i.message}`)
+        .join('; ')
+      return failure('TOOL_INPUT_INVALID', `invalid arguments for '${name}': ${issues}`)
+    }
+    if (call.signal.aborted) return failure('INTERNAL', `tool '${name}' was cancelled`)
+    return run(entry, parsed.data, call)
   }
 }
