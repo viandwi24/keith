@@ -27,7 +27,7 @@ describe('attachment registry', () => {
     const log = createMemoryLogger()
     const reg = createAttachmentRegistry({ log })
     const sent: string[] = []
-    reg.connect(node(1), { sendText: (t) => sent.push(t), sendBinary: () => {} })
+    reg.connect(node(1), { sendText: (t) => sent.push(t), sendBinary: () => {} }, ['chat.text@1'])
     const frame = makeFrame('notice', { level: 'info', text: 'hi' }, { id: 'a', ts: 1 })
     reg.send(node(1), frame)
     reg.send(node(2), frame)
@@ -43,7 +43,7 @@ describe('attachment registry', () => {
   test('sendBinary goes to the connected node only, and is a no-op for a gone node', () => {
     const reg = createAttachmentRegistry({ log: createMemoryLogger() })
     const sent: Uint8Array[] = []
-    reg.connect(node(1), { sendText: () => {}, sendBinary: (b) => sent.push(b) })
+    reg.connect(node(1), { sendText: () => {}, sendBinary: (b) => sent.push(b) }, ['chat.text@1'])
     const bytes = new Uint8Array([2, 1, 2, 3])
     reg.sendBinary(node(1), bytes)
     reg.sendBinary(node(2), bytes)
@@ -57,10 +57,51 @@ describe('attachment registry', () => {
     const log = createMemoryLogger()
     const reg = createAttachmentRegistry({ log })
     const sent: string[] = []
-    reg.connect(node(1), { sendText: (t) => sent.push(t), sendBinary: () => {} })
+    reg.connect(node(1), { sendText: (t) => sent.push(t), sendBinary: () => {} }, ['chat.text@1'])
     const bad = makeFrame('thread.state', { threadId: threadId(1), state: 'idle' }, { id: '', ts: 1 })
     reg.send(node(1), bad)
     expect(sent).toEqual([])
     expect(log.entries.some((e) => e.level === 'error')).toBe(true)
+  })
+
+  test('a node without chat.text@1 gets no message.* or tool.activity frames', () => {
+    const reg = createAttachmentRegistry({ log: createMemoryLogger() })
+    const sent: string[] = []
+    reg.connect(node(1), { sendText: (t) => sent.push(t), sendBinary: () => {} }, ['audio.in@1'])
+    const at = { ts: 1 }
+    const thread = threadId(1)
+    const messageId = 'msg_00000000000000000000000001' as const
+    const message = {
+      id: messageId,
+      threadId: thread,
+      role: 'assistant' as const,
+      authorPersonId: null,
+      modality: 'text' as const,
+      content: 'hi',
+      createdAt: 1,
+    }
+    const hidden = [
+      makeFrame('message.user', { message: { ...message, role: 'user' } }, { id: 'a1', ...at }),
+      makeFrame('message.started', { threadId: thread, messageId, proactive: false }, { id: 'a2', ...at }),
+      makeFrame('message.delta', { threadId: thread, messageId, text: 'h' }, { id: 'a3', ...at }),
+      makeFrame('message.completed', { message }, { id: 'a4', ...at }),
+      makeFrame(
+        'tool.activity',
+        { threadId: thread, messageId, toolCallId: 'c1', name: 'time', status: 'started' },
+        { id: 'a5', ...at },
+      ),
+    ]
+    const shown = [
+      makeFrame('thread.state', { threadId: thread, state: 'thinking' }, { id: 'b1', ...at }),
+      makeFrame('notice', { level: 'info', text: 'hi' }, { id: 'b2', ...at }),
+      makeFrame('error', { code: 'INTERNAL', message: 'x' }, { id: 'b3', ...at }),
+    ]
+    for (const f of [...hidden, ...shown]) reg.send(node(1), f)
+    expect(sent.map((s) => JSON.parse(s).type)).toEqual(['thread.state', 'notice', 'error'])
+
+    const chat: string[] = []
+    reg.connect(node(2), { sendText: (t) => chat.push(t), sendBinary: () => {} }, ['chat.text@1'])
+    for (const f of hidden) reg.send(node(2), f)
+    expect(chat).toHaveLength(hidden.length)
   })
 })

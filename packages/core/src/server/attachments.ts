@@ -10,8 +10,11 @@ export type FrameOutlet = { sendText(text: string): void; sendBinary(bytes: Uint
 
 /** The registry plus the connection bookkeeping only the server uses. */
 export interface ServerAttachmentRegistry extends AttachmentRegistry {
-  /** Registers a live socket for a node. Replaces an earlier outlet for the same node id. */
-  connect(nodeId: NodeId, outlet: FrameOutlet): void
+  /**
+   * Registers a live socket for a node with the capabilities it declared in `hello`. Replaces an
+   * earlier outlet for the same node id.
+   */
+  connect(nodeId: NodeId, outlet: FrameOutlet, capabilities: readonly string[]): void
   /** Forgets the socket and detaches the node from every thread. */
   disconnect(nodeId: NodeId): void
   isConnected(nodeId: NodeId): boolean
@@ -21,9 +24,22 @@ export interface ServerAttachmentRegistry extends AttachmentRegistry {
 
 export type AttachmentRegistryDeps = { log: Logger }
 
+const CHAT_TEXT_CAPABILITY = 'chat.text@1'
+
+/** Frames only a node with `chat.text@1` receives (protocol.md#delivery-rules). */
+const CHAT_TEXT_FRAMES: ReadonlySet<string> = new Set([
+  'message.user',
+  'message.started',
+  'message.delta',
+  'message.completed',
+  'tool.activity',
+])
+
+type Connected = FrameOutlet & { chatText: boolean }
+
 export function createAttachmentRegistry(deps: AttachmentRegistryDeps): ServerAttachmentRegistry {
   const log = deps.log.child({ component: 'attachments' })
-  const outlets = new Map<NodeId, FrameOutlet>()
+  const outlets = new Map<NodeId, Connected>()
   // threadId → node ids in attach order (most recent last; the mind uses it for focus fallback).
   const byThread = new Map<ThreadId, NodeId[]>()
 
@@ -60,6 +76,7 @@ export function createAttachmentRegistry(deps: AttachmentRegistryDeps): ServerAt
     send(nodeId, frame) {
       const outlet = outlets.get(nodeId)
       if (!outlet) return
+      if (!outlet.chatText && CHAT_TEXT_FRAMES.has(frame.type)) return
       // R-9: outgoing frames are validated too. An invalid frame is a core bug, never sent.
       const parsed = CoreFrame.safeParse(frame)
       if (!parsed.success) {
@@ -75,8 +92,12 @@ export function createAttachmentRegistry(deps: AttachmentRegistryDeps): ServerAt
     sendBinary(nodeId, bytes) {
       outlets.get(nodeId)?.sendBinary(bytes)
     },
-    connect(nodeId, outlet) {
-      outlets.set(nodeId, outlet)
+    connect(nodeId, outlet, capabilities) {
+      outlets.set(nodeId, {
+        sendText: (text) => outlet.sendText(text),
+        sendBinary: (bytes) => outlet.sendBinary(bytes),
+        chatText: capabilities.includes(CHAT_TEXT_CAPABILITY),
+      })
     },
     disconnect(nodeId) {
       outlets.delete(nodeId)
