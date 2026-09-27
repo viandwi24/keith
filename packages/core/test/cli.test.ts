@@ -49,11 +49,11 @@ describe('keith setup', () => {
   test('creates config, persona, db and owner in a fresh KEITH_HOME (DeepSeek)', async () => {
     const home = tempHome()
     const asked: string[] = []
-    // provider (default 1 = DeepSeek), model (default), web (default y), weather (default y), name,
-    // username (default), password twice
+    // provider (default 1 = DeepSeek), model (default), web (default y), weather (default y),
+    // voice (default none), name, username (default), password twice
     const code = await runCli(
       ['setup'],
-      io(home, ['', '', '', '', 'Tony Stark', '', 'jarvis-42', 'jarvis-42'], asked),
+      io(home, ['', '', '', '', '', 'Tony Stark', '', 'jarvis-42', 'jarvis-42'], asked),
     )
     expect(code).toBe(0)
     expect(asked[0]).toContain('DeepSeek')
@@ -62,6 +62,8 @@ describe('keith setup', () => {
     const config = await readConfig(home, { DEEPSEEK_API_KEY: 'sk-test' })
     expect(asked[2]).toContain('@keith/web')
     expect(asked[3]).toContain('@keith/tool-weather')
+    expect(asked[4]).toStartWith('Voice: 1) none')
+    expect(config.voice).toBeUndefined()
     expect(config.plugins.enabled).toEqual(['@keith/provider-deepseek', '@keith/web', '@keith/tool-weather'])
     // Only the provider is required: Keith starts without the web app or the weather tool.
     expect(config.plugins.required).toEqual(['@keith/provider-deepseek'])
@@ -93,6 +95,7 @@ describe('keith setup', () => {
         'acme/model-x',
         'n',
         'n',
+        'none',
         'Pepper',
         'pepper',
         'short',
@@ -117,7 +120,7 @@ describe('keith setup', () => {
   test('running it again keeps the files, offers a password reset and never duplicates the owner', async () => {
     const home = tempHome()
     expect(
-      await runCli(['setup'], io(home, ['1', '', 'n', 'n', 'Tony', 'tony', 'first-pass', 'first-pass'])),
+      await runCli(['setup'], io(home, ['1', '', 'n', 'n', '1', 'Tony', 'tony', 'first-pass', 'first-pass'])),
     ).toBe(0)
     const configBefore = await Bun.file(join(home, 'config.toml')).text()
     await Bun.write(join(home, 'persona.md'), 'My own persona')
@@ -133,6 +136,7 @@ describe('keith setup', () => {
       'To enable @keith/web, add "@keith/web" to plugins.enabled in config.toml.',
     )
     expect(second.lines.join('\n')).toContain('To enable @keith/tool-weather')
+    expect(second.lines.join('\n')).toContain('To turn voice on, add a [voice] section')
 
     // Accept it.
     expect(await runCli(['setup'], io(home, ['y', 'second-pass', 'second-pass']))).toBe(0)
@@ -147,11 +151,82 @@ describe('keith setup', () => {
   test('mismatched passwords are asked again', async () => {
     const home = tempHome()
     const asked: string[] = []
-    const answers = ['1', '', '', '', 'Tony', 'tony', 'password-a', 'password-b', 'password-c', 'password-c']
+    const answers = [
+      '1',
+      '',
+      '',
+      '',
+      '',
+      'Tony',
+      'tony',
+      'password-a',
+      'password-b',
+      'password-c',
+      'password-c',
+    ]
     expect(await runCli(['setup'], io(home, answers, asked))).toBe(0)
     expect(asked.filter((q) => q.startsWith('Password'))).toHaveLength(2)
     const [owner] = await owners(home)
     expect(await Bun.password.verify('password-c', owner?.passwordHash ?? '')).toBe(true)
+  })
+
+  describe('the voice question', () => {
+    async function setupWithVoice(answer: string) {
+      const home = tempHome()
+      const cli = io(home, ['1', '', 'y', 'n', answer, 'Tony', 'tony', 'first-pass', 'first-pass'])
+      expect(await runCli(['setup'], cli)).toBe(0)
+      const text = await Bun.file(join(home, 'config.toml')).text()
+      const config = await readConfig(home, {
+        DEEPSEEK_API_KEY: 'sk-test',
+        GROQ_API_KEY: 'gsk-test',
+        OPENAI_API_KEY: 'oa-test',
+      })
+      return { config, text, lines: cli.lines.join('\n') }
+    }
+
+    test('cloud: Groq STT + OpenAI TTS, keys as env: references', async () => {
+      const { config, text, lines } = await setupWithVoice('2')
+      expect(config.voice).toMatchObject({ vad: 'energy', stt: 'groq', tts: 'openai' })
+      expect(config.plugins.enabled).toEqual([
+        '@keith/provider-deepseek',
+        '@keith/web',
+        '@keith/vad-energy',
+        '@keith/voice-groq',
+        '@keith/voice-openai',
+      ])
+      expect(config.plugins.required).toEqual(['@keith/provider-deepseek'])
+      expect(config.plugins.sections['@keith/voice-groq']).toEqual({ apiKey: 'gsk-test' })
+      expect(config.plugins.sections['@keith/voice-openai']).toEqual({ apiKey: 'oa-test' })
+      expect(text).toContain('apiKey = "env:GROQ_API_KEY"')
+      expect(text).toContain('apiKey = "env:OPENAI_API_KEY"')
+      expect(lines).toContain('export GROQ_API_KEY=<your key> and OPENAI_API_KEY=<your key>')
+      expect(lines).not.toContain('docker run')
+    })
+
+    test('local: speaches for both, no key, and the docker run hint', async () => {
+      const { config, text, lines } = await setupWithVoice('local')
+      expect(config.voice).toMatchObject({ vad: 'energy', stt: 'speaches', tts: 'speaches' })
+      expect(config.plugins.enabled).toEqual([
+        '@keith/provider-deepseek',
+        '@keith/web',
+        '@keith/vad-energy',
+        '@keith/voice-speaches',
+      ])
+      expect(config.plugins.sections['@keith/voice-speaches']).toEqual({})
+      expect(text).not.toContain('GROQ_API_KEY')
+      expect(lines).toContain('docker run --rm --detach --publish 8000:8000')
+      expect(lines).toContain('ghcr.io/speaches-ai/speaches:latest-cpu')
+    })
+
+    test('mixed: Groq STT + speaches TTS', async () => {
+      const { config, lines } = await setupWithVoice('4')
+      expect(config.voice).toMatchObject({ vad: 'energy', stt: 'groq', tts: 'speaches' })
+      expect(config.plugins.enabled).toContain('@keith/voice-groq')
+      expect(config.plugins.enabled).toContain('@keith/voice-speaches')
+      expect(config.plugins.enabled).not.toContain('@keith/voice-openai')
+      expect(lines).toContain('export GROQ_API_KEY=<your key>.')
+      expect(lines).toContain('docker run')
+    })
   })
 
   test('running out of answers fails with exit code 1 and a message', async () => {

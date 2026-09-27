@@ -6,6 +6,7 @@ import { createVoiceInput } from './input.ts'
 import { createVoiceOutput } from './output.ts'
 import type { VoiceInput, VoiceOutput } from './types.ts'
 
+export { checkVoiceProviders } from './check.ts'
 export type { VoiceDeps } from './deps.ts'
 export { AUDIO_OUT_CAPABILITY } from './output.ts'
 export type { SpeechHandle, VoiceInput, VoiceOutput, VoiceStartResult } from './types.ts'
