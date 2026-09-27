@@ -12,7 +12,7 @@
 ├─ files/             # uploaded and generated files
 ├─ plugins/<id>/      # per-plugin private data (ctx.paths.data)
 ├─ keith.lock         # single-instance lock (pid + start time), present while Keith runs
-└─ logs/              # rotating JSON-lines logs: keith.log, keith.log.1 … keith.log.4
+└─ logs/              # rotating JSON-lines logs written by `keith start`: keith.log, keith.log.1 … keith.log.4
 ```
 
 Tests always set `KEITH_HOME` to a temporary directory.
@@ -65,7 +65,7 @@ tickMs = 30000
 [models]                           # model refs: "<providerId>:<modelId>"
 foreground = "deepseek:deepseek-flash"
 background = "deepseek:deepseek-flash"
-utility    = "deepseek:deepseek-flash"
+utility    = "deepseek:deepseek-flash"   # validated at start; first used in phase 4 (reflection, addressing)
 
 [auth]
 tokenTtlDays = 30
@@ -115,17 +115,17 @@ Running it again is safe: an existing `config.toml` or `persona.md` is kept as i
 
 Answers are read from the terminal (raw mode, so the password is not echoed) or one per line from piped stdin. Code and tests drive it through a `Prompter` (`scriptedPrompter(answers)` in tests).
 
-The first-party provider plugins (`@keith/provider-deepseek`, `@keith/provider-openrouter`) are dependencies of `@keith/core`, so the plugin host's `import()` of a name in `plugins.enabled` resolves them. Third-party plugins must be installed where the core can resolve them.
+The first-party plugins are dependencies of `@keith/core`, so the plugin host's `import()` of a name in `plugins.enabled` resolves them: the providers (`@keith/provider-deepseek`, `@keith/provider-openrouter`), the optional `@keith/web` and `@keith/tool-weather`, and the voice plugins (`@keith/vad-energy`, `@keith/voice-groq`, `@keith/voice-openai`, `@keith/voice-speaches`). Third-party plugins must be installed where the core can resolve them.
 
 ## Logs and lock
 
 **Lock (I-1, one Mind per home).** `acquireHomeLock(home)` (`core/src/shared/lock.ts`) creates `<home>/keith.lock` holding `{ pid, startedAt, token }`. The file is written under a temporary name and hard-linked into place, so it appears atomically. If the file exists and its pid is alive, acquiring fails with a `KeithError` (`INTERNAL`) whose message names the pid, the start time and the lock file. A lock whose pid is not alive, or whose file is unreadable, is stale and taken over. `release()` removes the file only if it is still ours, and is idempotent. `keith setup` and `keith migrate` hold the lock while they run (`withHomeLock`), so they refuse to touch a home that a started Keith is using.
 
-> Planned (phase 3, P3-I3): `keith start` (bootstrap) acquires the lock first and releases it last.
+`keith start` takes the lock in bootstrap, before anything else (step 0 of [core.md](core.md#construction-order-bootstrap)), and releases it last on shutdown, also when the start fails. A second `keith start` on the same home exits 1 with `INTERNAL: Keith is already running with this home (pid …, since …). Stop it first. Lock file: …`.
 
 **Log files.** `createLogFile({ dir })` (`core/src/shared/log-file.ts`) appends JSON lines to `logs/keith.log`. When a line would push the file past `LOG_FILE_MAX_BYTES` (10 MiB), it becomes `keith.log.1`, older files shift up, and at most `LOG_FILE_KEEP` (5) files are kept in total (the current one plus four rotated ones). Writes are synchronous, so no line is lost on exit. `createLogger({ clock, file })` writes each line to stdout and to the file; secrets are redacted before either sees the line. The sizes are constants, not config keys.
 
-> Planned (phase 3, P3-I3): bootstrap passes `createLogFile({ dir: paths.logsDir })` to the logger. Until then the logger writes to stdout only.
+`keith start` logs through `createLogger({ clock, file: createLogFile({ dir: paths.logsDir }) })`, so every line goes to stdout and to `logs/keith.log`; the file is closed on shutdown, after the last line (`keith stopped`). `keith setup` and `keith migrate` print to the terminal only.
 
 ## Secrets
 

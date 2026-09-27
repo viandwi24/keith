@@ -60,15 +60,15 @@ With a `[voice]` section, `bootstrap()` builds `createVoice(...)` right after th
 
 `@keith/core` depends on the four first-party voice plugins (`@keith/vad-energy`, `@keith/voice-groq`, `@keith/voice-openai`, `@keith/voice-speaches`), so the plugin host can load them by name. `keith setup` offers them ([config.md](config.md#keith-setup)).
 
-Config: the optional `[voice]` section ([config.md](config.md)) names the `vad`, `stt` and `tts` provider ids and sets `maxUtteranceMs`, `bargeIn` and `bargeInMinMs`. Without it, voice is off and the core behaves as in phase 2.
+Config: the optional `[voice]` section ([config.md](config.md)) names the `vad`, `stt` and `tts` provider ids and sets `language` (an optional hint passed to STT and TTS; omitted = the provider detects it), `maxUtteranceMs`, `bargeIn` and `bargeInMinMs` (default 600). Without it, voice is off and the core behaves as in phase 2.
 
 ## Turn-taking with voice
 
-- VAD start on the focus node → Thread `listening`.
+- VAD start on **any** attached node of an `idle` Thread → Thread `listening` (the listening node is remembered; its VAD end without a transcript, or its detach, returns the Thread to `idle`). While a turn runs, speech changes nothing unless it is a barge-in (below).
 - VAD end → STT final → normal input → `thinking`.
 - A spoken input's `message.user` also goes to the node that spoke it (as for a UI click), because its transcript comes from the core's STT: that is how the speaking node shows what it heard.
 - **A spoken reply stays `speaking` until playback ends.** The text streams live to every attached node as `message.delta`, but `message.completed` (and persistence) waits until the audio was sent, also on nodes without audio, so a barge-in during playback can still cut the stored text. In S-7 a text-only node therefore sees the full text before `message.completed`; nothing is lost.
-- **Barge-in:** speech detected while `speaking` stops TTS playback on the node (`audio.stop` frame), cancels the remaining TTS, and starts listening. The partial assistant message keeps what was actually spoken (`meta.spokenChars`). With an energy VAD, speech must last `voice.bargeInMinMs` before it counts, so a short noise doesn't cut the reply. The default (600 ms) is above the energy VAD's 500 ms hangover: the VAD reports the end of a short noise (`speaking: false`) before the minimum has passed. A value below the hangover lets almost any sound that starts the VAD cut the reply, because its stop arrives about one hangover after the sound ends.
+- **Barge-in:** speech from the **focus node** while the Thread is `thinking` or `speaking` (speech on other nodes never cuts a reply) stops TTS playback on the node (`audio.stop` frame), cancels the remaining TTS, and starts listening. The partial assistant message keeps what was actually spoken (`meta.spokenChars`). With an energy VAD, speech must last `voice.bargeInMinMs` before it counts, so a short noise doesn't cut the reply. The default (600 ms) is above the energy VAD's 500 ms hangover: the VAD reports the end of a short noise (`speaking: false`) before the minimum has passed. A value below the hangover lets almost any sound that starts the VAD cut the reply, because its stop arrives about one hangover after the sound ends.
 - Echo: nodes must use their platform's echo cancellation (browser `getUserMedia` constraints). The core doesn't do AEC.
 
 ## Browser side (`@keith/web`, `@keith/client`)

@@ -49,6 +49,7 @@ Default visibility when writing:
 - `memory.remember` in a direct Thread → `subject` (about the speaker), unless the model sets `household` for household facts.
 - `memory.remember` in a direct Thread about someone else, or about nobody (`subject: 'none'`) → `thread` (it stays in the speaker's thread; the model can widen it explicitly).
 - `memory.remember` in a group Thread → `thread`.
+- `memory.remember` without a thread (inside a task that has none) about someone else or about nobody has no default: it refuses (tool error "There is no thread here: set visibility explicitly.") unless the model sets a visibility.
 - `memory.remember` refuses (tool error) a `subject` memory with no subject, a `thread` memory with no thread, `household` from a guest and `owner` from a non-owner. Inside a task it writes `source: 'inferred'` with no author; otherwise `source: 'stated'` authored by the speaker.
 - `MemoryService.write` trims the content and throws `INTERNAL` for empty content, `subject` without a subject and `thread` without a thread. It emits `memory.written`.
 - Tasks → `subject` (the task's person) when started in a direct Thread, `thread` when started in a group Thread. Phase 1 doesn't write task results as memories (see [core.md](core.md#tasks)).
@@ -80,4 +81,4 @@ The visibility filter is a single pure function (`memory/visibility.ts`) that ev
 ## Forgetting
 
 - `memory.forget` (owner or subject only) hard-deletes a memory. A memory not visible to the caller's viewer reads as not found, even for the owner, so existence never leaks. All three `memory.*` tools have `minTier: 'guest'`; the checks above do the rest.
-- Deleting a Person deletes their `subject` memories and their direct threads.
+> Planned (phase 5): deleting a Person deletes their `subject` memories and their direct threads. v1 has no person deletion.

@@ -40,6 +40,18 @@ function briefingReply(req: LlmRequest) {
   return fakeText(text)
 }
 
+const QUESTION = "What's the weather in Malibu today?"
+const WEATHER = 'Sunny and 24 degrees in Malibu, sir.'
+/** Section 8's instruction for a user turn that carries pending items after an arrival. */
+const ANSWER_FIRST = 'Otherwise answer first, then mention them briefly.'
+
+/** Answers the question first, then mentions the pending items if they are in the context. */
+function answerFirstReply(req: LlmRequest) {
+  const system = systemOf(req)
+  const pending = system.includes(ANSWER_FIRST) && system.includes(RESULT)
+  return fakeText(pending ? `${WEATHER} Also, while you were away: ${RESULT}` : WEATHER)
+}
+
 /**
  * A `tool` plugin that queues a news item when someone comes back (S-1 step 2; not on a first
  * meeting), and counts those arrivals in its data store.
@@ -69,6 +81,7 @@ async function taskCompletesWhileAway(
   config: E2eConfig,
   advanceMs: number,
   plugins: AnyPluginDefinition[] = [],
+  thirdReply: (req: LlmRequest) => ReturnType<typeof fakeText> = briefingReply,
 ): Promise<Setup> {
   const home = await createHome(e2eConfig({ awayAfterMinutes: AWAY_MINUTES, ...config }))
   cleanups.push(() => home.remove())
@@ -77,7 +90,7 @@ async function taskCompletesWhileAway(
   const chat = scriptedLlm([
     [fakeToolCall('task.start', { goal: GOAL, notify: 'when-done', promise: 'I will brief you' })],
     fakeText('Understood.'),
-    briefingReply,
+    thirdReply,
   ])
   const { keith } = await startKeith({
     home,
@@ -162,6 +175,52 @@ describe('S-1: arrival and briefing', () => {
   )
 
   test(
+    'S-1: on-greeting and a first input that is not a greeting: Keith answers first, then mentions the result',
+    async () => {
+      const { keith, tony, chat, deliveryId } = await taskCompletesWhileAway(
+        {},
+        AWAY_MINUTES * 60_000 + 1,
+        [],
+        answerFirstReply,
+      )
+
+      const arrived = nextEvent(keith, 'person.arrived', (e) => e.personId === tony.id)
+      const morning = await connectNode(keith, tony)
+      cleanups.push(() => morning.close())
+      const { threadId } = await morning.openMain()
+      await arrived
+
+      // The arrival hold: nothing is said before Tony speaks.
+      await Bun.sleep(100)
+      expect(morning.frames.some((f) => f.type === 'message.started')).toBe(false)
+      expect((await keith.repos.deliveries.get(deliveryId))?.status).toBe('pending')
+
+      morning.say(threadId, QUESTION)
+      const started = await morning.next('message.started')
+      expect(started.data.proactive).toBe(false)
+      const reply = await morning.reply(threadId)
+      expect(reply.content).toBe(`${WEATHER} Also, while you were away: ${RESULT}`)
+
+      // The user turn carried the pending result with the answer-first instruction, not a briefing.
+      const req = chat.requests.at(-1)
+      expect(req?.messages.at(-1)).toEqual({ role: 'user', content: QUESTION })
+      const system = systemOf(req)
+      expect(system).toContain(ANSWER_FIRST)
+      expect(system).toContain(RESULT)
+      expect(system).not.toContain('Greet them')
+
+      // Delivered in that reply (I-10), and no separate delivery or briefing turn follows.
+      await keith.threads.idle()
+      expect((await keith.repos.deliveries.get(deliveryId))?.status).toBe('delivered')
+      await Bun.sleep(100)
+      await keith.threads.idle()
+      expect(chat.calls).toBe(3)
+      expect(morning.frames.filter((f) => f.type === 'message.started')).toHaveLength(1)
+    },
+    TEST_TIMEOUT_MS,
+  )
+
+  test(
     'S-1: briefing = auto greets on arrival without any input',
     async () => {
       const { keith, tony, chat, deliveryId } = await taskCompletesWhileAway(
@@ -177,7 +236,7 @@ describe('S-1: arrival and briefing', () => {
       const reply = await morning.reply(threadId)
       expect(reply.content).toBe(`Good morning, sir. While you were away: ${RESULT}`)
       expect(reply.meta?.proactive).toBe(true)
-      // The replayed history ends with the last reply, after its tool step (order by createdAt, id).
+      // The replayed history ends with the last reply, after its tool step (order by seq).
       expect(chat.requests.at(-1)?.messages.map((m) => m.role)).toEqual([
         'user',
         'assistant',

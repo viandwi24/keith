@@ -281,6 +281,33 @@ describe('keith', () => {
     expect(cli.lines[0]).toMatch(/^Keith .* is listening on http:\/\/127\.0\.0\.1:\d+$/)
   })
 
+  test('a second start on the same home exits 1 with a readable error (I-1)', async () => {
+    const home = await createTestHome()
+    cleanups.push(() => home.remove())
+    const clock = testClock()
+    const bootstrapOpts = () => ({
+      plugins: [createFakeLlmPlugin(createFakeLlm())],
+      log: quietLogger(clock),
+      clock,
+    })
+    const second = io(home.dir)
+    let secondCode: number | undefined
+    const first = io(home.dir)
+    const code = await runCli(['start', '--port', '0'], {
+      ...first,
+      bootstrap: bootstrapOpts(),
+      async waitForStop() {
+        secondCode = await runCli(['start', '--port', '0'], { ...second, bootstrap: bootstrapOpts() })
+      },
+    })
+    expect(code).toBe(0)
+    expect(secondCode).toBe(1)
+    expect(second.lines).toHaveLength(1)
+    expect(second.lines[0]).toStartWith(
+      `ERR INTERNAL: Keith is already running with this home (pid ${process.pid}`,
+    )
+  })
+
   test('start rejects an invalid --port', async () => {
     const cli = io(tempHome())
     expect(await runCli(['start', '--port', 'abc'], cli)).toBe(2)

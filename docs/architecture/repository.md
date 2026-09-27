@@ -7,14 +7,14 @@ keith/
 ├─ AGENTS.md · CLAUDE.md · README.md
 ├─ package.json              # workspaces: packages/*, plugins/*, apps/*
 ├─ biome.json · tsconfig.base.json
-├─ scripts/                  # repo tooling (e.g. plans board)
+├─ scripts/                  # repo tooling: plans board, check-deps, check-core-docs
 ├─ docs/
-├─ tests/e2e/                # cross-package end-to-end tests (core + fake provider + protocol client)
+├─ tests/e2e/                # cross-package end-to-end tests (core + fake provider + protocol client, Playwright)
 ├─ packages/
 │  ├─ protocol/              # @keith/protocol: wire contract (zod schemas + inferred types)
 │  ├─ sdk/                   # @keith/sdk: plugin-facing API and helpers
 │  ├─ client/                # @keith/client: protocol client for TS nodes (TUI, web browser app)
-│  └─ core/                  # @keith/core: the core process and the `keith` CLI
+│  └─ core/                  # @keith/core: the core process and the `keith` CLI (src/, test/, drizzle/ migrations)
 ├─ plugins/
 │  ├─ provider-openrouter/   # @keith/provider-openrouter
 │  ├─ provider-deepseek/     # @keith/provider-deepseek
@@ -58,19 +58,22 @@ The running process. Internal folders:
 | Folder | Owns |
 |---|---|
 | `src/cli/` | `keith start`, `keith setup`, `keith migrate` |
-| `src/shared/` | Logger, clock and prefixed-ULID generator implementations |
+| `src/shared/` | Logger, rotating log file, `KEITH_HOME` lock, clock and prefixed-ULID generator implementations |
 | `src/config/` | Loading and validating `~/.keith/config.toml` |
 | `src/plugins/` | Plugin host, registry implementations (services, tools, skills, agents, providers) |
 | `src/events/` | Event bus implementation |
 | `src/server/` | Bun HTTP + WS, auth, handshake, frame routing, http/ws registries |
-| `src/storage/` | Drizzle schema, migrations, repositories |
+| `src/storage/` | Drizzle schema, migration runner, repositories. The generated SQL migrations live in `packages/core/drizzle/` (drizzle-kit, [storage.md](storage.md)) |
 | `src/mind/` | ThreadManager, turn loop, context builder, focus, turn state |
 | `src/scheduler/` | Lanes, Tasks, Commitments, Deliveries |
 | `src/memory/` | Memory write/recall, visibility filter, awareness digest |
+| `src/voice/` | Phase 3: the voice pipeline (VAD → STT → Mind, TTS → focus node) and `checkVoiceProviders` ([voice.md](voice.md)) |
 | `src/builtins/` | Built-in tools: `task.*`, `memory.*`, `skill.load` |
 | `src/bootstrap.ts` | Wires everything together. Owned by integration tasks only |
 
-Core folders talk through TypeScript interfaces declared in [core.md](core.md#internal-interfaces). This lets lanes build in parallel against the interface before the implementation exists.
+Core folders talk through TypeScript interfaces declared in [core.md](core.md#internal-interfaces). This lets lanes build in parallel against the interface before the implementation exists. `bun run core-docs` (`scripts/check-core-docs.ts`, part of `bun run check`) fails when an interface block in core.md differs from its `types.ts`.
+
+**Runtime plugin dependencies.** `@keith/core` lists the first-party plugins as `dependencies` (`@keith/provider-deepseek`, `@keith/provider-openrouter`, `@keith/web`, `@keith/tool-weather`, `@keith/vad-energy`, `@keith/voice-groq`, `@keith/voice-openai`, `@keith/voice-speaches`), so the plugin host's `import()` of a configured name resolves under Bun's isolated linker ([config.md](config.md)). The core's code never imports them; only the plugin host loads them by name at run time.
 
 ## Dependency direction
 
@@ -81,13 +84,15 @@ Core folders talk through TypeScript interfaces declared in [core.md](core.md#in
        └──── apps/*, plugins/*/app, @keith/client
 ```
 
-- `plugins/*` import only `@keith/sdk` and `@keith/protocol`.
+- `plugins/*` import only `@keith/sdk` and `@keith/protocol` (R-1).
 - `apps/*` and the browser side of client-app plugins (`plugins/*/app/**`) import only `@keith/protocol` and `@keith/client` ([ADR-0011](../decisions/0011-client-app-browser-side.md)).
 - `@keith/client` imports only `@keith/protocol`.
-- Nothing imports `@keith/core` except `tests/e2e`.
-- Plugins never import each other.
+- Nothing imports `@keith/core` except its own tests and `tests/e2e`. Other files under `tests/` may not import it either, not even by relative path (R-1).
+- Plugins never import each other (R-2). The one exception: `import type` from another plugin's `/service` type entry (the service's request and result types).
+- Only `packages/core/src/storage` imports `bun:sqlite` or Drizzle (R-4).
+- Only provider plugins import model-vendor SDKs (`openai`, `@ai-sdk/*`, …) (R-5).
 
-Enforced by a dependency-check script in `bun run check` (task P0-01).
+All of these are checked by `bun run deps` (`scripts/check-deps.ts`), which is part of `bun run check`.
 
 ## Planned packages (do not create early)
 

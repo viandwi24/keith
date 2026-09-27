@@ -31,6 +31,8 @@ Like a Linux distro, Keith works as CLI only. The web plugin is a desktop enviro
 
 Every kind may provide and consume services, listen to and emit events (in its own namespace), and use `ctx.data` / `ctx.paths`. The plugin host enforces the rest of this table. Using a registry outside your kind throws `PLUGIN_KIND_VIOLATION`. A plugin that genuinely needs two kinds is two plugins.
 
+A delivery may carry a UI block (`ctx.deliveries.enqueue({ ui })`). It is shown with the message that delivers the item ([ui.md](ui.md#rendering-rules-for-client-apps)), but its buttons reach no plugin code: a click becomes the input `(clicked: <label>)` in the Thread. A plugin that needs a working button should expose a tool whose result carries the block (tool blocks route clicks to the tool's `onAction`). Routing delivery clicks to the plugin would need a contract change.
+
 ## Namespace
 
 Every plugin declares a `namespace` (`/^[a-z][a-z0-9]*(_[a-z0-9]+)*$/`, unique across loaded plugins, e.g. `weather` for `@keith/tool-weather`). The same value scopes everything the plugin names:
@@ -54,7 +56,7 @@ load (import from config)  →  setup(ctx)  →  start(ctx)  →  … running �
 - **`start`**: all plugins are set up, so you may `ctx.services.get(...)`. Open connections and start timers.
 - **`stop`**: runs in reverse load order. Close everything within `plugins.stopTimeoutMs` (default 5 000).
 
-A plugin that throws in `setup` or `start` is marked `failed`. Its registrations are rolled back, the core keeps running without it, and the failure is logged and emitted as `plugin.failed`. Core plugins listed in `plugins.required` (config) make the core refuse to start if they fail.
+A plugin that throws in `setup` or `start` is marked `failed`. Its registrations are rolled back, the core keeps running without it, and the failure is logged and emitted as `plugin.failed`. An owner node gets one `warn` notice per failed plugin right after `welcome` ([protocol.md](../contracts/protocol.md#notices)). Core plugins listed in `plugins.required` (config) make the core refuse to start if they fail.
 
 ## Talking to other plugins
 
@@ -122,7 +124,7 @@ The plugin host (`core/src/plugins`) applies these rules. Each has a test.
 | Registry outside the plugin's kind | `PLUGIN_KIND_VIOLATION`, thrown synchronously at the call |
 | `ctx.services.get` / `find` during `setup` | Throws `SERVICE_MISSING` saying services are available from `start` on |
 | `needs` lists a service nobody provides | That plugin's `start` fails with `SERVICE_MISSING` naming the service(s). Checked right before each plugin's `start` |
-| `setup` or `start` throws | Registrations rolled back (services, tools, skills, agents, providers, routes, ws handlers, event handlers and schemas), state `failed`, error logged, `plugin.failed` emitted. `ctx.data` is kept |
+| `setup` or `start` throws | Registrations rolled back (services, tools, skills, agents, providers, routes, ws handlers, event handlers and schemas), and its `ctx.deliveries` refuses new items (items it already queued stay). State `failed`, error logged, `plugin.failed` emitted. `ctx.data` is kept. The failed plugin keeps its `namespace`: a later plugin with the same namespace still fails with `PLUGIN_NAMESPACE_INVALID` |
 | A `plugins.required` plugin fails | `load` (setup) or `startAll` (start) throws |
 | After all setups, a `models` role names an unregistered provider | `load` throws `CONFIG_INVALID` naming the role and the ref |
 | `stop` runs longer than `plugins.stopTimeoutMs` | Abandoned and logged. Only started plugins are stopped, in reverse load order |
@@ -131,7 +133,7 @@ Registry rules:
 
 - **Services:** providing a taken name throws `SERVICE_CONFLICT`. When `[services]` names a winner for that service, only the winner's implementation is kept, whatever the load order, and the others are ignored (logged).
 - **Tools:** the name must match `TOOL_NAME_PATTERN` and its first segment must be the plugin's namespace (`TOOL_NAME_INVALID`). Names are unique (`TOOL_NAME_TAKEN`). Built-ins use `registerBuiltin` and must be in a reserved namespace.
-- **`tools.invoke`** never throws. In order: unknown tool (`NOT_FOUND`), `minTier` against the lowest tier among the participants (`TIER_INSUFFICIENT`), zod input validation (`TOOL_INPUT_INVALID`), then `run` with `timeoutMs` (`TOOL_TIMEOUT`, the tool's signal is aborted). Refusals never call `run`. A throw becomes `INTERNAL` (or the thrown `KeithError`'s code). Each failure comes back as `{ error: true, content: '<CODE>: <message>' }`. It emits `tool.called` before `run` and `tool.completed` after it.
+- **`tools.invoke`** never throws. In order: unknown tool (`NOT_FOUND`), `minTier` against the lowest tier among the participants (`TIER_INSUFFICIENT`), zod input validation (`TOOL_INPUT_INVALID`), a call whose signal is already aborted (`INTERNAL`, "was cancelled"), then `run` with `timeoutMs` (`TOOL_TIMEOUT`, the tool's signal is aborted). Refusals never call `run`. A throw becomes `INTERNAL` (or the thrown `KeithError`'s code). Each failure comes back as `{ error: true, content: '<CODE>: <message>' }`. It emits exactly one `tool.called` / `tool.completed` pair per invocation, refusals included (`ok: false`); nothing else emits them ([core.md](core.md#the-turn-loop)).
 - **Skills and agents:** snake_case names, unique. There is no dedicated error code, so they reuse `TOOL_NAME_INVALID` and `TOOL_NAME_TAKEN`. No plugin agent may be called `general`.
 - **Providers:** two providers with the same id throw `SERVICE_CONFLICT`. `providers.llm.resolve(role)` splits `config.models[role]` at the first `:` into provider id and model id.
 - **Events:** a plugin may `emit` and `define` only names that match `EVENT_NAME_PATTERN` and start with `<namespace>.` (`PLUGIN_NAMESPACE_INVALID`). A payload that fails its defined schema makes `emit` throw `INTERNAL`.

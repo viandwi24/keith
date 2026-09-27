@@ -24,11 +24,12 @@ These exist once task `P0-01` is done. If a command is missing, check that task'
 | Command | Purpose |
 |---|---|
 | `bun install` | Install workspace dependencies |
-| `bun run check` | Typecheck + lint + deps + plans lint + test. Must pass before a task is `done` |
+| `bun run check` | Typecheck + lint + deps + core-docs + plans lint + test. Must pass before a task is `done` |
 | `bun run typecheck` | `tsc --noEmit` across the workspace |
 | `bun run lint` | Biome lint + format check |
 | `bun run format` | Biome format (write) |
 | `bun run deps` | Check the import rules (R-1, R-2, R-4, R-5) with `scripts/check-deps.ts` |
+| `bun run core-docs` | Check that the interface blocks in `docs/architecture/core.md` match `packages/core/src/*/types.ts` (`scripts/check-core-docs.ts`) |
 | `bun test` | Run all tests |
 | `bun run plans` | Print the task board from `docs/plans/**` frontmatter |
 | `bun run dev` | Start the core in watch mode |

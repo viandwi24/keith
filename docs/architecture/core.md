@@ -988,18 +988,22 @@ The digest builds its activity picture from events (`thread.state_changed`, `tas
 
 The only order that has no cycles. `bootstrap.ts` follows it:
 
-1. config → logger, clock, ids
+0. the `KEITH_HOME` lock (`acquireHomeLock`, [config.md](config.md#logs-and-lock)). A second Keith on the same home fails here, before anything is opened (I-1).
+1. config → logger (stdout plus `logs/keith.log`), clock, ids; the home folders are created
 2. db + repositories → event bus
-3. registries: services, tools, skills, agents, providers (standalone objects from `plugins/`)
+3. registries: services, tools, skills, agents, providers, plugin data stores (standalone objects from `plugins/`)
 4. `AttachmentRegistry` + `Presence` (from `server/`)
+   - **4b.** voice pipeline (phase 3), only with a `[voice]` section ([voice.md](voice.md)). It needs the `ThreadManager` and the `ThreadManager` needs its output, so it reaches the `ThreadManager` through a late binding. It also tracks each node's `hello` capabilities from `node.connected`.
 5. `RunLoop` (from `mind/`, needs providers, tools, repositories)
 6. scheduler, tasks, commitments, deliveries (needs `RunLoop`)
-7. memory (needs repositories, events, tasks)
-8. `ThreadManager` (needs everything above). It subscribes to `delivery.enqueued`, so nothing calls into it from below. Arrival reaches it only through `open({ arrival })`, never through the `person.arrived` event (which is for plugins).
-9. server (needs `ThreadManager`, attachments, presence) builds its http and ws registries, **without listening yet**
+7. memory (needs repositories, events, config)
+8. `ThreadManager` (needs everything above, and the voice output). It subscribes to `delivery.enqueued`, so nothing calls into it from below. Arrival reaches it only through `open({ arrival })`, never through the `person.arrived` event (which is for plugins).
+9. server (needs `ThreadManager`, attachments, presence, the voice input) builds its http and ws registries, **without listening yet**. It reads the plugin host's `status()` for the notices after `welcome` through a late binding (the host is built in step 11).
 10. built-in tools registered through the privileged `tools.registerBuiltin()`
-11. plugin host (needs registries, server http/ws, the delivery sink) → load → `setup` → `start`
-12. server `listen()` → emit `core.started`
+11. plugin host (needs registries, server http/ws, the delivery sink, the data stores) → load → `setup` → `start`, then `checkVoiceProviders`: every `voice.vad/stt/tts` id must name a registered provider (`CONFIG_INVALID` otherwise)
+12. `scheduling.start()` (recovers tasks, starts the tick), server `listen()` → emit `core.started`
+
+Shutdown runs the other way: presence flush, server stop, `threads.stop()` then `threads.cancelAll()` (each running turn persists its partial reply), presence, scheduling, memory, plugins, event bus, database, log file, and the home lock last. A start that fails tears down what it built, lock included.
 
 ## Threads and turn state
 
@@ -1017,7 +1021,7 @@ Each Thread has one `TurnState` held in memory (not persisted) and broadcast as 
 Rules:
 - **Input while `thinking` or `speaking`.** Text input is queued and becomes the next turn. Nothing is lost, and the model sees both messages. Spoken input can also barge in (below).
 - **`input.cancel`** aborts the running turn's `AbortSignal`. The partial assistant text is persisted with `meta.cancelled = true`.
-- **Focus** is set to the node of each new input. Audio output goes to the focus node only. Text and UI go to every node attached to the Thread (I-7).
+- **Focus** is set to the node of each new input, and by `open` when the thread has no focus yet. Audio output goes to the focus node only. Text and UI go to every node attached to the Thread (I-7).
 - Each new user input is echoed to the *other* attached nodes as `message.user`. Two inputs are also echoed to the sending node: a `ui.action` click and a spoken input (its transcript comes from the core's STT, so the speaking node has no other copy).
 - **Queue details.** One turn runs per thread at a time. Inputs that arrive while a turn runs wait in a FIFO; when the turn ends, *all* waiting inputs become the next turn together. A queued input is echoed right away but persisted when its turn starts, so history reads `user → reply → next user` rather than two user messages before the reply.
 - **Focus fallback.** When the focus node detaches, focus is empty until the next input; a turn without focus uses the capabilities of the most recently attached node.
@@ -1068,9 +1072,9 @@ Builds `{ system, messages, tools }` for a Viewer. The system prompt is assemble
 8. **Pending deliveries:** only in delivery turns and arrival turns, with instructions to phrase them naturally.
 9. **Skills index:** name + one-line description of every registered skill (full text loads through `skill.load`).
 
-**Messages:** the last `mind.context.recentMessages` messages (default 40). A running thread summary is added in phase 4.
+**Messages:** the last `mind.context.recentMessages` stored rows (default 40). The window counts every row, including the tool-step assistant rows and `tool` rows that nodes don't see, so a turn with many tool steps leaves fewer visible messages in it. A running thread summary is added in phase 4.
 
-**Tools:** built-ins, plus registry tools where `tool.minTier` is at or below the lowest participant tier (owner > member > guest) and `tool.requires ⊆` the focus node's capabilities.
+**Tools:** every tool in the registry, built-ins included, where `tool.minTier` is at or below the lowest participant tier (owner > member > guest) and `tool.requires ⊆` the focus node's capabilities.
 
 ## Scheduler
 
@@ -1122,7 +1126,7 @@ A Delivery is anything the Mind should surface in a Thread without being asked.
 
 **Flush triggers.** The ThreadManager checks the queue when (a) a `delivery.enqueued` event arrives for a thread, (b) a turn ends, (c) an arrival's hold ends (below), (d) `open` is called and no hold starts (a reconnect below the threshold, or `briefing = off`), and (e) `listening` ends without an input (phase 3). It flushes only when the thread is `idle`, the person is present, and no arrival hold is active. While the thread is `listening` (someone is speaking to it) no delivery or briefing turn starts; a due briefing waits the same way.
 
-**Delivery turn.** Runs in the `delivery` lane. All pending items go into context at once (section 8), ordered by urgency. Frames are `proactive: true`. After the assistant message is persisted, every item that was in context is marked delivered (with that `messageId`, stored as the delivery's `message_id`), whether or not the model mentioned it. Items that carry `ui` (plugin deliveries, task results) bring their blocks along, exactly like tool UI: when the turn completes, each block is validated, sent as `ui.render` (with `uiBlockToText` as `fallbackText`) to the thread's `ui.render@1` nodes before `message.completed`, and stored as a `ui` entry of that message (`toolCallId` `delivery:<deliveryId>`, `toolName` `delivery:<source>`), so it is in `message.completed` and history. A block reusing a block id already on the message is dropped with a warning. A failed or cancelled turn attaches no block (its items stay pending). The same applies to a user turn that carries the pending items after an arrival. `critical` items flush before any queued user input. If such a pre-empting delivery turn fails or is cancelled, the queued input runs next instead of another delivery turn.
+**Delivery turn.** Runs in the `delivery` lane with the `foreground` model role (like user turns and briefing turns; only tasks use `background`). All pending items go into context at once (section 8), ordered by urgency. Frames are `proactive: true`. After the assistant message is persisted, every item that was in context is marked delivered (with that `messageId`, stored as the delivery's `message_id`), whether or not the model mentioned it. Items that carry `ui` (plugin deliveries, task results) bring their blocks along, exactly like tool UI: when the turn completes, each block is validated, sent as `ui.render` (with `uiBlockToText` as `fallbackText`) to the thread's `ui.render@1` nodes before `message.completed`, and stored as a `ui` entry of that message (`toolCallId` `delivery:<deliveryId>`, `toolName` `delivery:<source>`), so it is in `message.completed` and history. A block reusing a block id already on the message is dropped with a warning. A failed or cancelled turn attaches no block (its items stay pending). The same applies to a user turn that carries the pending items after an arrival. `critical` items flush before any queued user input. If such a pre-empting delivery turn fails or is cancelled, the queued input runs next instead of another delivery turn.
 
 **Away.** Deliveries wait until the person is present again.
 
@@ -1134,7 +1138,7 @@ A Delivery is anything the Mind should surface in a Thread without being asked.
 - The server decides arrival when a person's first node attaches: `awayMs = now − last_seen_at`. It is an arrival if `awayMs ≥ mind.arrival.awayAfterMinutes × 60 000` (fractional minutes allowed), or if `last_seen_at` is null (first-ever attach, `awayMs: null`, a first meeting). The server then passes `arrival` to `ThreadManager.open` and emits `person.arrived`. Plugins may enqueue Deliveries in response (news, weather).
 - `mind.arrival.briefing` controls what happens on arrival:
   - `on-greeting` (default): an **arrival hold** starts, and no delivery turn runs. The first user turn after arrival gets all pending deliveries in context (section 8). If the input is a greeting or a catch-up question, the model leads with them. Otherwise it answers first and then mentions them briefly. After that turn's reply is persisted, the included items are marked delivered. If no input arrives within `mind.arrival.holdMs` (default 120 000), the hold ends and a normal delivery turn runs.
-  - `auto`: after a grace period of `mind.arrival.graceMs` (default 1 500, so plugin deliveries can land), a briefing turn runs in the delivery lane. It is a delivery turn whose instructions also say to greet.
+  - `auto`: after a grace period of `mind.arrival.graceMs` (default 1 500, so plugin deliveries can land), a briefing turn runs in the delivery lane. It is a delivery turn whose instructions also say to greet. It always runs, also when nothing is pending (then it only greets) and on a first meeting (`awayMs: null`).
   - `off`: no hold, normal flush.
 - The `auto` grace period works like a short hold: deliveries that land during it wait for the briefing. Input during an `on-greeting` hold or an `auto` grace ends it, and that user turn carries the pending deliveries (the briefing turn is skipped).
 

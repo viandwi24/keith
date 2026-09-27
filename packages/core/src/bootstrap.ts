@@ -31,8 +31,15 @@ import {
   createCoreServer,
   createPresence,
 } from './server/index.ts'
-import { createIds, createLogger, systemClock } from './shared/index.ts'
-import type { Clock, Logger, NodeId, ThreadId } from './shared/types.ts'
+import {
+  acquireHomeLock,
+  createIds,
+  createLogFile,
+  createLogger,
+  type LogFile,
+  systemClock,
+} from './shared/index.ts'
+import type { Clock, Logger, NodeId } from './shared/types.ts'
 import { openDb } from './storage/index.ts'
 import type { Repositories } from './storage/types.ts'
 import { checkVoiceProviders, createVoice } from './voice/index.ts'
@@ -51,8 +58,13 @@ export type BootstrapOptions = {
   plugins?: AnyPluginDefinition[] | undefined
   /** Test only: a fake clock. */
   clock?: Clock | undefined
-  /** Default: JSON lines on stdout. */
+  /**
+   * Default: JSON lines on stdout and in `logs/keith.log` (rotated, config.md#logs-and-lock). A
+   * logger passed here gets no log file.
+   */
   log?: Logger | undefined
+  /** Test only: where the default logger writes instead of stdout (the log file still gets every line). */
+  logWrite?: ((line: string) => void) | undefined
   /** Test only: how plugin packages are imported. Default: dynamic `import()`. */
   importModule?: PluginImporter | undefined
   /** Test only: shorter handshake and heartbeat timers. */
@@ -76,15 +88,18 @@ export interface Keith {
   readonly plugins: PluginHost
   /**
    * Graceful shutdown: stop accepting connections, cancel running turns (their partial text is
-   * persisted with `meta.cancelled`), flush presence, stop tasks and plugins, close the database.
-   * Idempotent; later calls return the same promise.
+   * persisted with `meta.cancelled`), flush presence, stop tasks and plugins, close the database
+   * and the log file, and release the home lock last. Idempotent; later calls return the same promise.
    */
   stop(): Promise<void>
 }
 
 type Closer = { name: string; run: () => Promise<void> | void }
 
-/** Builds and starts Keith. On any failure, whatever was already built is torn down again. */
+/**
+ * Builds and starts Keith. On any failure, whatever was already built is torn down again. Fails
+ * (`INTERNAL`, naming the pid) when another Keith holds the home's lock (I-1).
+ */
 export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
   const closers: Closer[] = []
   const unwind = async (log: Logger | null) => {
@@ -97,16 +112,29 @@ export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
     }
   }
 
-  // 1. config → logger, clock, ids
+  // 0. the home lock (I-1: exactly one Mind per home). Taken first, released last.
   const clock = opts.clock ?? systemClock
-  const config = await loadConfig({ home: opts.home, flags: opts.flags, env: opts.env })
   const paths = keithPaths(opts.home)
-  const log = opts.log ?? createLogger({ clock })
-  const ids = createIds({ clock })
+  const lock = await acquireHomeLock(paths.home, { clock })
+  closers.push({ name: 'lock', run: () => lock.release() })
+
+  // Null until the logger exists (a failure before that has nothing to log to).
+  let startLog: Logger | null = opts.log ?? null
   try {
+    // 1. config → logger (stdout + logs/keith.log), clock, ids
+    const config = await loadConfig({ home: opts.home, flags: opts.flags, env: opts.env })
     for (const dir of [paths.home, paths.filesDir, paths.pluginsDir, paths.logsDir]) {
       await mkdir(dir, { recursive: true })
     }
+    let logFile: LogFile | null = null
+    if (!startLog) {
+      const file = createLogFile({ dir: paths.logsDir })
+      logFile = file
+      closers.push({ name: 'log file', run: () => file.close() })
+      startLog = createLogger({ clock, write: opts.logWrite, file })
+    }
+    const log: Logger = startLog
+    const ids = createIds({ clock })
 
     // 2. db + repositories → event bus
     const db = openDb(paths.dbFile)
@@ -205,10 +233,10 @@ export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
       voice: voice?.output,
     })
     threadsRef = threads
-    const turns = trackRunningTurns(events)
     closers.push({ name: 'threads', run: () => threads.stop() })
 
     // 9. server (not listening yet)
+    let pluginsRef: PluginHost | null = null
     const server = createCoreServer({
       config,
       log,
@@ -223,6 +251,9 @@ export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
       filesDir: paths.filesDir,
       timing: opts.timing,
       voice: voice?.input,
+      // Notices after `welcome` (protocol.md#notices). The host is built in step 11.
+      pluginStatus: () => pluginsRef?.status() ?? [],
+      voiceConfigured: config.voice !== undefined,
     })
 
     // 10. built-in tools
@@ -247,6 +278,7 @@ export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
       },
       { importModule: opts.importModule },
     )
+    pluginsRef = plugins
     closers.push({ name: 'plugins', run: () => plugins.stopAll() })
     await plugins.load(config, opts.plugins ?? [])
     await plugins.startAll()
@@ -277,10 +309,10 @@ export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
       await step('presence.flush', () => presence.flushPresence())
       // Stop accepting connections and input; close open sockets.
       await step('server', () => server.stop())
-      // No new delivery turns or arrival holds, then cancel whatever turn still runs.
+      // No new turns or arrival holds, then cancel whatever turn still runs (each persists its
+      // partial reply with `meta.cancelled` before cancelAll resolves).
       await step('threads.stop', () => threads.stop())
-      await step('turns', () => cancelRunningTurns(threads, turns, events, ids))
-      turns.dispose()
+      await step('threads.cancelAll', () => threads.cancelAll())
       await step('presence.dispose', () => presence.dispose())
       // Aborts running tasks without changing their stored status (recovered on the next start).
       await step('scheduling', () => scheduling.stop())
@@ -289,6 +321,9 @@ export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
       await step('events', () => events.idle())
       await step('db', () => db.close())
       log.info('keith stopped')
+      await step('log file', () => logFile?.close())
+      // Last: another Keith may start on this home from here on.
+      await step('lock', () => lock.release())
     }
 
     return {
@@ -310,8 +345,8 @@ export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
     }
   } catch (error) {
     const cause = error instanceof Error && error.cause !== undefined ? String(error.cause) : undefined
-    log.error('keith failed to start', { error: String(error), ...(cause ? { cause } : {}) })
-    await unwind(log)
+    startLog?.error('keith failed to start', { error: String(error), ...(cause ? { cause } : {}) })
+    await unwind(startLog)
     throw error
   }
 }
@@ -329,34 +364,4 @@ function trackNodeCapabilities(events: CoreEventBus): NodeCapabilities {
     byNode.set(e.data.nodeId, e.data.capabilities)
   })
   return { of: (nodeId) => byNode.get(nodeId) ?? [], dispose: off }
-}
-
-type RunningTurns = { threads(): ThreadId[]; dispose(): void }
-
-/** Threads whose turn state is not idle, from `thread.state_changed`. */
-function trackRunningTurns(events: CoreEventBus): RunningTurns {
-  const busy = new Set<ThreadId>()
-  const off = events.on('thread.state_changed', (e) => {
-    if (e.data.to === 'idle') busy.delete(e.data.threadId)
-    else busy.add(e.data.threadId)
-  })
-  return { threads: () => [...busy], dispose: off }
-}
-
-/** Aborts every running turn and waits until each one has persisted its partial reply. */
-async function cancelRunningTurns(
-  threads: MindThreadManager,
-  turns: RunningTurns,
-  events: CoreEventBus,
-  ids: { next(prefix: 'nod'): `nod_${string}` },
-): Promise<void> {
-  // `cancel` needs a node id for the frame it answers; shutdown has none, so it uses its own.
-  const nodeId = ids.next('nod')
-  for (let round = 0; round < 10; round++) {
-    await events.idle()
-    const running = turns.threads()
-    if (running.length === 0) return
-    for (const threadId of running) threads.cancel({ threadId, nodeId })
-    await threads.idle()
-  }
 }

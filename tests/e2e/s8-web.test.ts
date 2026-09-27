@@ -1,13 +1,16 @@
 // S-8 "Terminal first, visuals later" (docs/concept/scenarios.md), in a real browser.
 //
-// Keith runs with a TUI-like protocol node (`chat.text@1` only). A turn calls `weather.current`
-// (the real `@keith/tool-weather` with a fake `fetch`). Then the built `@keith/web` app, loaded by
-// package name like any configured plugin, is opened in Chromium: it signs in, shows the same
-// Thread with the weather card from history, and its Refresh button (`ui.action` → the tool's
-// `onAction`) adds an updated card. The TUI node gets the same text and the card's fallback, and
-// never a `ui.render` frame. Nothing in the Mind or the tool knows about the browser (I-9, I-12).
+// Keith first runs TUI-only: no web plugin, one TUI-like protocol node (`chat.text@1` only). A turn
+// calls `weather.current` (the real `@keith/tool-weather` with a fake `fetch`). Then Tony enables
+// `@keith/web` in config.toml and restarts Keith on the same home (T1 of the hardening audit). The
+// built web app, loaded by package name like any configured plugin, is opened in Chromium: it signs
+// in, shows the same Thread with the weather card from history, and its Refresh button
+// (`ui.action` → the tool's `onAction`) adds an updated card. The TUI node gets the same text and
+// the card's fallback, and never a `ui.render` frame. Nothing in the Mind or the tool knows about
+// the browser (I-9, I-12).
 
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
+import { join } from 'node:path'
 import type { Browser, Page } from 'playwright'
 import { type MessageDto, type UiBlock, uiBlockToText } from '../../packages/protocol/src/index.ts'
 import { fakeText, fakeToolCall } from '../../packages/sdk/src/testing/index.ts'
@@ -128,15 +131,10 @@ function cardOf(message: MessageDto): UiBlock {
 
 describe('S-8 terminal first, visuals later', () => {
   test(
-    'the web app shows the TUI thread with the weather card, and Refresh updates it',
+    'TUI only, then @keith/web enabled and a restart: the browser shows the same thread and card',
     async () => {
-      // 1. Keith with the web plugin (by package name) and the weather tool; the TUI node only.
-      const home = await createHome(
-        e2eConfig({
-          enabled: ['@keith/web'],
-          extra: `[plugins."@keith/web"]\ndistDir = ${JSON.stringify(web.dir)}\n`,
-        }),
-      )
+      // 1. Keith TUI-only: the weather tool, no web plugin; the TUI node only.
+      const home = await createHome(e2eConfig())
       cleanups.push(() => home.remove())
       const clock = e2eClock()
       const chat = scriptedLlm([[fakeToolCall('weather.current', { city: 'Surabaya' })], fakeText(ANSWER)])
@@ -144,31 +142,55 @@ describe('S-8 terminal first, visuals later', () => {
         { temperature: 27.6, code: 0 },
         { temperature: 24.1, code: 3 },
       ])
-      const { keith } = await startKeith({
-        home,
-        provider: scriptedProvider({ chat: { llm: chat } }),
-        clock,
-        plugins: [createWeatherPlugin({ fetch: meteo.fetch })],
-      })
-      cleanups.push(() => keith.stop())
-      const states = keith.plugins.status().map((p) => [p.id, p.state])
-      expect(states).toContainEqual(['@keith/web', 'started'])
-      expect(states).toContainEqual(['@keith/tool-weather', 'started'])
+      const provider = scriptedProvider({ chat: { llm: chat } })
+      const plugins = [createWeatherPlugin({ fetch: meteo.fetch })]
+      const first = await startKeith({ home, provider, clock, plugins })
+      cleanups.push(() => first.keith.stop())
+      const before = first.keith.plugins.status().map((p) => p.id)
+      expect(before).toContain('@keith/tool-weather')
+      expect(before).not.toContain('@keith/web')
+      // Without the web plugin nothing serves the app.
+      expect((await fetch(`${first.keith.url}/`)).status).toBe(404)
 
-      const tony = await addPerson(keith, clock, { name: 'Tony', tier: 'owner' })
-      const tui = await connectNode(keith, tony, { capabilities: ['chat.text@1'] })
-      cleanups.push(() => tui.close())
+      const tony = await addPerson(first.keith, clock, { name: 'Tony', tier: 'owner' })
+      const firstTui = await connectNode(first.keith, tony, { capabilities: ['chat.text@1'] })
+      cleanups.push(() => firstTui.close())
 
       // 2. A TUI-driven turn: the model calls weather.current and answers.
-      const { threadId } = await tui.openMain()
-      tui.say(threadId, QUESTION)
-      const answer = await tui.reply(threadId)
+      const { threadId } = await firstTui.openMain()
+      firstTui.say(threadId, QUESTION)
+      const answer = await firstTui.reply(threadId)
       expect(answer.content).toBe(ANSWER)
       const firstCard = cardOf(answer)
       expect(firstCard).toMatchObject({ type: 'card', id: 'weather', title: 'Surabaya' })
       expect(meteo.calls.filter((u) => u.includes('/v1/forecast'))).toHaveLength(1)
 
-      // 3. The browser: sign in and see the same thread, card included, from history.
+      // 3. Tony enables @keith/web and restarts Keith on the same home (the lock was released).
+      await firstTui.close()
+      await first.keith.stop()
+      await Bun.write(
+        join(home.dir, 'config.toml'),
+        e2eConfig({
+          enabled: ['@keith/web'],
+          extra: `[plugins."@keith/web"]\ndistDir = ${JSON.stringify(web.dir)}\n`,
+        }),
+      )
+      const { keith } = await startKeith({ home, provider, clock, plugins })
+      cleanups.push(() => keith.stop())
+      const states = keith.plugins.status().map((p) => [p.id, p.state])
+      expect(states).toContainEqual(['@keith/web', 'started'])
+      expect(states).toContainEqual(['@keith/tool-weather', 'started'])
+
+      // The TUI reconnects: the same main thread, with the card in history.
+      const tui = await connectNode(keith, tony, { capabilities: ['chat.text@1'] })
+      cleanups.push(() => tui.close())
+      const reopened = await tui.openMain()
+      expect(reopened.threadId).toBe(threadId)
+      const replayed = reopened.messages.find((m) => m.id === answer.id)
+      expect(replayed?.content).toBe(ANSWER)
+      expect(replayed && cardOf(replayed)).toEqual(firstCard)
+
+      // 4. The browser: sign in and see the same thread, card included, from history.
       const context = await browser.newContext()
       cleanups.push(() => context.close())
       const page = await context.newPage()
@@ -193,7 +215,7 @@ describe('S-8 terminal first, visuals later', () => {
       // Tool steps of the turn (assistant rows without text or blocks) are not shown.
       expect(await page.locator('[data-slot="message"][data-role="assistant"]').count()).toBe(1)
 
-      // 4. Refresh: ui.action → weather.current's onAction → a new message with an updated card.
+      // 5. Refresh: ui.action → weather.current's onAction → a new message with an updated card.
       await historyCard.getByRole('button', { name: 'Refresh' }).click()
       const refreshed = await tui.reply(threadId)
       expect(refreshed.id).not.toBe(answer.id)
@@ -212,7 +234,7 @@ describe('S-8 terminal first, visuals later', () => {
       expect(meteo.calls.filter((u) => u.includes('/v1/forecast'))).toHaveLength(2)
       expect(chat.requests).toHaveLength(2)
 
-      // 5. The browser got the card as ui.render with its fallbackText; the TUI never did, and its
+      // 6. The browser got the card as ui.render with its fallbackText; the TUI never did, and its
       //    client derives the same fallback from the message's blocks.
       const render = uiRenders.find((f) => f.messageId === refreshed.id)
       expect(render?.block).toEqual(secondCard)

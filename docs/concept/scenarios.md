@@ -27,13 +27,13 @@ These scenarios define what Keith must *feel* like. Each one is an acceptance ta
    - `off`: Deliveries flush normally, one by one.
 4. Deliveries included in a briefing are marked delivered. None is dropped (I-10).
 
-**Test (phase 1):** a Task completes while no node is attached. A node connects after the away threshold and sends "hello". The reply contains the task result, and the delivery is marked delivered.
+**Test (phase 1):** a Task completes while no node is attached. A node connects after the away threshold and sends "hello". The reply contains the task result, and the delivery is marked delivered. A second test sends a first input that is not a greeting: the reply answers it first, then mentions the result, and no separate delivery turn follows.
 
 ## S-2 Research in the background, report when done
 
 *"Keith, research venue options for the Expo." "I'll get on it, sir." Tony keeps talking about something else. Later: "Sir, the venue shortlist is ready."*
 
-1. The model calls `task.start({ agent: "researcher", goal, notify: "when-done", promise: "I'll tell you when the shortlist is ready" })`.
+1. The model calls `task.start({ goal, notify: "when-done", promise: "I'll tell you when the shortlist is ready" })`. Without `agent` the Task runs the built-in `general` agent; a plugin may register a more specific one (e.g. a researcher).
 2. A Task (background lane) and a Commitment are created. The turn ends quickly.
 3. Tony keeps chatting. His turns are never delayed by the Task (I-5).
 4. The Task completes, the Commitment is fulfilled, and a Delivery is queued. At the next `idle` moment the Mind runs a proactive turn and the node receives an unsolicited assistant message (I-11).
@@ -98,3 +98,5 @@ Focus moves to the phone because it sent the latest input. Audio goes only to th
 *Keith runs with only the TUI. Later the owner enables `@keith/web`. The browser shows the same Threads, and tool results that carry UI blocks now render as cards.*
 
 Nothing in the Mind or in tool plugins changes (I-9, I-12).
+
+**Test (phase 2):** Keith runs TUI-only and a turn produces a weather card. The owner enables `@keith/web` and restarts Keith on the same home. The browser shows the same Thread with the card from history, and the card's Refresh button adds an updated card. The TUI node gets the text and the fallback, never `ui.render`.

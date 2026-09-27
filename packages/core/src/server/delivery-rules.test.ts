@@ -3,7 +3,7 @@
 
 import { afterEach, describe, expect, test } from 'bun:test'
 import type { MessageDto } from '@keith/protocol'
-import { KeithError, type KeithErrorCode } from '@keith/sdk'
+import { KeithError } from '@keith/sdk'
 import type { PluginStatus } from '../plugins/types.ts'
 import type { NodeId } from '../shared/types.ts'
 import type { PersonRecord } from '../storage/types.ts'
@@ -172,8 +172,8 @@ describe('error pass-through (C2)', () => {
       blockId: 'b',
       actionId: 'a',
     }
-    // RATE_LIMITED is a protocol code; the mind raises it as a KeithError (P3-H1).
-    s.threads.failAction = new KeithError('RATE_LIMITED' as KeithErrorCode, 'rate limited')
+    // The mind raises RATE_LIMITED as a KeithError (P3-H1).
+    s.threads.failAction = new KeithError('RATE_LIMITED', 'rate limited')
     const id = client.send('ui.action', action)
     const error = await client.next('error')
     expect(error.data).toEqual({ code: 'RATE_LIMITED', message: 'rate limited' })
