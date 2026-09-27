@@ -88,6 +88,8 @@ function toRecord(row: MessageRow): MessageRecord {
   }
 }
 
+// Placeholder (P3-K2): `seq` is not stored or returned yet and `page` still orders by
+// `(created_at, id)`. P3-H3 adds the column and orders by it (D3).
 export function createMessagesRepository(db: Orm): MessagesRepository {
   return {
     async append(m) {

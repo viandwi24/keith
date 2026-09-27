@@ -876,6 +876,7 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
       if (rt.focus === null) rt.focus = a.nodeId
       const [participants, page] = await Promise.all([
         personDtos(rt.participants),
+        // Placeholder (P3-K2): `a.historyLimit` is not honored yet; P3-H1 implements it (B5).
         repos.messages.page({ threadId: record.id, limit: MESSAGES_PAGE.defaultLimit }),
       ])
       const thread: ThreadDto = {
