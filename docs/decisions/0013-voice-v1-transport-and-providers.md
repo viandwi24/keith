@@ -1,6 +1,6 @@
 # ADR-0013: Voice v1 uses PCM16 on the wire, an energy VAD, and OpenAI-compatible STT/TTS adapters
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-09-27
 - **Rules/invariants affected:** ADR-0007 (fills in the voice adapters), R-6
 

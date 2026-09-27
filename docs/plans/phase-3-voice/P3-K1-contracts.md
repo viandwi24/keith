@@ -4,8 +4,8 @@ title: Phase-3 contract additions and core voice interfaces
 phase: 3
 wave: 1
 lane: K
-status: todo
-owner: null
+status: in-progress
+owner: agent-P3-K1
 depends: [P2-I1]
 owns:
   - docs/contracts/**

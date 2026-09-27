@@ -18,7 +18,7 @@ One decision per file. Accepted ADRs are never edited except for their status li
 | [0010](0010-tui-framework.md) | OpenTUI (core API, no React) for the TUI node | accepted |
 | [0011](0011-client-app-browser-side.md) | The browser side of a client-app plugin follows the app rules | accepted |
 | [0012](0012-web-bundler.md) | Bun's HTML bundler for the web app | accepted |
-| [0013](0013-voice-v1-transport-and-providers.md) | Voice v1: PCM16 on the wire, energy VAD, OpenAI-compatible STT/TTS | proposed |
+| [0013](0013-voice-v1-transport-and-providers.md) | Voice v1: PCM16 on the wire, energy VAD, OpenAI-compatible STT/TTS | accepted |
 
 ## Writing an ADR
 
