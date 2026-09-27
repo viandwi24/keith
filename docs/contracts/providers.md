@@ -104,4 +104,53 @@ interface RealtimeSession {
 }
 ```
 
-`AudioChunk`, `AudioInput`, `SttOptions`, `TtsOptions`, `RealtimeOptions` and `RealtimeEvent` are finalized by the phase-3 contract task (additive). The shapes above are fixed. Until then the SDK exports them as open object types (`AudioChunk` has at least `data: Uint8Array`, `RealtimeEvent` at least `type: string`).
+### Voice types
+
+Finalized by task P3-K1 (additive; choices in [ADR-0013](../decisions/0013-voice-v1-transport-and-providers.md)). `AudioCodec` is `'pcm16' | 'opus'` from `@keith/protocol`.
+
+```ts
+type AudioChunk = { data: Uint8Array; codec: AudioCodec; sampleRate: number }
+type AudioInput = AudioChunk                           // one complete utterance for transcribe()
+type SttOptions = { language?: string; prompt?: string }
+type TtsOptions = { voice?: string; language?: string }
+```
+
+- `pcm16` means 16-bit signed little-endian mono samples. A `pcm16` chunk always holds whole samples (an even byte length), and `sampleRate` is in Hz.
+- The core calls `transcribe` with one utterance as `pcm16` at the rate the node sent (16 000 Hz in v1). `language` and `prompt` are hints that adapters pass on or ignore.
+- Every chunk of one `TtsProvider.stream()` call has the same `codec` and `sampleRate`. The v1 core accepts only `pcm16` from TTS.
+- `TtsOptions.voice` overrides the adapter's configured voice for one call.
+- The VAD, STT and TTS adapters follow the adapter obligations above: `ProviderError` codes, abort ending with `ProviderError('aborted')`, no retries, and no keys in logs. A `VadStream` is synchronous and never throws on audio input.
+
+`RealtimeOptions` and `RealtimeEvent` are finalized in phase 8. Until then the SDK exports them as open object types (`RealtimeEvent` has at least `type: string`).
+
+### OpenAI-compatible audio
+
+Groq, OpenAI and speaches all speak the OpenAI audio API, so `@keith/sdk` ships two helpers next to `createOpenAICompatibleLlm`:
+
+```ts
+function createOpenAICompatibleStt(opts: {
+  id: string                                           // the id `voice.stt` names, e.g. 'groq'
+  baseUrl: string                                      // e.g. 'https://api.groq.com/openai/v1'
+  apiKey?: string                                      // omitted: no authorization header (local speaches)
+  model: string                                        // e.g. 'whisper-large-v3-turbo'
+  headers?: Record<string, string>
+  fetch?: typeof fetch                                 // injectable for tests
+  mapRequest?: (form: FormData, opts: SttOptions) => FormData
+}): SttProvider                                        // batch: implements transcribe only
+
+function createOpenAICompatibleTts(opts: {
+  id: string                                           // the id `voice.tts` names, e.g. 'openai'
+  baseUrl: string                                      // e.g. 'https://api.openai.com/v1'
+  apiKey?: string
+  model: string                                        // e.g. 'gpt-4o-mini-tts'
+  voice: string                                        // default voice; TtsOptions.voice overrides it
+  sampleRate?: number                                  // rate of the returned pcm, default 24000
+  headers?: Record<string, string>
+  fetch?: typeof fetch
+  mapRequest?: (body: Record<string, unknown>, text: string, opts: TtsOptions) => Record<string, unknown>
+}): TtsProvider
+```
+
+- **STT:** `transcribe` wraps the `pcm16` utterance in a WAV header and POSTs `multipart/form-data` to `<baseUrl>/audio/transcriptions` with `model`, `file`, `response_format: json`, and `language` / `prompt` when set. It returns `{ text, language? }`.
+- **TTS:** `stream` POSTs `{ model, input, voice, response_format: "pcm" }` to `<baseUrl>/audio/speech` once per text piece (a string is one piece; an `AsyncIterable<string>` gives one request per item, in order) and yields `pcm16` chunks at `sampleRate` as the body streams.
+- Errors map to `ProviderError` codes as in `createOpenAICompatibleLlm`.
