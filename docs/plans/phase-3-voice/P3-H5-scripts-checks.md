@@ -4,7 +4,7 @@ title: "Hardening: core.md interface sync check and check-deps tests rule"
 phase: 3
 wave: 6
 lane: H
-status: review
+status: done
 owner: agent-P3-H5
 depends: [P3-K2]
 owns:
