@@ -4,7 +4,7 @@ title: "S-3 semantic end to end: a fact from day 1 is recalled on day 2"
 phase: 4
 wave: 4
 lane: I
-status: review
+status: done
 owner: agent-P4-I2
 depends: [P4-I1]
 owns:
@@ -52,7 +52,7 @@ S-3's phase-4 promise runs in CI. A fact stated on day 1 is recalled on day 2 th
 - [x] `tests/e2e/s1-reminder.test.ts` passes 5 runs in a row locally and in CI. (Local: done. CI: wired, not yet observed.)
 - [x] The existing e2e files still pass unchanged (apart from the harness's utility model).
 - [x] scenarios.md S-3 describes the phase-4 test.
-- [ ] The human run is recorded in the Outcome (the coordinator asks the owner, because it needs a real API key).
+- [ ] The human run is recorded in the Outcome (the coordinator asks the owner, because it needs a real API key). **Deferred by the owner on 2026-09-27.**
 - [x] `bun run check` passes.
 
 ## Human run (owner, real keys)

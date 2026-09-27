@@ -54,3 +54,13 @@ The owner accepted every default below on 2026-09-27.
 **Reserved ADR numbers:** `0014` for this plan (reflection rules; proposed with the plan, accepted before P4-K1). `0015` for P4-A1, only if FTS recall fails (sqlite-vec or embeddings). Lane agents start at `0016`.
 
 **Exit:** S-3 (semantic) and the reminder e2e pass in CI, and a human ran the P4-I2 steps with a real model. No `> Planned (phase 4…)` marker is left in `docs/architecture`.
+
+## Exit (2026-09-27)
+
+Closed by the owner's decision. Every manual run is deferred.
+
+- [x] Integration tasks done (P4-I1, P4-I2). S-3 semantic and the S-1 reminder e2e pass 5 runs in a row locally, and `bun run check` is green.
+- [ ] **CI:** the new loops are wired in `ci.yml` but haven't run yet. The owner pushes `main` manually.
+- [ ] **Human run with real keys:** deferred by the owner ([P4-I2](P4-I2-e2e.md)), along with the earlier phases' human runs.
+- [x] No `> Planned (phase 4)` markers left in `docs/architecture`.
+- [ ] Phase-5 task files: written when phase 5 starts.

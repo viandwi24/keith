@@ -48,7 +48,7 @@ scenarios: []
 - [x] `keith setup` in a temp `KEITH_HOME` creates config, persona, db and owner. Running it again offers a password reset without duplicating the owner.
 - [x] `bootstrap({ plugins: [fakeLlmPlugin], clock })` from `packages/core/test/` serves `/v1/health` and answers a turn.
 - [x] Shutdown test: an in-flight turn is cancelled and persisted as partial, and the process exits cleanly.
-- [ ] Manual: `keith start` with a real `DEEPSEEK_API_KEY` plus the TUI gives a streamed reply.
+- [ ] Manual: `keith start` with a real `DEEPSEEK_API_KEY` plus the TUI gives a streamed reply. **Deferred by the owner on 2026-09-27.**
 - [x] `bun run check` passes.
 
 ## Outcome
