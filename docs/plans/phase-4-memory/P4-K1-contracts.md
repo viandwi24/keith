@@ -4,7 +4,7 @@ title: Phase-4 contract additions and core memory, summary and reminder interfac
 phase: 4
 wave: 1
 lane: K
-status: review
+status: done
 owner: agent-P4-K1
 depends: [P3-I3]
 owns:
