@@ -94,7 +94,7 @@ The Groq, OpenAI and speaches services all speak the OpenAI audio API, so `@keit
 | `@keith/voice-groq` | `voice_groq` | STT `groq` | `https://api.groq.com/openai/v1` | `apiKey` (required), `baseUrl`, `model` (`whisper-large-v3-turbo`) |
 | `@keith/voice-openai` | `voice_openai` | TTS `openai` | `https://api.openai.com/v1` | `apiKey` (required), `baseUrl`, `model` (`gpt-4o-mini-tts`), `voice` (`alloy`) |
 | `@keith/voice-speaches` | `speaches` | STT and TTS `speaches` | `http://127.0.0.1:8000/v1` | `apiKey` (optional), `baseUrl`, `sttModel`, `ttsModel`, `voice`, `sampleRate` (24000) |
-| `@keith/vad-energy` | | VAD `energy` | none (in process) | |
+| `@keith/vad-energy` | `vad_energy` | VAD `energy` | none (in process) | all optional: `frameMs` (20), `startDb` (12), `endDb` (8), `minSpeechMs` (120), `hangoverMs` (500), `floorMinDb` (-70), `floorRiseMs` (1500), `floorFallMs` (150) |
 
 The Groq and OpenAI plugins use `voice_*` namespaces so that `groq` and `openai` stay free for LLM plugins of the same vendors. speaches' model and voice ids change between releases, so their defaults (`Systran/faster-whisper-small`, `speaches-ai/Kokoro-82M-v1.0-ONNX`, `af_heart`) live only in the plugin's config schema.
 

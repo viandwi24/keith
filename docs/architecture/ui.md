@@ -38,7 +38,7 @@ How the core handles it (`server/connection.ts` → `ThreadManager.action` in `m
 
 | Step | Rule |
 |---|---|
-| Routing | The server accepts `ui.action` only for a thread open on that node (else `error { FORBIDDEN }`), and does not wait for the result, so `input.cancel` still gets through. A rejection becomes an `error` frame with `re` set to the action's frame id: `NOT_FOUND`, `FORBIDDEN` as is, anything else `INTERNAL` |
+| Routing | The server accepts `ui.action` only for a thread open on that node (else `error { FORBIDDEN }`), and does not wait for the result, so `input.cancel` still gets through. A rejection becomes an `error` frame with `re` set to the action's frame id. The same codes pass through as for `input.text` ([nodes.md](nodes.md)): `UNAUTHORIZED`, `NOT_FOUND`, `FORBIDDEN`, `RATE_LIMITED` and `PROVIDER_ERROR` as is, anything else `INTERNAL` |
 | Lookup | The message must be an assistant message of that thread, `blockId` an `actions` block at any depth of one of its `ui` entries, and `actionId` one of its actions. Otherwise `NOT_FOUND` |
 | Who may click | Only a current participant of the thread (`FORBIDDEN`). Before `onAction` runs, the tool's `minTier` is checked against the lowest tier of the clicking person and the thread's participants, who all see the result (R-14). Refused → `FORBIDDEN`, and `onAction` is not called |
 | `onAction` | Called once, with `ToolAction { messageId, blockId, actionId, value }` and a `ToolRunContext` whose `person` is the clicking person, `participants` the thread's, `taskId` null. `value` is the frame's `value`, or the action's stored `value` when the frame has none. The tool's `timeoutMs` applies (`TOOL_TIMEOUT` → `INTERNAL` frame) |
@@ -50,7 +50,7 @@ How the core handles it (`server/connection.ts` → `ThreadManager.action` in `m
 - Keep one visual language: in the web app, blocks render with the same shadcn/ui components and theme tokens as the rest of the UI.
 - Blocks attach to the assistant message they belong to (`messageId`), or float in the Thread if they have none.
 - Images use URLs served by the core (`/v1/files/:id`, phase 2) or `data:` URIs under 256 KB. `/v1/files/:id` needs the bearer token (see [storage.md](storage.md#files)), so a browser fetches the bytes with an `Authorization` header and shows them from an object URL; a plain `<img src>` gets `401`.
-- Delivered items carry blocks too: a plugin delivery's `ui` (`ctx.deliveries.enqueue({ ui })`) or a task result's `ui` attaches to the assistant message whose turn delivers the item, with `ui.render` and `fallbackText` exactly as for a tool's block ([core.md](core.md#deliveries)). Such a block names no tool (`toolName` is `delivery:<source>`), so a click on its buttons is the input `(clicked: <label>)`.
+- Delivered items carry blocks too: a plugin delivery's `ui` (`ctx.deliveries.enqueue({ ui })`) or a task result's `ui` attaches to the assistant message whose turn delivers the item, with `ui.render` and `fallbackText` exactly as for a tool's block ([core.md](core.md#deliveries)). Such a block names no tool (`toolName` is `delivery:<source>`), so a click on its buttons is the input `(clicked: <label>)`. Known limitation: routing such a click to a handler in the delivering plugin would need a contract change ([plugin-api.md](../contracts/plugin-api.md) has no action handler for deliveries), so the model sees the click as input and answers it.
 - History carries blocks too: `MessageDto.ui` holds a reply's blocks in `thread.opened`, `message.completed` and `GET /v1/threads/:id/messages`, so a client renders the same blocks after a reload as it did live.
 
 ## The web app
@@ -99,4 +99,4 @@ The TUI declares only `chat.text@1`, so it gets no `ui.render` frames: it shows 
 
 ## Enabling the web app (S-8)
 
-`keith setup` offers `@keith/web` and `@keith/tool-weather` (both enabled, neither required). On an existing `config.toml` it prints how to add whichever is missing to `plugins.enabled`. Nothing else changes: the Mind and the tool plugins never know which nodes render blocks (I-9, I-12). `tests/e2e/s8-web.test.ts` plays the scenario in Chromium with Playwright against the built app.
+`keith setup` offers `@keith/web` and `@keith/tool-weather` (both enabled, neither required). On an existing `config.toml` it prints how to add whichever is missing to `plugins.enabled`. Nothing else changes: the Mind and the tool plugins never know which nodes render blocks (I-9, I-12). `tests/e2e/s8-web.test.ts` plays the scenario in Chromium with Playwright against the built app: Keith first runs TUI-only, then `@keith/web` is enabled in `config.toml` and Keith restarts on the same home, and the browser shows the same Thread with the card from history.
