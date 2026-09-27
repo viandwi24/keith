@@ -12,7 +12,7 @@ import {
   type TextChunk,
   TextRenderable,
 } from '@opentui/core'
-import { entryViews, type Segment, statusLine } from './view.ts'
+import { entryViews, historyLine, type Segment, statusLine } from './view.ts'
 
 /**
  * The conversation screen, drawn with OpenTUI's core renderables (ADR-0010). It holds no
@@ -22,16 +22,20 @@ import { entryViews, type Segment, statusLine } from './view.ts'
 export type ChatActions = {
   send(text: string): SendResult
   cancel(): boolean
+  /** Loads the page of history before the oldest shown message (`ChatClient.loadOlder`). */
+  loadOlder(): void
   quit(): void
 }
 
 export type ChatScreen = {
   update(state: ChatState): void
   readonly input: TextareaRenderable
+  /** The conversation log (exposed for tests: `scrollTop`, `scrollHeight`). */
+  readonly log: ScrollBoxRenderable
   destroy(): void
 }
 
-export const HINT = 'Enter send · Ctrl+J newline · Esc cancel · Ctrl+C quit'
+export const HINT = 'Enter send · Ctrl+J newline · PgUp/PgDn scroll · Esc cancel · Ctrl+C quit'
 
 const COLORS = {
   user: '#8ab4f8',
@@ -113,29 +117,57 @@ export function mountChat(renderer: CliRenderer, actions: ChatActions): ChatScre
   renderer.root.add(layout)
   input.focus()
 
-  let destroyed = false
-  let lines: { key: string; text: TextRenderable; signature: string }[] = []
+  // The first row of the log: whether older history can be loaded. The message lines follow it.
+  const historyText = new TextRenderable(renderer, {
+    id: 'history',
+    content: '',
+    height: 1,
+    fg: COLORS.prefix,
+  })
+  log.add(historyText)
 
-  const makeLine = (key: string, segments: Segment[], signature: string) => {
+  let destroyed = false
+  let current: ChatState | null = null
+  let lines: { key: string; text: TextRenderable; signature: string }[] = []
+  // Distance from the scroll position to the bottom of the log, kept across a prepended page so
+  // the lines the user is looking at stay in place.
+  let anchorFromBottom: number | null = null
+
+  const makeLine = (key: string, segments: Segment[], signature: string, index?: number) => {
     const text = new TextRenderable(renderer, {
       content: new StyledText(segments.map(chunk)),
       wrapMode: 'word',
     })
-    log.add(text)
+    log.add(text, index)
     return { key, text, signature }
+  }
+
+  /** How many views come before the current lines, or -1 when the lines don't line up with them. */
+  const prependedCount = (views: { key: string }[]): number => {
+    if (lines.length === 0) return 0
+    const first = views.findIndex((v) => v.key === lines[0]?.key)
+    if (first === -1 || first + lines.length > views.length) return -1
+    return lines.every((line, i) => line.key === views[first + i]?.key) ? first : -1
   }
 
   const renderEntries = (state: ChatState) => {
     const views = entryViews(state)
-    // Streaming appends and in-place updates keep the existing lines. Anything else (a history
-    // reload after reconnect) rebuilds the list.
-    const keepsOrder = lines.length <= views.length && lines.every((line, i) => line.key === views[i]?.key)
-    if (!keepsOrder) {
+    // Streaming appends, in-place updates and a prepended older page keep the existing lines.
+    // Anything else (a history reload after reconnect) rebuilds the list.
+    const prepended = prependedCount(views)
+    if (prepended === -1) {
       for (const line of lines) {
         log.remove(line.text)
         line.text.destroy()
       }
       lines = []
+    } else if (prepended > 0) {
+      anchorFromBottom = log.scrollHeight - log.scrollTop
+      const older = views
+        .slice(0, prepended)
+        // Index 0 of the log is the history line.
+        .map((view, i) => makeLine(view.key, view.segments, JSON.stringify(view.segments), i + 1))
+      lines = [...older, ...lines]
     }
     for (const [i, view] of views.entries()) {
       const signature = JSON.stringify(view.segments)
@@ -149,6 +181,24 @@ export function mountChat(renderer: CliRenderer, actions: ChatActions): ChatScre
     }
   }
 
+  const loadOlder = () => {
+    if (current?.history.hasMore && !current.history.loading) actions.loadOlder()
+  }
+
+  // Runs after the scroll box has taken the new content height (its own size handler runs first).
+  const onContentResize = () => {
+    if (anchorFromBottom === null) return
+    log.scrollTop = log.scrollHeight - anchorFromBottom
+    anchorFromBottom = null
+  }
+  log.content.on('resize', onContentResize)
+
+  // Reaching the top of a log taller than the view (mouse wheel, PgUp) loads the previous page.
+  const onScroll = ({ position }: { position: number }) => {
+    if (position === 0 && anchorFromBottom === null && log.scrollHeight > log.viewport.height) loadOlder()
+  }
+  log.verticalScrollBar.on('change', onScroll)
+
   const onKey = (key: KeyEvent) => {
     if (key.ctrl && key.name === 'c') {
       key.preventDefault()
@@ -158,21 +208,38 @@ export function mountChat(renderer: CliRenderer, actions: ChatActions): ChatScre
     if (key.name === 'escape') {
       key.preventDefault()
       actions.cancel()
+      return
+    }
+    if (key.name === 'pageup') {
+      key.preventDefault()
+      // Already at the top (or nothing to scroll): ask for the previous page.
+      if (log.scrollTop === 0) loadOlder()
+      else log.scrollBy(-0.5, 'viewport')
+      return
+    }
+    if (key.name === 'pagedown') {
+      key.preventDefault()
+      log.scrollBy(0.5, 'viewport')
     }
   }
   renderer.keyInput.on('keypress', onKey)
 
   return {
     input,
+    log,
     update(state) {
       if (destroyed) return
+      current = state
       status.content = statusLine(state)
+      historyText.content = historyLine(state)
       renderEntries(state)
     },
     destroy() {
       if (destroyed) return
       destroyed = true
       renderer.keyInput.off('keypress', onKey)
+      log.verticalScrollBar.off('change', onScroll)
+      log.content.off('resize', onContentResize)
       renderer.root.remove(layout)
       layout.destroyRecursively()
     },

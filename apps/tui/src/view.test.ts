@@ -1,6 +1,17 @@
 import { describe, expect, test } from 'bun:test'
-import { initialState, type MessageEntry } from '@keith/client'
-import { entryText, entryView, entryViews, PROACTIVE_PREFIX, statusLine } from './view.ts'
+import { type ChatState, initialState, type MessageEntry } from '@keith/client'
+import type { ThreadDto } from '@keith/protocol'
+import {
+  entryText,
+  entryView,
+  entryViews,
+  HISTORY_LOADING,
+  HISTORY_MORE,
+  HISTORY_START,
+  historyLine,
+  PROACTIVE_PREFIX,
+  statusLine,
+} from './view.ts'
 
 const assistant: MessageEntry = {
   kind: 'message',
@@ -16,6 +27,22 @@ const assistant: MessageEntry = {
 }
 
 describe('view', () => {
+  test('history line: more, loading, start, nothing before a thread is open', () => {
+    const thread: ThreadDto = {
+      id: 'thr_01J8ZQ3K4M5N6P7Q8R9S0T1V2Z',
+      kind: 'direct',
+      title: 'main',
+      participants: [],
+      state: 'idle',
+      updatedAt: 1,
+    }
+    const state: ChatState = { ...initialState(), thread }
+    expect(historyLine(initialState())).toBe('')
+    expect(historyLine({ ...state, history: { hasMore: true, loading: false } })).toBe(HISTORY_MORE)
+    expect(historyLine({ ...state, history: { hasMore: true, loading: true } })).toBe(HISTORY_LOADING)
+    expect(historyLine({ ...state, history: { hasMore: false, loading: false } })).toBe(HISTORY_START)
+  })
+
   test('status line shows person, thread, connection and turn', () => {
     const state = {
       ...initialState(),

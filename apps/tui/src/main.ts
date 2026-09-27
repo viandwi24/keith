@@ -11,22 +11,25 @@ import { type CliRenderer, createCliRenderer } from '@opentui/core'
 import { type Env, fileSessionStore, sessionFilePath } from './config.ts'
 import { TuiError } from './errors.ts'
 import { promptLogin } from './login-screen.ts'
+import { logoutCommand } from './logout.ts'
 import { mountChat } from './ui.ts'
 
 export const CLIENT_INFO = { name: 'keith-tui', version: '0.0.0' }
 
-export const USAGE = `usage: keith-tui [--url http://127.0.0.1:${DEFAULT_PORT}]
+export const USAGE = `usage: keith-tui [--url http://127.0.0.1:${DEFAULT_PORT}] | --logout
 
   --url <url>   core address (default: the last used one, else http://127.0.0.1:${DEFAULT_PORT})
+  --logout      sign out: revoke the stored token on its core and delete it locally
   --help        show this help`
 
-export type CliArgs = { url: string | undefined; help: boolean }
+export type CliArgs = { url: string | undefined; help: boolean; logout: boolean }
 
 export function parseArgs(argv: readonly string[]): CliArgs {
-  const args: CliArgs = { url: undefined, help: false }
+  const args: CliArgs = { url: undefined, help: false, logout: false }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] ?? ''
     if (arg === '--help' || arg === '-h') args.help = true
+    else if (arg === '--logout') args.logout = true
     else if (arg === '--url') {
       const value = argv[i + 1]
       if (value === undefined) throw new TuiError('INVALID_ARGS', '--url needs a value')
@@ -54,6 +57,8 @@ export async function main(argv: readonly string[], env: Env): Promise<number> {
   }
 
   const store = fileSessionStore(sessionFilePath(env))
+  // The stored token belongs to the core it was issued by, so `--url` doesn't matter here.
+  if (args.logout) return logoutCommand(store)
   const stored = await store.load()
   let baseUrl: string
   try {
@@ -143,6 +148,10 @@ function runChat(
     const screen = mountChat(renderer, {
       send: (text) => client.send(text),
       cancel: () => client.cancel(),
+      loadOlder: () => {
+        // Failures become a notice in the log (`ChatClient.loadOlder`).
+        void client.loadOlder()
+      },
       quit: () => finish('quit'),
     })
     client.start()
