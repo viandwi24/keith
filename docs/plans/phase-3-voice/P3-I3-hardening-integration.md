@@ -18,6 +18,7 @@ owns:
   - docs/architecture/**
   - docs/concept/scenarios.md
   - docs/rules/engineering.md
+  - AGENTS.md
 reads:
   - docs/plans/phase-3-voice/hardening-audit.md
   - docs/plans/phase-3-voice/P3-I1-integration.md
@@ -40,6 +41,11 @@ Wire the hardening lanes into a real `keith start`, close the e2e gaps, and appl
 - e2e: T1 (S-8 TUI-only → enable web → restart → same thread and card) and T2 (S-1 non-greeting branch).
 - Every item in the audit's "Doc fixes" list.
 - Integration fixes per lane recorded in the Outcome.
+- **Wiring notes from the lanes:**
+  - H1: shutdown uses `threads.cancelAll()`; drop `trackRunningTurns` / `cancelRunningTurns` from bootstrap.
+  - H2: pass `pluginStatus: () => host.status()` and `voiceConfigured` to `createCoreServer`.
+  - H4: `acquireHomeLock(paths.home)` first and release last in bootstrap (the CLI does not take it for `start`); logger gets `file: createLogFile({ dir: paths.logsDir })`, closed on stop; remove config.md's `> Planned (phase 3, P3-I3)` note.
+  - H5: root `package.json` gets `"core-docs": "bun scripts/check-core-docs.ts"` and `bun run core-docs` in `check` after `deps`; add `core-docs` to the AGENTS.md command table (AGENTS.md is in owns for this).
 
 **Out:** anything not listed; items owned by another hardening task.
 
