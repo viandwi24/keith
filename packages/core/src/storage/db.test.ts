@@ -1,9 +1,12 @@
 import { Database } from 'bun:sqlite'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { cpSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { openDb } from './db.ts'
+import { drizzle } from 'drizzle-orm/bun-sqlite'
+import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
+import type { DeliveryId, MessageId, ThreadId } from '../shared/types.ts'
+import { MIGRATIONS_FOLDER, openDb } from './db.ts'
 import { person, testId, thread } from './fixtures.ts'
 import { createTestDb } from './testing.ts'
 
@@ -62,7 +65,132 @@ describe('openDb', () => {
     ]) {
       expect(names).toContain(table)
     }
-    expect(migrationCount(path)).toBe(3)
+    expect(migrationCount(path)).toBe(
+      readdirSync(MIGRATIONS_FOLDER, { withFileTypes: true }).filter((e) => e.isDirectory()).length,
+    )
+  })
+
+  test('P3-H3 migration numbers existing messages gap-free in their old (created_at, id) order', async () => {
+    // A database migrated only up to the last migration before `seq` existed.
+    const dir = tempDir()
+    const oldMigrations = join(dir, 'migrations')
+    const beforeSeq = readdirSync(MIGRATIONS_FOLDER, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && e.name < '20260927045244')
+      .map((e) => e.name)
+    expect(beforeSeq).toHaveLength(3)
+    for (const name of beforeSeq)
+      cpSync(join(MIGRATIONS_FOLDER, name), join(oldMigrations, name), { recursive: true })
+    const path = join(dir, 'keith.db')
+    const raw = new Database(path, { create: true, strict: true })
+    migrate(drizzle({ client: raw }), { migrationsFolder: oldMigrations })
+    raw.run("insert into persons (id, name, tier, created_at) values ('per_1', 'P', 'owner', 1)")
+    for (const t of ['thr_a', 'thr_b']) {
+      raw.run(
+        `insert into threads (id, kind, slug, title, owner_person_id, created_at, updated_at)
+         values ('${t}', 'direct', '${t}', 'T', 'per_1', 1, 1)`,
+      )
+    }
+    // [id, thread, created_at], inserted out of order; old order is (created_at, id).
+    const rows: [string, string, number][] = [
+      ['msg_c', 'thr_a', 30],
+      ['msg_a', 'thr_a', 10],
+      ['msg_z', 'thr_b', 5],
+      ['msg_e', 'thr_a', 20],
+      ['msg_d', 'thr_a', 20],
+      ['msg_y', 'thr_b', 7],
+    ]
+    for (const [id, threadId, createdAt] of rows) {
+      raw.run(
+        "insert into messages (id, thread_id, role, modality, content, created_at) values (?, ?, 'user', 'text', 'x', ?)",
+        [id, threadId, createdAt],
+      )
+    }
+    raw.run(
+      `insert into deliveries (id, thread_id, person_id, kind, source, urgency, content, status, created_at)
+       values ('dlv_1', 'thr_a', 'per_1', 'plugin', 'core', 'normal', 'x', 'delivered', 1)`,
+    )
+    raw.close()
+
+    const db = openDb(path)
+    const page = async (threadId: string) =>
+      (await db.repos.messages.page({ threadId: threadId as ThreadId, limit: 10 })).messages.map((m) => [
+        m.id,
+        m.seq,
+      ])
+    expect(await page('thr_a')).toEqual([
+      ['msg_a', 1],
+      ['msg_d', 2],
+      ['msg_e', 3],
+      ['msg_c', 4],
+    ])
+    expect(await page('thr_b')).toEqual([
+      ['msg_z', 1],
+      ['msg_y', 2],
+    ])
+    // Old deliveries have no message; new appends continue after the backfilled seq.
+    expect((await db.repos.deliveries.get('dlv_1' as DeliveryId))?.messageId).toBeNull()
+    await db.repos.messages.append({
+      id: 'msg_f' as MessageId,
+      threadId: 'thr_a' as ThreadId,
+      role: 'user',
+      authorPersonId: null,
+      nodeId: null,
+      modality: 'text',
+      content: 'new',
+      meta: null,
+      createdAt: 1,
+    })
+    expect((await db.repos.messages.get('msg_f' as MessageId))?.seq).toBe(5)
+    db.close()
+  })
+
+  test('deleting a message clears deliveries.message_id (on delete set null)', async () => {
+    const path = join(tempDir(), 'keith.db')
+    const db = openDb(path)
+    const p = person(1)
+    await db.repos.persons.create(p)
+    await db.repos.threads.create(thread(1, p.id), [p.id])
+    const threadId = testId('thr', 1)
+    await db.repos.messages.append({
+      id: testId('msg', 1),
+      threadId,
+      role: 'assistant',
+      authorPersonId: null,
+      nodeId: null,
+      modality: 'text',
+      content: 'done',
+      meta: null,
+      toolCalls: null,
+      ui: null,
+      createdAt: 1,
+    })
+    const deliveryId = testId('dlv', 1)
+    await db.repos.deliveries.create({
+      id: deliveryId,
+      threadId,
+      personId: p.id,
+      kind: 'plugin',
+      authorPersonId: null,
+      source: 'core',
+      urgency: 'normal',
+      content: 'x',
+      ui: null,
+      status: 'pending',
+      createdAt: 1,
+      deliveredAt: null,
+    })
+    await db.repos.deliveries.markDelivered([deliveryId], 2, testId('msg', 1))
+    db.close()
+    const raw = new Database(path)
+    raw.run('PRAGMA foreign_keys = ON')
+    raw.run('delete from messages where id = ?', [testId('msg', 1)])
+    raw.close()
+    const reopened = openDb(path)
+    expect(await reopened.repos.deliveries.get(deliveryId)).toMatchObject({
+      status: 'delivered',
+      messageId: null,
+    })
+    reopened.close()
   })
 
   test('opening an already migrated file applies nothing', () => {
