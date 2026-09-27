@@ -12,7 +12,8 @@
 ├─ files/             # uploaded and generated files
 ├─ plugins/<id>/      # per-plugin private data (ctx.paths.data)
 ├─ keith.lock         # single-instance lock (pid + start time), present while Keith runs
-└─ logs/              # rotating JSON-lines logs written by `keith start`: keith.log, keith.log.1 … keith.log.4
+├─ logs/              # rotating JSON-lines logs written by `keith start`: keith.log, keith.log.1 … keith.log.4
+└─ backups/           # default target of `keith backup`: keith-backup-<YYYYMMDD-HHMMSS>/ folders
 ```
 
 Tests always set `KEITH_HOME` to a temporary directory.
@@ -133,15 +134,21 @@ Answers are read from the terminal (raw mode, so the password is not echoed) or 
 
 The first-party plugins are dependencies of `@keith/core`, so the plugin host's `import()` of a name in `plugins.enabled` resolves them: the providers (`@keith/provider-deepseek`, `@keith/provider-openrouter`), the optional `@keith/web` and `@keith/tool-weather`, and the voice plugins (`@keith/vad-energy`, `@keith/voice-groq`, `@keith/voice-openai`, `@keith/voice-speaches`). Third-party plugins must be installed where the core can resolve them.
 
+### `keith backup` and `keith restore`
+
+`keith backup [--out <dir>]` writes `<dir>/keith-backup-<YYYYMMDD-HHMMSS>/` (default `<dir>`: `<KEITH_HOME>/backups/`) with a snapshot of `keith.db`, `files/`, `plugins/`, `config.toml`, `persona.md` and `manifest.json`. It runs while Keith runs and does not take the lock. `config.toml` is copied as it is, so literal secrets in it end up in the backup (the command says so).
+
+`keith restore <dir> [--force]` brings a backup back into a stopped home. It takes the lock, refuses a newer backup, refuses a home with existing state unless `--force` (which moves that state to `<KEITH_HOME>.before-restore-<YYYYMMDD-HHMMSS>/` first), and applies pending migrations. Details: [storage.md](storage.md#backups).
+
 ## Logs and lock
 
-**Lock (I-1, one Mind per home).** `acquireHomeLock(home)` (`core/src/shared/lock.ts`) creates `<home>/keith.lock` holding `{ pid, startedAt, token }`. The file is written under a temporary name and hard-linked into place, so it appears atomically. If the file exists and its pid is alive, acquiring fails with a `KeithError` (`INTERNAL`) whose message names the pid, the start time and the lock file. A lock whose pid is not alive, or whose file is unreadable, is stale and taken over. `release()` removes the file only if it is still ours, and is idempotent. `keith setup` and `keith migrate` hold the lock while they run (`withHomeLock`), so they refuse to touch a home that a started Keith is using.
+**Lock (I-1, one Mind per home).** `acquireHomeLock(home)` (`core/src/shared/lock.ts`) creates `<home>/keith.lock` holding `{ pid, startedAt, token }`. The file is written under a temporary name and hard-linked into place, so it appears atomically. If the file exists and its pid is alive, acquiring fails with a `KeithError` (`INTERNAL`) whose message names the pid, the start time and the lock file. A lock whose pid is not alive, or whose file is unreadable, is stale and taken over. `release()` removes the file only if it is still ours, and is idempotent. `keith setup`, `keith migrate` and `keith restore` hold the lock while they run (`withHomeLock`), so they refuse to touch a home that a started Keith is using.
 
 `keith start` takes the lock in bootstrap, before anything else (step 0 of [core.md](core.md#construction-order-bootstrap)), and releases it last on shutdown, also when the start fails. A second `keith start` on the same home exits 1 with `INTERNAL: Keith is already running with this home (pid …, since …). Stop it first. Lock file: …`.
 
 **Log files.** `createLogFile({ dir })` (`core/src/shared/log-file.ts`) appends JSON lines to `logs/keith.log`. When a line would push the file past `LOG_FILE_MAX_BYTES` (10 MiB), it becomes `keith.log.1`, older files shift up, and at most `LOG_FILE_KEEP` (5) files are kept in total (the current one plus four rotated ones). Writes are synchronous, so no line is lost on exit. `createLogger({ clock, file })` writes each line to stdout and to the file; secrets are redacted before either sees the line. The sizes are constants, not config keys.
 
-`keith start` logs through `createLogger({ clock, file: createLogFile({ dir: paths.logsDir }) })`, so every line goes to stdout and to `logs/keith.log`; the file is closed on shutdown, after the last line (`keith stopped`). `keith setup` and `keith migrate` print to the terminal only.
+`keith start` logs through `createLogger({ clock, file: createLogFile({ dir: paths.logsDir }) })`, so every line goes to stdout and to `logs/keith.log`; the file is closed on shutdown, after the last line (`keith stopped`). `keith setup`, `keith migrate`, `keith backup` and `keith restore` print to the terminal only.
 
 ## Secrets
 

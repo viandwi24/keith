@@ -118,4 +118,23 @@ Downloads carry the stored `mime`, `x-content-type-options: nosniff` and `conten
 
 The whole state is `~/.keith/`.
 
-> Planned (phase 4, P4-E1): `keith backup` writes a consistent snapshot of the live database with `backupDatabase(srcPath, destPath, signal)` (`storage/backup.ts`, exported from `storage/index.ts`; the signature is fixed, the body throws until P4-E1) plus a copy of `files/`, `plugins/`, `config.toml` and `persona.md`. `keith restore` brings a backup back into a stopped home.
+`keith backup [--out <dir>]` (`core/src/cli/backup.ts`) copies it into a plain folder, `<out>/keith-backup-<YYYYMMDD-HHMMSS>/` (UTC; `-2`, `-3` … appended when two backups share a second). The default `out` is `<KEITH_HOME>/backups/`. The folder holds:
+
+- `keith.db`: a consistent snapshot of the database, taken by `backupDatabase(srcPath, destPath, signal)` (`storage/backup.ts`, the only backup code that touches SQLite, R-4).
+- `files/` and `plugins/`: copied as they are. Symbolic links are not followed and not copied (each skipped link is printed).
+- `config.toml` and `persona.md`: copied as they are. The command warns that secrets written literally in `config.toml` (not as `env:` references) end up in the backup.
+- `manifest.json`: `{ format: 1, keithVersion, createdAt, lastMigration }`. `createdAt` is ISO 8601 UTC; `lastMigration` is the newest folder name in `packages/core/drizzle/`, read at runtime from `MIGRATIONS_FOLDER`.
+
+It never copies `keith.lock` or `logs/`, and it skips `backups/` itself. An `--out` inside `files/` or `plugins/` is refused, since the backup would copy itself. On failure the half-written folder is removed.
+
+`keith backup` does not take the home lock: it works while Keith runs. `bun:sqlite` has no binding for SQLite's online backup API, so `backupDatabase` opens a separate read-only connection and runs `VACUUM INTO` a temporary file next to the target. `VACUUM INTO` reads inside one transaction, so the snapshot is consistent (WAL content included) and never blocks a writer. The copy is then checked with `PRAGMA integrity_check` (a failure is `STORAGE_CORRUPT`) and hard-linked into place. The target must not exist. An aborted `signal` rejects, and neither an abort nor a failure leaves a file at the target. `VACUUM INTO` itself is synchronous, so the signal is checked between the steps.
+
+`keith restore <dir> [--force]` (`core/src/cli/restore.ts`) brings a backup back into a stopped home:
+
+1. It validates the backup before touching the home: `manifest.json` must have `format` 1 and a `lastMigration` this build knows. A newer backup is refused ("made by a newer Keith … upgrade Keith before restoring it"). Every entry in the folder must be a plain file or folder inside it: a symbolic link anywhere (for example `files/x -> ../../x`) is refused and never followed. `keith.db` must be present. A backup folder inside the home is allowed only under `backups/`.
+2. It holds the home lock (`withHomeLock`), so it refuses while Keith runs, with the lock message.
+3. A home that already has state (anything but `keith.lock` and `backups/`) is refused unless `--force`. With `--force` that state is first moved to `<home>.before-restore-<YYYYMMDD-HHMMSS>/`, a sibling of the home. Nothing is deleted.
+4. It copies `keith.db`, `files/`, `plugins/`, `config.toml` and `persona.md` in (`node:fs/promises`, no shell, links not dereferenced), then opens the database once, which applies pending migrations: an older backup is upgraded.
+5. It prints what it restored, and the migration range when it upgraded the database.
+
+Backups are plain folders, not archives; tar the folder to move it. Scheduled backups, rotation and encryption are not built.
