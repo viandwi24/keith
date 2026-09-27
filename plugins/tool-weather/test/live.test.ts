@@ -12,6 +12,7 @@ test.skipIf(process.env.KEITH_LIVE !== '1')(
     expect(f.city).toBe('Berlin')
     expect(f.hourly.length).toBeGreaterThan(0)
     expect(typeof f.current.temperature).toBe('number')
+    expect(f.today?.date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   },
   30_000,
 )

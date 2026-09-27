@@ -1,7 +1,7 @@
 /** Turns a `Forecast` into what the model reads (`content`) and what humans see (a `card` block). */
 import type { CardBlock } from '@keith/protocol'
 import type { ToolResult } from '@keith/sdk'
-import type { Forecast, HourlyWeather } from './service.ts'
+import type { DailyWeather, Forecast, HourlyWeather } from './service.ts'
 
 /** How far ahead "rain soon" looks, in hours, counting the current hour. */
 export const RAIN_LOOKAHEAD_HOURS = 6
@@ -14,6 +14,11 @@ export const REFRESH_ACTION_ID = 'refresh'
 /** The first hour within `RAIN_LOOKAHEAD_HOURS` where rain is likely, if any. */
 export function nextRain(f: Forecast): HourlyWeather | undefined {
   return f.hourly.slice(0, RAIN_LOOKAHEAD_HOURS).find((h) => h.rainLikely)
+}
+
+/** The daily forecast line for a briefing: `Today in Surabaya: 27–33°, partly cloudy`. */
+export function dailyForecastText(city: string, today: DailyWeather): string {
+  return `Today in ${city}: ${Math.round(today.min)}–${Math.round(today.max)}°, ${today.summary}`
 }
 
 /** `2026-09-27T16:00` → `16:00`. */

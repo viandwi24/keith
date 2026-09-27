@@ -1,7 +1,7 @@
 {
   "latitude": -7.2759223,
   "longitude": 112.785774,
-  "generationtime_ms": 0.1,
+  "generationtime_ms": 0.29480457305908203,
   "utc_offset_seconds": 25200,
   "timezone": "Asia/Jakarta",
   "timezone_abbreviation": "GMT+7",
@@ -17,14 +17,14 @@
     "wind_speed_10m": "km/h"
   },
   "current": {
-    "time": "2026-09-27T11:15",
+    "time": "2026-09-27T20:00",
     "interval": 900,
-    "temperature_2m": 31.2,
-    "relative_humidity_2m": 78,
-    "apparent_temperature": 36.4,
+    "temperature_2m": 27.9,
+    "relative_humidity_2m": 72,
+    "apparent_temperature": 30.7,
     "precipitation": 0,
-    "weather_code": 3,
-    "wind_speed_10m": 12
+    "weather_code": 0,
+    "wind_speed_10m": 15.9
   },
   "hourly_units": {
     "time": "iso8601",
@@ -34,22 +34,22 @@
   },
   "hourly": {
     "time": [
-      "2026-09-27T11:00",
-      "2026-09-27T12:00",
-      "2026-09-27T13:00",
-      "2026-09-27T14:00",
-      "2026-09-27T15:00",
-      "2026-09-27T16:00",
-      "2026-09-27T17:00",
-      "2026-09-27T18:00",
-      "2026-09-27T19:00",
       "2026-09-27T20:00",
       "2026-09-27T21:00",
-      "2026-09-27T22:00"
+      "2026-09-27T22:00",
+      "2026-09-27T23:00",
+      "2026-09-28T00:00",
+      "2026-09-28T01:00",
+      "2026-09-28T02:00",
+      "2026-09-28T03:00",
+      "2026-09-28T04:00",
+      "2026-09-28T05:00",
+      "2026-09-28T06:00",
+      "2026-09-28T07:00"
     ],
-    "precipitation_probability": [5, 10, 20, 35, 45, 80, 60, 30, 10, 5, 5, 0],
-    "precipitation": [0, 0, 0, 0, 0.1, 2.4, 1.1, 0.2, 0, 0, 0, 0],
-    "weather_code": [3, 3, 3, 3, 3, 61, 80, 3, 2, 1, 1, 0]
+    "precipitation_probability": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "precipitation": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "weather_code": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1]
   },
   "daily_units": {
     "time": "iso8601",
@@ -59,8 +59,8 @@
   },
   "daily": {
     "time": ["2026-09-27"],
-    "temperature_2m_min": [25.4],
-    "temperature_2m_max": [33.1],
-    "weather_code": [63]
+    "temperature_2m_min": [26.8],
+    "temperature_2m_max": [32.8],
+    "weather_code": [2]
   }
 }

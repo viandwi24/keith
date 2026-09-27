@@ -1,7 +1,8 @@
 /**
  * Replays fixtures through an injected `fetch` (R-13: tests never hit the network).
  *
- * Fixtures in `fixtures/`: `recorded-*` are real Open-Meteo responses captured on 2026-09-26;
+ * Fixtures in `fixtures/`: `recorded-*` are real Open-Meteo responses captured on 2026-09-26
+ * (`recorded-forecast-surabaya-daily.json` on 2026-09-27, with the `daily` block);
  * `synthetic-*` are hand-made from a recorded one (same shape, invented values).
  */
 import type { FetchLike } from '../src/index.ts'
@@ -44,5 +45,6 @@ export const SURABAYA = { fixture: 'recorded-geocoding-surabaya.json' }
 export const NO_PLACE = { fixture: 'recorded-geocoding-empty.json' }
 export const DRY = { fixture: 'recorded-forecast-surabaya.json' }
 export const DRY_IMPERIAL = { fixture: 'recorded-forecast-surabaya-imperial.json' }
+export const DAILY = { fixture: 'recorded-forecast-surabaya-daily.json' }
 export const RAIN = { fixture: 'synthetic-forecast-surabaya-rain.json' }
 export const BAD_REQUEST = { fixture: 'recorded-error-400.json', status: 400 }
