@@ -4,7 +4,7 @@ title: "Storage: reminders table, thread summary and reflection cursors"
 phase: 4
 wave: 2
 lane: S
-status: review
+status: done
 owner: agent-P4-S1
 depends: [P4-K1]
 owns:
