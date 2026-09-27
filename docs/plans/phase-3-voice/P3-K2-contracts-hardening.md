@@ -4,8 +4,8 @@ title: "Hardening: contract clarifications and interface additions"
 phase: 3
 wave: 5
 lane: K
-status: todo
-owner: null
+status: in-progress
+owner: agent-P3-K2
 depends: [P3-I1]
 owns:
   - docs/contracts/**
