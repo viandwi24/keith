@@ -4,7 +4,7 @@ title: "Core voice pipeline: VAD → STT per stream, TTS per reply"
 phase: 3
 wave: 2
 lane: A
-status: in-progress
+status: review
 owner: agent-P3-A1
 depends: [P3-K1]
 owns:
@@ -39,13 +39,13 @@ scenarios: [S-7]
 
 ## Acceptance criteria
 
-- [ ] A synthetic utterance (PCM16 speech between silences, with a fake VAD) produces exactly one `ThreadManager.input` with `modality: 'audio'` and the fake STT's text.
-- [ ] `speech.start` / `speech.end` map to `voiceActivity` calls, and an empty transcript produces no input.
-- [ ] `maxUtteranceMs` forces an STT run.
-- [ ] TTS output: sentences are sent in order, each chunk is a valid kind-2 binary frame with increasing `sequence`, between `audio.start` and `audio.end`.
-- [ ] `stop()` mid-reply: the fake TTS signal is aborted, `audio.stop` is sent, and `spokenChars` equals the characters of the sentences fully sent.
-- [ ] Voice off (no `config.voice`): `begin` returns null, and input streams are refused with a logged warning.
-- [ ] `bun run check` passes.
+- [x] A synthetic utterance (PCM16 speech between silences, with a fake VAD) produces exactly one `ThreadManager.input` with `modality: 'audio'` and the fake STT's text.
+- [x] `speech.start` / `speech.end` map to `voiceActivity` calls, and an empty transcript produces no input.
+- [x] `maxUtteranceMs` forces an STT run.
+- [x] TTS output: sentences are sent in order, each chunk is a valid kind-2 binary frame with increasing `sequence`, between `audio.start` and `audio.end`.
+- [x] `stop()` mid-reply: the fake TTS signal is aborted, `audio.stop` is sent, and `spokenChars` equals the characters of the sentences fully sent.
+- [x] Voice off (no `config.voice`): `begin` returns null, and input streams are refused with a logged warning.
+- [x] `bun run check` passes.
 
 ## Notes
 
@@ -54,4 +54,28 @@ scenarios: [S-7]
 
 ## Outcome
 
-_Filled by the agent when finishing._
+**Built** (`packages/core/src/voice/`):
+
+- `index.ts`: `createVoice(deps)` → `{ input, output }`; re-exports the `types.ts` interfaces and `AUDIO_OUT_CAPABILITY`.
+- `deps.ts`: `VoiceDeps` (provider lists, `config.voice`, `ThreadManager` `input`/`voiceActivity`, `AttachmentRegistry` `send`/`sendBinary`, `capabilities(nodeId)`, ids, clock, log).
+- `input.ts`: `VoiceInput`. Per `(nodeId, streamId)`: PCM16LE decode, linear resample to 16 kHz, `VadStream`, 300 ms pre-roll, STT on `speech.end` / `audio.end` / `maxUtteranceMs`, `voiceActivity` mapping, per-stream serialized STT, `detach` aborts.
+- `output.ts`: `VoiceOutput` / `SpeechHandle`. Sentence pieces → `TtsProvider.stream` in order → `audio.start` (announcing the TTS rate), kind-2 frames split at 64 KiB with increasing `sequence`, `audio.end`; `stop()` aborts, sends `audio.stop`, returns `spokenChars`.
+- `sentences.ts` (splitter: `.!?` + whitespace, newline, 240-char cap; pieces partition the text) and `pcm.ts` (bytes ↔ samples, linear resampler).
+- Tests: `input.test.ts`, `output.test.ts`, `helpers.test.ts`, with fakes in `test-fakes.ts` built from `mind/types.ts`, `server/types.ts` and the SDK provider interfaces (26 tests).
+
+**Decisions:**
+
+- **`capabilities(nodeId)` dep (addition to the listed deps).** `begin` must return null for a node without `audio.out@1`, and nothing in the listed deps knows a node's capabilities synchronously. P3-I1 supplies it (e.g. from the server connection's `hello` data or a `repos.nodes` cache).
+- **`voice.bargeInMinMs` is applied here**, as a delay before `voiceActivity({ speaking: true })`: the pipeline is the only place that measures speech duration. Shorter speech sends no activity but still goes to STT (a short "yes" is not lost). `voice.bargeIn` (on/off) is left to the Mind (P3-A2), which knows the turn state.
+- After a `maxUtteranceMs` cut the activity stays on (no second `speaking: true`), so a long utterance is not read as a barge-in of the turn its first half started.
+- Providers are looked up by id on every `start` / `begin`, not at construction, so plugin registration order does not matter. A missing provider refuses the stream / returns null with a warning; P3-I1 still validates ids at startup.
+- Sequence gaps (a higher `sequence` than expected) are logged at debug and accepted; only lower sequences are dropped. WS is ordered, so a gap means lost data, not reordering, and dropping everything after it would lose the utterance.
+- `spokenChars` is in `String.length` units (UTF-16 code units), so the Mind can cut with `content.slice(0, spokenChars)`.
+- A TTS error ends the speech with `audio.end` (the node plays what it has), not `audio.stop`.
+- Stream and frame ids are bare ULIDs taken from `ids.next('trn')`, as `mind/thread-manager.ts` already does for frame ids.
+
+**Deviations:** none from the acceptance criteria. `docs/architecture/voice.md` got a "Pipeline (`voice/`)" section (resampling, pre-roll, bargeInMinMs, sentence rules, `spokenChars`).
+
+**Follow-ups:** P3-I1 must pass `capabilities` in `createVoice` deps. TTS runs one piece at a time (no prefetch of the next sentence); fine for v1, a latency improvement later.
+
+`bun run check`: 969 pass, 3 skip, 0 fail.
