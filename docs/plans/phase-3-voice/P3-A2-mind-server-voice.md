@@ -4,7 +4,7 @@ title: "Core: audio frames in the server, listening state, barge-in and spokenCh
 phase: 3
 wave: 2
 lane: A
-status: in-progress
+status: review
 owner: agent-P3-A2
 depends: [P3-K1]
 owns:
@@ -50,14 +50,31 @@ The server accepts audio from nodes and routes it to `VoiceInput`, and the Mind 
 
 ## Acceptance criteria
 
-- [ ] Server: `audio.start` without `audio.in@1` → `FORBIDDEN`. A valid binary chunk reaches the fake `VoiceInput.chunk` with the right streamId and sequence. Garbage binary → `INVALID_FRAME`, and the connection stays open.
-- [ ] Mind: `voiceActivity` moves the state `idle → listening → thinking` (input arrives) `→ speaking → idle`, visible as `thread.state` frames.
-- [ ] Typed input gets no `VoiceOutput.begin` call. Audio input from a node with `audio.out@1` does, on that node only.
-- [ ] S-7 shape: node A types, node B speaks; focus moves to B, B gets audio, A gets the same text (`message.completed`) and no audio.
-- [ ] Barge-in during `speaking`: the fake `SpeechHandle.stop` is called, and the persisted message has `meta.cancelled` and `meta.spokenChars`, with `content` cut to the spoken prefix.
-- [ ] Without `voice` deps, all existing mind and server tests pass unchanged.
-- [ ] `bun run check` passes.
+- [x] Server: `audio.start` without `audio.in@1` → `FORBIDDEN`. A valid binary chunk reaches the fake `VoiceInput.chunk` with the right streamId and sequence. Garbage binary → `INVALID_FRAME`, and the connection stays open.
+- [x] Mind: `voiceActivity` moves the state `idle → listening → thinking` (input arrives) `→ speaking → idle`, visible as `thread.state` frames.
+- [x] Typed input gets no `VoiceOutput.begin` call. Audio input from a node with `audio.out@1` does, on that node only.
+- [x] S-7 shape: node A types, node B speaks; focus moves to B, B gets audio, A gets the same text (`message.completed`) and no audio.
+- [x] Barge-in during `speaking`: the fake `SpeechHandle.stop` is called, and the persisted message has `meta.cancelled` and `meta.spokenChars`, with `content` cut to the spoken prefix.
+- [x] Without `voice` deps, all existing mind and server tests pass unchanged.
+- [x] `bun run check` passes.
 
 ## Outcome
 
-_Filled by the agent when finishing._
+**Built**
+
+- Server (`server/connection.ts`, `server/server.ts`, `server/attachments.ts`): `audio.start` checks voice is configured, then `audio.in@1` and that the thread is open here (`FORBIDDEN`), then calls `VoiceInput.start`. A refusal becomes `error { INVALID_FRAME, message }`. `audio.end` → `VoiceInput.end` (an unknown stream gets `INVALID_FRAME`). Binary frames go through the same in-order chain as text frames, so a chunk never overtakes its `audio.start`. They are decoded with `decodeAudioFrame`, and kind 1 goes to `VoiceInput.chunk`. A malformed header, kind 2, an unknown stream, or a binary frame before `hello` gets `INVALID_FRAME`, and the socket stays open. `CoreServerDeps.voice?: VoiceInput`; without it every audio frame gets `INVALID_FRAME "voice is not configured"`. Socket close calls `VoiceInput.detach`. `FrameOutlet` and `Socket` gained `sendBinary`, and `AttachmentRegistry.sendBinary` now reaches the socket.
+- Storage and DTOs: `MessageMetaSchema` keeps `spokenChars`, and both `server/dto.ts` and `mind/messages.ts` (the Mind's own `toMessageDto`) copy it.
+- Mind (`mind/thread-manager.ts`): `ThreadManagerDeps.voice?: VoiceOutput`, and `config` may carry `voice`. `voiceActivity` does idle → `listening` and back to `idle` on `speaking: false`. The speaking node detaching also returns it to `idle`, and an input from that node clears it. Audio-modality turns open a `SpeechHandle` on the focus node when it has `audio.out@1`, and every delta is pushed to it. Barge-in on the focus node while `thinking`/`speaking` calls `stop()` and aborts the turn. A cancelled spoken reply (barge-in or `input.cancel`) is stored cut to `spokenChars` with `meta: { cancelled: true, spokenChars }`. After a barge-in the thread goes to `listening`.
+- Tests: `server/audio.test.ts` (fake `VoiceInput` in `server/test-fakes.ts`; the test WS client now records binary frames), `mind/voice.test.ts` (fake `VoiceOutput` in `mind/testing/fakes.ts`; the harness takes `voice`, `voiceConfig` and per-node `capabilities`), a `sendBinary` test in `attachments.test.ts`, and a `spokenChars` round trip in `storage/messages.test.ts`. All existing mind and server tests pass unchanged.
+
+**Decisions**
+
+- **A spoken reply stays `speaking` until playback ends.** After the text is complete the Mind calls `end()` and waits for `done` (or an abort) before it persists the message and sends `message.completed`. A barge-in during playback can then still cut the stored text to what was heard. The cost: text-only nodes get `message.completed` when the audio finishes, not when the text does (the deltas still arrive live).
+- **The Mind applies `voice.bargeIn` and `voice.bargeInMinMs`**, because only the Mind knows whether a turn is running. A barge-in happens `bargeInMinMs` after `speaking: true` unless `speaking: false` from that node arrives first. Without a `[voice]` section, barge-in is on with no minimum. **P3-A1 must not also delay** its `voiceActivity` calls by `bargeInMinMs`. It should report raw VAD start and stop. Documented in core.md.
+- A spoken reply is stored with `modality: 'audio'` (I-6: modality is per message). Typed replies stay `'text'`.
+- `speaking: false` returns `listening` to `idle` right away. If P3-A1 also sends `speaking: false` on `speech.end` just before a non-empty transcript's `input`, nodes see a brief `listening → idle → thinking`. Its task text says `speaking: false` is for the empty-transcript case, which gives the clean `listening → thinking`.
+- The server checks voice-configured first, then the capability and the open thread. So without voice, `audio.start` gets `INVALID_FRAME` even from a node without `audio.in@1`.
+
+**Deviations:** none from `owns`. Docs updated: core.md (turn-state rules: listening, spoken replies, barge-in) and nodes.md (audio frame handling table, binary ordering, `sendBinary`).
+
+**Follow-ups for P3-I1:** pass `voice.output` to `createThreadManager({ voice })`, pass `voice.input` to `createCoreServer({ voice })`, and pass `config` with the `voice` section to the ThreadManager.
