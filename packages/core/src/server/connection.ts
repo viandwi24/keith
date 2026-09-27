@@ -3,7 +3,7 @@
 
 import {
   AUDIO_FRAME_KIND,
-  type CoreFrame,
+  CoreFrame,
   type CoreFrameType,
   decodeAudioFrame,
   type ErrorCode,
@@ -18,6 +18,7 @@ import {
 import { isKeithError, type KeithErrorCode } from '@keith/sdk'
 import type { CoreEventBus } from '../events/types.ts'
 import type { ThreadManager } from '../mind/types.ts'
+import type { PluginStatus } from '../plugins/types.ts'
 import type { Clock, Ids, Logger, NodeId, PersonDto, ThreadId } from '../shared/types.ts'
 import type { Repositories } from '../storage/types.ts'
 import type { VoiceInput } from '../voice/types.ts'
@@ -50,7 +51,9 @@ export type Socket = {
 }
 
 const AUDIO_IN_CAPABILITY = 'audio.in@1'
+const CHAT_TEXT_CAPABILITY = 'chat.text@1'
 const VOICE_OFF = 'voice is not configured'
+const VOICE_OFF_NOTICE = 'voice is not configured on this Keith'
 
 export type ConnectionDeps = {
   log: Logger
@@ -64,6 +67,10 @@ export type ConnectionDeps = {
   /** Phase 3: node audio. Without it audio frames get `INVALID_FRAME`. */
   voice?: VoiceInput | undefined
   pluginWs: PluginWs
+  /** The plugin host's status, for the failed-plugin notices to owner nodes. Omitted = none sent. */
+  pluginStatus?: (() => PluginStatus[]) | undefined
+  /** Whether the deployment has a `[voice]` section. Omitted = whether `voice` is set. */
+  voiceConfigured?: boolean | undefined
   timing: ConnectionTiming
   server: { name: string; version: string }
   /** Ids for frames the server sends (unique per server instance, so per connection too). */
@@ -77,13 +84,14 @@ export interface Connection {
 }
 
 /** KeithError codes that are also protocol error codes, and pass through to `error` frames as is. */
-const SHARED_CODES: ReadonlySet<string> = new Set<ErrorCode & KeithErrorCode>([
+const SHARED_CODES: ReadonlySet<string> = new Set<ErrorCode>([
   'UNAUTHORIZED',
   'FORBIDDEN',
   'NOT_FOUND',
+  'RATE_LIMITED',
   'PROVIDER_ERROR',
   'INTERNAL',
-])
+] satisfies (ErrorCode & (KeithErrorCode | 'RATE_LIMITED'))[])
 
 function errorCodeOf(error: unknown): ErrorCode {
   if (isKeithError(error) && SHARED_CODES.has(error.code)) return error.code as ErrorCode
@@ -157,10 +165,14 @@ export function openConnection(
       // Checked again without an await in between, so two sockets never share a node id.
       if (deps.attachments.isConnected(id)) id = deps.ids.next('nod')
       if (phase !== 'handshaking') return // closed meanwhile
-      deps.attachments.connect(id, {
-        sendText: (text) => socket.sendText(text),
-        sendBinary: (bytes) => socket.sendBinary(bytes),
-      })
+      deps.attachments.connect(
+        id,
+        {
+          sendText: (text) => socket.sendText(text),
+          sendBinary: (bytes) => socket.sendBinary(bytes),
+        },
+        frame.data.capabilities,
+      )
       nodeId = id
       capabilities = frame.data.capabilities
       log = log.child({ nodeId: id })
@@ -173,9 +185,19 @@ export function openConnection(
       })
       if (session.token.nodeId !== id) await deps.repos.authTokens.setNode(session.tokenHash, id)
       if (phase !== 'handshaking') return
+      // B7: the welcome is validated and sent before the node counts as ready; if either fails,
+      // the catch below closes the socket (1011) instead of leaving the node waiting.
+      const welcome = makeFrame(
+        'welcome',
+        { nodeId: id, person, protocol: PROTOCOL_VERSION, server: deps.server },
+        { id: deps.nextFrameId(), ts: deps.clock.now(), re: frame.id },
+      )
+      const checked = CoreFrame.safeParse(welcome)
+      if (!checked.success) throw new Error(`invalid welcome frame: ${checked.error.message}`)
+      socket.sendText(JSON.stringify(welcome))
       deps.presence.remember(person.id, session.person.lastSeenAt)
       phase = 'ready'
-      send('welcome', { nodeId: id, person, protocol: PROTOCOL_VERSION, server: deps.server }, frame.id)
+      sendNotices()
       deps.events.emit('node.connected', {
         nodeId: id,
         personId: person.id,
@@ -185,6 +207,23 @@ export function openConnection(
     } catch (error) {
       log.error('handshake failed', { error: String(error) })
       close(1011, 'internal error')
+    }
+  }
+
+  /** protocol.md#notices: failed plugins to owner nodes, then voice-off to `audio.in@1` nodes. */
+  const sendNotices = () => {
+    if (person.tier === 'owner' && deps.pluginStatus) {
+      for (const p of deps.pluginStatus()) {
+        if (p.state !== 'failed') continue
+        send('notice', {
+          level: 'warn',
+          text: `plugin ${p.id} failed${p.error ? `: ${p.error.message}` : ''}`,
+        })
+      }
+    }
+    const voiceConfigured = deps.voiceConfigured ?? deps.voice !== undefined
+    if (!voiceConfigured && capabilities.includes(AUDIO_IN_CAPABILITY)) {
+      send('notice', { level: 'info', text: VOICE_OFF_NOTICE })
     }
   }
 
@@ -198,6 +237,7 @@ export function openConnection(
       nodeId: node,
       threadId: frame.data.threadId,
       arrival,
+      historyLimit: frame.data.historyLimit,
     })
     if (phase !== 'ready') {
       deps.threads.detach({ nodeId: node, threadId: opened.thread.id })
@@ -205,6 +245,7 @@ export function openConnection(
     }
     deps.attachments.attach(node, opened.thread.id)
     deps.presence.nodeAttached(person.id, node)
+    // ThreadManager.open honors historyLimit; the slice only guards the wire limit.
     const limit = frame.data.historyLimit ?? 50
     const messages = limit === 0 ? [] : opened.messages.slice(-limit)
     send('thread.opened', { thread: opened.thread, messages }, frame.id)
@@ -280,6 +321,10 @@ export function openConnection(
           await closeThread(node, frame.data.threadId)
           return
         case 'input.text': {
+          if (!capabilities.includes(CHAT_TEXT_CAPABILITY)) {
+            sendError('FORBIDDEN', `input.text needs the ${CHAT_TEXT_CAPABILITY} capability`, frame.id)
+            return
+          }
           if (!isOpenHere(frame.data.threadId)) {
             sendError('FORBIDDEN', 'thread is not open on this node', frame.id)
             return

@@ -7,7 +7,8 @@ import type { EventMap, EventName, KeithEvent } from '@keith/sdk'
 import { createFakeClock, createMemoryLogger, type FakeClock, type MemoryLogger } from '@keith/sdk/testing'
 import type { KeithConfig } from '../config/types.ts'
 import type { CoreEventBus } from '../events/types.ts'
-import type { Arrival, OpenedThread, ThreadManager } from '../mind/types.ts'
+import type { OpenedThread, ThreadManager } from '../mind/types.ts'
+import type { PluginStatus } from '../plugins/types.ts'
 import type { FileId, IdPrefix, Ids, NodeId, PersonId, ThreadId, TurnState } from '../shared/types.ts'
 import type {
   AuthTokenRecord,
@@ -252,7 +253,7 @@ export function createFakeEventBus(clock: { now(): number }): FakeEventBus {
 
 export type FakeThreadManager = ThreadManager & {
   calls: {
-    open: { personId: PersonId; nodeId: NodeId; threadId?: ThreadId | undefined; arrival: Arrival | null }[]
+    open: Parameters<ThreadManager['open']>[0][]
     detach: { nodeId: NodeId; threadId?: ThreadId | undefined }[]
     input: { threadId: ThreadId; personId: PersonId; nodeId: NodeId; text: string }[]
     cancel: { threadId: ThreadId; nodeId: NodeId }[]
@@ -433,6 +434,9 @@ export type TestServerOptions = {
   filesDir?: string
   /** Phase 3: node audio goes here; omitted = voice off. */
   voice?: VoiceInput
+  /** The plugin host's status for failed-plugin notices; omitted = none. */
+  pluginStatus?: () => PluginStatus[]
+  voiceConfigured?: boolean
 }
 
 let ownerHash: Promise<string> | null = null
@@ -477,6 +481,8 @@ export async function startTestServer(opts: TestServerOptions = {}): Promise<Tes
     timing: opts.timing,
     filesDir: opts.filesDir,
     voice: opts.voice,
+    pluginStatus: opts.pluginStatus,
+    voiceConfigured: opts.voiceConfigured,
   })
   const { host, port } = await server.listen()
   const base = `http://${host}:${port}`

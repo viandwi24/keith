@@ -5,6 +5,7 @@ import type { Server, ServerWebSocket } from 'bun'
 import type { KeithConfig } from '../config/types.ts'
 import type { CoreEventBus } from '../events/types.ts'
 import type { ThreadManager } from '../mind/types.ts'
+import type { PluginStatus } from '../plugins/types.ts'
 import type { Clock, Ids, Logger } from '../shared/types.ts'
 import type { Repositories } from '../storage/types.ts'
 import type { VoiceInput } from '../voice/types.ts'
@@ -41,6 +42,16 @@ export type CoreServerDeps = {
    * audio frames get `error { INVALID_FRAME, "voice is not configured" }`.
    */
   voice?: VoiceInput | undefined
+  /**
+   * The plugin host's `status`. Right after `welcome` an owner node gets one `warn` notice per
+   * failed plugin (protocol.md#notices). Omitted = no plugin notices.
+   */
+  pluginStatus?: (() => PluginStatus[]) | undefined
+  /**
+   * Whether the deployment has a `[voice]` section. When false, a node that declared `audio.in@1`
+   * gets one `info` notice right after `welcome`. Omitted = whether `voice` is set.
+   */
+  voiceConfigured?: boolean | undefined
 }
 
 type WsData = { session: AuthSession | null; conn: Connection | null; done: Promise<void> | null }
@@ -78,6 +89,8 @@ export function createCoreServer(deps: CoreServerDeps): CoreServer {
     attachments: deps.attachments,
     presence: deps.presence,
     voice: deps.voice,
+    pluginStatus: deps.pluginStatus,
+    voiceConfigured: deps.voiceConfigured,
     pluginWs: ws,
     timing,
     server: { name: 'keith', version: deps.version },
