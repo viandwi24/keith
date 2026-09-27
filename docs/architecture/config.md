@@ -98,13 +98,15 @@ bargeInMinMs = 300                 # minimum speech before it counts as a barge-
 
 `[voice]` picks providers by id; each voice plugin's own section (API key, base URL, model, voice) stays under `[plugins."<id>"]`. The config schema checks only the shape. `KEITH__VOICE__…` overrides are not supported, because the section has no defaults to override.
 
-> Planned (phase 3, P3-I1): at startup the core checks that the `[voice]` ids are registered providers and builds the voice pipeline from them.
+At startup, after the plugins have started, the core checks that each `[voice]` id is a registered provider of its kind. An unknown id is `CONFIG_INVALID` naming the key, the id and the registered ids. It then builds the voice pipeline from them ([voice.md](voice.md#wiring-bootstrap)). The four first-party voice plugins are dependencies of `@keith/core`, like the provider plugins, so they load by name.
 
 Each plugin section is validated by that plugin's own `config` schema. The core never interprets plugin sections.
 
 ### `keith setup`
 
 `keith setup` asks which provider to use (DeepSeek or OpenRouter), enables only that plugin (also listed in `required`), asks for a model id (it offers a default, `deepseek-flash` or `~openai/gpt-sol-latest`, labelled as possibly outdated since vendor ids change), and maps all three roles to it. The API key is written as `env:DEEPSEEK_API_KEY` / `env:OPENROUTER_API_KEY`, never literally. Users split roles across models later by editing the file. It then asks whether to enable the optional `@keith/web` (the browser app) and `@keith/tool-weather` plugins (default yes). They go into `enabled` but not `required`, each with a commented `[plugins."<id>"]` section. On an existing config it only prints how to add a missing one.
+
+Last, it asks about voice: **none** (default), **cloud** (`@keith/voice-groq` STT + `@keith/voice-openai` TTS), **local** (`@keith/voice-speaches` for both) or **mixed** (Groq STT + speaches TTS). Every choice but none also enables `@keith/vad-energy` and writes a `[voice]` section (`vad = "energy"` plus the `stt` / `tts` ids). The voice plugins go into `enabled` but not `required`, each with its `[plugins."<id>"]` section; keys are written as `env:GROQ_API_KEY` / `env:OPENAI_API_KEY`. At the end setup says which keys to export, and for local or mixed it prints the `docker run` command of a CPU speaches server (`ghcr.io/speaches-ai/speaches:latest-cpu` on port 8000). On an existing config without `[voice]` it prints how to turn voice on.
 
 It also creates `KEITH_HOME` with `files/`, `plugins/` and `logs/`, writes `persona.md` from `defaultPersona(mind.name)`, applies the migrations, and creates the **owner** Person (name, username, password asked twice, at least 8 characters, hashed with `Bun.password`).
 

@@ -1,6 +1,6 @@
 # Voice
 
-> Planned (phase 3). The wire contract, provider types, config and core interfaces exist (P3-K1), and so does the pipeline in `packages/core/src/voice/` (P3-A1); the server and Mind handling, bootstrap wiring, the adapters and the browser side are built by the other phase-3 lanes. v1 choices: [ADR-0013](../decisions/0013-voice-v1-transport-and-providers.md).
+Built in phase 3: the cascade mode below, end to end, from the browser's microphone to its speaker. v1 choices: [ADR-0013](../decisions/0013-voice-v1-transport-and-providers.md). Realtime mode, Silero VAD, Opus and streaming STT are later (ADR-0013 defers them).
 
 ## Principles
 
@@ -42,7 +42,7 @@ In realtime mode the Mind still sees text: the session's input and output transc
 - `start` refuses (never throws) when voice is off (logged at warn), the codec is not `pcm16`, the rate is outside 8–48 kHz, the stream id is already open on that node, or the configured VAD or STT provider is not registered.
 - Chunks are decoded as PCM16LE (an odd trailing byte is dropped) and **linearly resampled to 16 kHz** when the node sends another rate, chunk by chunk. The VAD and STT always see 16 kHz. Chunks with a `sequence` lower than expected are dropped and logged at debug; a gap is logged at debug and the stream continues.
 - Outside speech the pipeline keeps the last 300 ms (pre-roll), so the utterance sent to STT starts just before `speech.start`.
-- `voiceActivity({ speaking: true })` is sent once the speech has lasted `voice.bargeInMinMs` of audio (immediately when it is 0). Shorter speech sends no activity, but still goes to STT, and a non-empty transcript is still input. This is where the barge-in noise filter lives; the Mind decides what the activity means.
+- `voiceActivity({ speaking: true })` is sent at the VAD's `speech.start`: the pipeline reports raw VAD start and stop. `voice.bargeInMinMs` is applied once, by the Mind, which alone knows whether a turn is running ([core.md](core.md#threads-and-turn-state), Barge-in). Short speech still goes to STT, and a non-empty transcript is still input.
 - `speech.end` or `audio.end` sends the utterance to STT (`transcribe`, or `stream` when the provider only has that). A non-empty transcript becomes `ThreadManager.input({ modality: 'audio' })`. An empty one, or an STT error (logged), sends `voiceActivity({ speaking: false })` if `true` was sent.
 - `voice.maxUtteranceMs` of buffered speech forces an STT run mid-speech. The activity stays on: no new `speaking: true` follows the input, because it would read as a barge-in.
 - STT runs one utterance at a time per stream, so inputs keep their order. `detach(nodeId)` aborts in-flight STT, drops the node's streams without transcribing, and sends `speaking: false` where `true` was sent.
@@ -54,14 +54,27 @@ In realtime mode the Mind still sees text: the session's input and output transc
 - Pieces go to `TtsProvider.stream` one at a time, in order. The first chunk sends `audio.start` with the TTS rate; chunks of a later piece at another rate are resampled to it. Chunks are split into kind-2 frames of at most 64 KiB, with `sequence` 0, 1, 2, … .
 - `spokenChars` counts the pushed characters (`String.length` units) of the pieces whose audio was fully sent, never the queued ones. `stop()` aborts the TTS signal, sends `audio.stop` if `audio.start` was sent, and settles `done`. A TTS error is logged and ends the speech early with `audio.end`.
 
+### Wiring (bootstrap)
+
+With a `[voice]` section, `bootstrap()` builds `createVoice(...)` right after the attachment registry, hands `voice.input` to `createCoreServer({ voice })` and `voice.output` to `createThreadManager({ voice })` (whose `config` carries `voice`, so the Mind knows `bargeIn` / `bargeInMinMs`). The pipeline reaches the ThreadManager through a late binding, because each needs the other. `capabilities(nodeId)` comes from the capabilities each node declared in its latest `hello` (the `node.connected` event). After the plugin host has started, every `[voice]` id must name a registered provider: an unknown one stops startup with `CONFIG_INVALID`, naming the key, the id and the registered ids (e.g. `voice.stt = 'whisper' names an unknown stt provider (registered: groq)`). Without `[voice]` none of this runs and the core behaves as in phase 2.
+
+`@keith/core` depends on the four first-party voice plugins (`@keith/vad-energy`, `@keith/voice-groq`, `@keith/voice-openai`, `@keith/voice-speaches`), so the plugin host can load them by name. `keith setup` offers them ([config.md](config.md#keith-setup)).
+
 Config: the optional `[voice]` section ([config.md](config.md)) names the `vad`, `stt` and `tts` provider ids and sets `maxUtteranceMs`, `bargeIn` and `bargeInMinMs`. Without it, voice is off and the core behaves as in phase 2.
 
 ## Turn-taking with voice
 
 - VAD start on the focus node → Thread `listening`.
 - VAD end → STT final → normal input → `thinking`.
+- A spoken input's `message.user` also goes to the node that spoke it (as for a UI click), because its transcript comes from the core's STT: that is how the speaking node shows what it heard.
+- **A spoken reply stays `speaking` until playback ends.** The text streams live to every attached node as `message.delta`, but `message.completed` (and persistence) waits until the audio was sent, also on nodes without audio, so a barge-in during playback can still cut the stored text. In S-7 a text-only node therefore sees the full text before `message.completed`; nothing is lost.
 - **Barge-in:** speech detected while `speaking` stops TTS playback on the node (`audio.stop` frame), cancels the remaining TTS, and starts listening. The partial assistant message keeps what was actually spoken (`meta.spokenChars`). With an energy VAD, speech must last `voice.bargeInMinMs` before it counts, so a short noise doesn't cut the reply.
 - Echo: nodes must use their platform's echo cancellation (browser `getUserMedia` constraints). The core doesn't do AEC.
+
+## Browser side (`@keith/web`, `@keith/client`)
+
+- `@keith/client`: `createChatClient({ audio: { input, output }, onAudio })` declares `audio.in@1` / `audio.out@1` only when asked (the TUI stays `chat.text@1`). `startAudio()` / `sendAudio(streamId, sequence, pcm16)` / `endAudio(streamId)` send the node's stream; kind-2 frames and the core's `audio.start` / `audio.end` / `audio.stop` arrive as `onAudio` events. `createPlaybackQueue({ sink })` plays each stream in `sequence` order and stops at once on `audio.stop` or a new input. See [repository.md](repository.md#keithclient).
+- The web app captures with `getUserMedia` (echo cancellation, noise suppression, AGC) and an AudioWorklet, downsamples to 16 kHz PCM16 in 20 ms chunks, and plays through Web Audio. It offers a mic toggle (open mic) and hold-to-talk, shows "Listening…" and "Speaking", and says in one line why voice is unavailable (no secure context, no permission, no device). Voice needs a secure context: `localhost` or HTTPS.
 
 ## Provider seams
 
