@@ -4,7 +4,7 @@ title: "OpenAI-compatible STT/TTS helpers and the Groq, OpenAI and speaches voic
 phase: 3
 wave: 2
 lane: B
-status: review
+status: done
 owner: agent-P3-B1
 depends: [P3-K1]
 owns:
