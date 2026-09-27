@@ -4,7 +4,7 @@ title: "Hardening: storage message seq and deliveries.message_id"
 phase: 3
 wave: 6
 lane: H
-status: review
+status: done
 owner: agent-P3-H3
 depends: [P3-K2]
 owns:
