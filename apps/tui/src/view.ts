@@ -34,6 +34,20 @@ export function statusLine(state: ChatState): string {
   return parts.join(' · ')
 }
 
+export const HISTORY_MORE = '↑ older messages: PgUp or scroll up'
+export const HISTORY_LOADING = '↑ loading older messages…'
+export const HISTORY_START = '· start of the conversation ·'
+
+/**
+ * The line above the oldest shown message: whether scrolling up loads more history. Empty before
+ * a thread is open.
+ */
+export function historyLine(state: ChatState): string {
+  if (!state.thread) return ''
+  if (state.history.loading) return HISTORY_LOADING
+  return state.history.hasMore ? HISTORY_MORE : HISTORY_START
+}
+
 /** The lines to show, oldest first. Tool-step rows without text or blocks (from history) are skipped. */
 export function entryViews(state: ChatState): EntryView[] {
   return state.entries.filter((e) => !isHiddenEntry(e)).map(entryView)
