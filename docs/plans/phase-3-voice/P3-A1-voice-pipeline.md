@@ -4,8 +4,8 @@ title: "Core voice pipeline: VAD → STT per stream, TTS per reply"
 phase: 3
 wave: 2
 lane: A
-status: todo
-owner: null
+status: in-progress
+owner: agent-P3-A1
 depends: [P3-K1]
 owns:
   - packages/core/src/voice/**

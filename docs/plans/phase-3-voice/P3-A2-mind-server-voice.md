@@ -4,12 +4,14 @@ title: "Core: audio frames in the server, listening state, barge-in and spokenCh
 phase: 3
 wave: 2
 lane: A
-status: todo
-owner: null
+status: in-progress
+owner: agent-P3-A2
 depends: [P3-K1]
 owns:
   - packages/core/src/mind/**
   - packages/core/src/server/**
+  - packages/core/src/storage/messages.ts
+  - packages/core/src/storage/messages.test.ts
 reads:
   - docs/architecture/voice.md
   - docs/architecture/core.md
@@ -34,6 +36,9 @@ The server accepts audio from nodes and routes it to `VoiceInput`, and the Mind 
 - `audio.start` / `audio.end` frames: check that the node has `audio.in@1` and has opened the thread (`FORBIDDEN` otherwise), then call `VoiceInput.start` / `end`. Binary frames: parse the header with `@keith/protocol` (P3-K1). Kind 1 goes to `VoiceInput.chunk`. A malformed header, kind 2 from a node, or an unknown stream → `error { INVALID_FRAME }`. Replaces the phase-1 "binary frames are not supported yet" reply.
 - `AttachmentRegistry.sendBinary(nodeId, bytes)` (P3-K1 added a placeholder). Socket close ends the node's open streams (`VoiceInput.detach`).
 - The server takes `voice?: VoiceInput`. Without it, audio frames get `error { INVALID_FRAME, "voice is not configured" }`.
+
+**In (storage):**
+- `storage/messages.ts` reads `meta` with a zod schema that drops `spokenChars`; add it (`z.number().int().nonnegative().optional()`) so history and `thread.opened` keep it. Also copy it in `server/dto.ts`. (Found by P3-K1; owns widened by the coordinator.)
 
 **In (mind):**
 - `ThreadManager.voiceActivity({ threadId, nodeId, speaking })` (interface from P3-K1): `idle` → `listening` on start, back to `idle` on stop without input. Speech start while `thinking` or `speaking` on the focus node is a **barge-in**: the turn is cancelled as `input.cancel` does, and speech output is stopped.

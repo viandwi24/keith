@@ -4,8 +4,8 @@ title: "OpenAI-compatible STT/TTS helpers and the Groq, OpenAI and speaches voic
 phase: 3
 wave: 2
 lane: B
-status: todo
-owner: null
+status: in-progress
+owner: agent-P3-B1
 depends: [P3-K1]
 owns:
   - packages/sdk/src/providers/openai-audio*

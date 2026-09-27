@@ -4,7 +4,7 @@ title: Phase-3 contract additions and core voice interfaces
 phase: 3
 wave: 1
 lane: K
-status: review
+status: done
 owner: agent-P3-K1
 depends: [P2-I1]
 owns:

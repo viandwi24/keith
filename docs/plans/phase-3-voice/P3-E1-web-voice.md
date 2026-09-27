@@ -4,8 +4,8 @@ title: "Web and client: mic capture, playback queue, audio.in@1 / audio.out@1"
 phase: 3
 wave: 2
 lane: E
-status: todo
-owner: null
+status: in-progress
+owner: agent-P3-E1
 depends: [P3-K1]
 owns:
   - packages/client/**

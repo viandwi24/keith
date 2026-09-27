@@ -4,8 +4,8 @@ title: "@keith/vad-energy: a dependency-free energy VAD"
 phase: 3
 wave: 2
 lane: D
-status: todo
-owner: null
+status: in-progress
+owner: agent-P3-D1
 depends: [P3-K1]
 owns:
   - plugins/vad-energy/**
