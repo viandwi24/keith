@@ -18,3 +18,19 @@ The overview's lanes B (STT) and C (TTS) merged into P3-B1, because one OpenAI-c
 **Reserved ADR numbers:** 0013 for P3-K1 (voice v1 transport and providers). Lane agents start at 0014.
 
 **Exit:** S-7 passes in CI with synthetic audio, and a human spoke to Keith in a browser with real providers.
+
+## Hardening (after the phase 0–3 audit)
+
+The coordinator's audit found gaps across phases 0–3: [hardening-audit.md](hardening-audit.md). The owner chose to close all of them in phase 3.
+
+| Wave | Task | Owns (summary) |
+|---|---|---|
+| 5 | [P3-K2 Contract clarifications and interfaces](P3-K2-contracts-hardening.md) | contracts, `*/types.ts`, config |
+| 6 | [P3-H1 Mind fixes](P3-H1-mind-fixes.md) | `core/src/mind`, `plugins/tools.ts` |
+| 6 | [P3-H2 Server fixes](P3-H2-server-fixes.md) | `core/src/server` |
+| 6 | [P3-H3 Message seq, deliveries.message_id](P3-H3-storage-seq.md) | `core/src/storage`, `core/drizzle` |
+| 6 | [P3-H4 Home lock, log files](P3-H4-ops-lock-logs.md) | `core/src/shared/{logger,lock,log-file}`, `core/src/cli` |
+| 6 | [P3-H5 Sync and deps checks](P3-H5-scripts-checks.md) | `scripts` |
+| 6 | [P3-H6 TUI logout, scrollback](P3-H6-tui-logout-scrollback.md) | `apps/tui` |
+| 7 | [P3-H7 Delivery UI, order by seq](P3-H7-delivery-ui.md) | `core/src/{mind,scheduler}` |
+| 8 | [P3-I3 Hardening integration](P3-I3-hardening-integration.md) | wiring, e2e, docs |
