@@ -1,0 +1,13 @@
+{
+  "name": "@keith/voice-speaches",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@keith/sdk": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}

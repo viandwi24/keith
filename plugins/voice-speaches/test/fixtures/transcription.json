@@ -1,0 +1,7 @@
+{
+  "_fixture": "synthetic, built by hand from https://speaches.ai/usage/speech-to-text/ (response_format json, 2026-09-27); re-record from a real speaches server",
+  "status": 200,
+  "body": {
+    "text": "Turn off the kitchen lights."
+  }
+}

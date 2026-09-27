@@ -1,0 +1,12 @@
+{
+  "_fixture": "synthetic, built by hand from https://console.groq.com/docs/rate-limits (2026-09-27); re-record from the real API",
+  "status": 429,
+  "headers": { "retry-after": "7" },
+  "body": {
+    "error": {
+      "message": "Rate limit reached for model `whisper-large-v3-turbo` on audio seconds per hour (ASPH). Please try again in 7s.",
+      "type": "tokens",
+      "code": "rate_limit_exceeded"
+    }
+  }
+}
