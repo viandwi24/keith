@@ -50,6 +50,26 @@ export interface KeithConfig {
   }
   /** Service name → winning plugin id, when two plugins provide the same service. */
   services: Record<string, string>
+  /** Phase 3: the `[voice]` section. Absent (undefined) = voice is off. */
+  voice?: VoiceConfig | undefined
+}
+
+/** `[voice]`: which registered providers run the pipeline (ADR-0013), and turn-taking knobs. */
+export interface VoiceConfig {
+  /** `VadProvider` id, e.g. 'energy'. */
+  vad: string
+  /** `SttProvider` id, e.g. 'groq', 'speaches'. */
+  stt: string
+  /** `TtsProvider` id, e.g. 'openai', 'speaches'. */
+  tts: string
+  /** Passed to STT and TTS as a hint, e.g. 'en'. Omitted: providers detect it. */
+  language?: string | undefined
+  /** An utterance longer than this goes to STT anyway. Default 30000. */
+  maxUtteranceMs: number
+  /** Speech on the focus node while `thinking` or `speaking` interrupts the reply. Default true. */
+  bargeIn: boolean
+  /** Speech must last this long before it counts as a barge-in. Default 300. */
+  bargeInMinMs: number
 }
 
 /** Locations inside `KEITH_HOME`. */

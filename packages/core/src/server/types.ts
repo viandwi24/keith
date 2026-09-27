@@ -14,6 +14,8 @@ export interface AttachmentRegistry {
   attachedTo(threadId: ThreadId): NodeId[]
   /** No-op if the node is gone. */
   send(nodeId: NodeId, frame: CoreFrame): void
+  /** Phase 3: a binary frame (`encodeAudioFrame` output) to one node. No-op if the node is gone. */
+  sendBinary(nodeId: NodeId, bytes: Uint8Array): void
 }
 
 export type NodeSink = Pick<AttachmentRegistry, 'send' | 'attachedTo'>

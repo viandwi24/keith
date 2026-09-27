@@ -72,6 +72,10 @@ export function createAttachmentRegistry(deps: AttachmentRegistryDeps): ServerAt
       }
       outlet.sendText(JSON.stringify(frame))
     },
+    // Placeholder (P3-K1): P3-A2 gives the outlet a binary path.
+    sendBinary(nodeId, bytes) {
+      log.debug('binary frame dropped (not supported yet)', { nodeId, bytes: bytes.byteLength })
+    },
     connect(nodeId, outlet) {
       outlets.set(nodeId, outlet)
     },

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { checkFile, checkRepo, extractImports, stripComments } from './check-deps.ts'
+import { areaOf, checkFile, checkRepo, extractImports, stripComments } from './check-deps.ts'
 
 const temps: string[] = []
 
@@ -15,6 +15,14 @@ async function fixtureRepo(files: Record<string, string>): Promise<string> {
 
 afterEach(async () => {
   for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true })
+})
+
+describe('areaOf', () => {
+  test('phase-3 voice plugins fall under the plugin rule', () => {
+    for (const name of ['voice-groq', 'voice-openai', 'voice-speaches', 'vad-energy']) {
+      expect(areaOf(`plugins/${name}/src/index.ts`)).toEqual({ kind: 'plugin', name })
+    }
+  })
 })
 
 describe('checkRepo', () => {

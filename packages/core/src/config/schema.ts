@@ -31,7 +31,8 @@ export const DEFAULT_MODEL_REF: ModelRef = 'deepseek:deepseek-flash'
 
 /**
  * The `config.toml` schema. Every table is strict (unknown keys fail) and every key has a default,
- * so an empty file is a valid config. `plugins.sections` is filled by the loader from the
+ * so an empty file is a valid config. The exception is the optional `[voice]` section: when
+ * present, it must name its `vad`, `stt` and `tts` providers. `plugins.sections` is filled by the loader from the
  * `[plugins."<id>"]` tables and never interpreted here.
  */
 export const configSchema = z.strictObject({
@@ -96,6 +97,17 @@ export const configSchema = z.strictObject({
     })
     .prefault({}),
   services: z.record(z.string(), z.string().min(1)).default({}),
+  voice: z
+    .strictObject({
+      vad: z.string().min(1),
+      stt: z.string().min(1),
+      tts: z.string().min(1),
+      language: z.string().min(1).optional(),
+      maxUtteranceMs: posInt().default(30_000),
+      bargeIn: z.boolean().default(true),
+      bargeInMinMs: z.number().int().nonnegative().default(300),
+    })
+    .optional(),
 })
 
 // Compile-time check: the schema output is exactly the frozen `KeithConfig`.

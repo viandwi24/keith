@@ -11,9 +11,9 @@ One seam per engine role. There is no umbrella "voice protocol" abstraction.
 | Seam | Interface | First adapters | Phase |
 |---|---|---|---|
 | LLM | `LlmProvider` | **OpenRouter**, **DeepSeek** | 1 |
-| Speech-to-text | `SttProvider` | decided in phase 3 (one local, one cloud) | 3 |
-| Text-to-speech | `TtsProvider` | decided in phase 3 (one local, one cloud) | 3 |
-| Voice activity | `VadProvider` | decided in phase 3 | 3 |
+| Speech-to-text | `SttProvider` | **Groq** (cloud), **speaches** (local), [ADR-0013](../decisions/0013-voice-v1-transport-and-providers.md) | 3 |
+| Text-to-speech | `TtsProvider` | **OpenAI** (cloud), **speaches** (local), ADR-0013 | 3 |
+| Voice activity | `VadProvider` | **energy** (pure TypeScript), ADR-0013 | 3 |
 | Speech-to-speech | `RealtimeProvider` | decided in phase 8 | 8 |
 
 ## LLM
@@ -85,4 +85,15 @@ Adding another provider (Anthropic, Gemini, Ollama, LM Studio) is a new plugin. 
 
 ## Voice (phase 3)
 
-See [voice.md](voice.md). The core runs the voice pipeline, so provider choice is one config section, not per node.
+See [voice.md](voice.md). The core runs the voice pipeline, so provider choice is one config section (`[voice]`, naming a `vad`, `stt` and `tts` provider id), not per node.
+
+The Groq, OpenAI and speaches services all speak the OpenAI audio API, so `@keith/sdk` has `createOpenAICompatibleStt` and `createOpenAICompatibleTts` (contract: [providers.md](../contracts/providers.md#openai-compatible-audio); code: `packages/sdk/src/providers/openai-audio.ts`). Each voice plugin is a thin configuration of them, like the LLM plugins:
+
+| Plugin | Registers | Default base URL |
+|---|---|---|
+| `@keith/voice-groq` | STT `groq` | `https://api.groq.com/openai/v1` |
+| `@keith/voice-openai` | TTS `openai` | `https://api.openai.com/v1` |
+| `@keith/voice-speaches` | STT and TTS `speaches` | `http://127.0.0.1:8000/v1` |
+| `@keith/vad-energy` | VAD `energy` | none (in process) |
+
+> Planned (phase 3): the helpers' bodies (P3-B1; today they throw "not implemented"), the three voice plugins (P3-B1) and `@keith/vad-energy` (P3-D1).

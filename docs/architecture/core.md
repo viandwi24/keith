@@ -204,6 +204,26 @@ export interface KeithConfig {
   }
   /** Service name → winning plugin id, when two plugins provide the same service. */
   services: Record<string, string>
+  /** Phase 3: the `[voice]` section. Absent (undefined) = voice is off. */
+  voice?: VoiceConfig | undefined
+}
+
+/** `[voice]`: which registered providers run the pipeline (ADR-0013), and turn-taking knobs. */
+export interface VoiceConfig {
+  /** `VadProvider` id, e.g. 'energy'. */
+  vad: string
+  /** `SttProvider` id, e.g. 'groq', 'speaches'. */
+  stt: string
+  /** `TtsProvider` id, e.g. 'openai', 'speaches'. */
+  tts: string
+  /** Passed to STT and TTS as a hint, e.g. 'en'. Omitted: providers detect it. */
+  language?: string | undefined
+  /** An utterance longer than this goes to STT anyway. Default 30000. */
+  maxUtteranceMs: number
+  /** Speech on the focus node while `thinking` or `speaking` interrupts the reply. Default true. */
+  bargeIn: boolean
+  /** Speech must last this long before it counts as a barge-in. Default 300. */
+  bargeInMinMs: number
 }
 
 /** Locations inside `KEITH_HOME`. */
@@ -501,7 +521,12 @@ export interface ThreadsRepository {
 
 // messages (docs/architecture/storage.md#messages-and-tool-calls)
 
-export type MessageMeta = { cancelled?: boolean | undefined; proactive?: boolean | undefined }
+export type MessageMeta = {
+  cancelled?: boolean | undefined
+  proactive?: boolean | undefined
+  /** Phase 3: a spoken reply cut by barge-in; `content` holds only this many characters. */
+  spokenChars?: number | undefined
+}
 
 /** A UI block on an assistant message, with the tool that produced it (for `ui.action`). */
 export type MessageUiEntry = { block: UiBlock; toolCallId: string; toolName: string }
@@ -685,6 +710,8 @@ export interface AttachmentRegistry {
   attachedTo(threadId: ThreadId): NodeId[]
   /** No-op if the node is gone. */
   send(nodeId: NodeId, frame: CoreFrame): void
+  /** Phase 3: a binary frame (`encodeAudioFrame` output) to one node. No-op if the node is gone. */
+  sendBinary(nodeId: NodeId, bytes: Uint8Array): void
 }
 
 export type NodeSink = Pick<AttachmentRegistry, 'send' | 'attachedTo'>
@@ -752,6 +779,13 @@ export interface ThreadManager {
     actionId: string
     value?: unknown
   }): Promise<void>
+  /**
+   * Phase 3: the voice pipeline's VAD saw speech start or stop on a node's audio stream.
+   * `speaking: true` moves an idle thread to `listening`, and on the focus node while `thinking`
+   * or `speaking` it is a barge-in (the turn is cancelled and speech output stopped).
+   * `speaking: false` without a following input returns `listening` to `idle`.
+   */
+  voiceActivity(a: { threadId: ThreadId; nodeId: NodeId; speaking: boolean }): void
   state(threadId: ThreadId): TurnState
 }
 
@@ -806,6 +840,78 @@ export interface ContextBuilder {
 ```
 
 The ThreadManager maps `RunLoopEvent`s to `message.delta`, `tool.activity` and `ui.render` frames. The scheduler ignores most of them for tasks (it keeps `ui` for the task result).
+
+### Voice (`voice/types.ts`), implemented by `voice/` (P3-A1)
+
+Phase 3 ([voice.md](voice.md), [ADR-0013](../decisions/0013-voice-v1-transport-and-providers.md)). The server calls `VoiceInput` for `audio.start` / `audio.end` and kind-1 binary frames; the Mind calls `VoiceOutput` for audio-modality turns. Both are optional deps: without `[voice]` the core behaves as in phase 2.
+
+```ts
+/** Why `VoiceInput.start` refused a stream. The server replies `error { INVALID_FRAME, message }`. */
+export type VoiceStartResult = { ok: true } | { ok: false; code: 'INVALID_FRAME'; message: string }
+
+/**
+ * Audio from nodes, one stream per `audio.start` … `audio.end`. The server checks `audio.in@1`
+ * and that the node has the thread open before calling `start`. No method throws.
+ */
+export interface VoiceInput {
+  /**
+   * An `audio.start` frame. Refused (not thrown) when voice is off, the codec or rate is not
+   * supported (v1: `pcm16` only), or the stream id is already in use.
+   */
+  start(a: {
+    nodeId: NodeId
+    personId: PersonId
+    threadId: ThreadId
+    streamId: AudioStreamId
+    codec: AudioCodec
+    sampleRate: number
+  }): VoiceStartResult
+  /**
+   * A kind-1 binary frame. Returns false when the node has no open stream with this id (the
+   * server replies `INVALID_FRAME`). Out-of-order chunks of an open stream are dropped and
+   * logged at debug, and still return true.
+   */
+  chunk(a: { nodeId: NodeId; streamId: AudioStreamId; sequence: number; payload: Uint8Array }): boolean
+  /**
+   * An `audio.end` frame: the buffered utterance, if any, goes to STT. Returns false when the node
+   * has no open stream with this id.
+   */
+  end(a: { nodeId: NodeId; streamId: AudioStreamId }): boolean
+  /** The node's socket closed: drop its open streams without running STT. */
+  detach(nodeId: NodeId): void
+}
+
+/** Speaks assistant replies. The Mind calls it only for audio-modality turns (voice.md). */
+export interface VoiceOutput {
+  /**
+   * Starts speaking `messageId` on `nodeId` (the focus node). Returns null when voice is off or
+   * the node lacks `audio.out@1`; the reply is then text only.
+   */
+  begin(a: { threadId: ThreadId; nodeId: NodeId; messageId: MessageId }): SpeechHandle | null
+}
+
+/**
+ * One spoken reply. Text is cut into sentences and spoken in order; the audio goes to the node as
+ * `audio.start`, kind-2 binary frames, then `audio.end`.
+ */
+export interface SpeechHandle {
+  /** A text delta of the assistant message, in order. Ignored after `end` or `stop`. */
+  push(text: string): void
+  /** No more text: speak what is buffered, then send `audio.end`. */
+  end(): void
+  /**
+   * Barge-in or cancel: aborts TTS, sends `audio.stop` if audio was started, and returns
+   * `spokenChars`, the characters of the pushed text whose audio was fully sent. Idempotent: a
+   * later call returns the same number.
+   */
+  stop(): number
+  /**
+   * Settles when the last frame was sent after `end`, or right after `stop`. Never rejects: a TTS
+   * error is logged and ends the speech early.
+   */
+  done: Promise<void>
+}
+```
 
 ### Scheduler (`scheduler/types.ts`), implemented by `scheduler/` (P1-G1)
 

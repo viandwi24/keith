@@ -806,6 +806,9 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
 
     action,
 
+    // Placeholder (P3-K1): P3-A2 adds the `listening` state and barge-in.
+    voiceActivity() {},
+
     state(threadId) {
       return ready.get(threadId)?.state ?? 'idle'
     },

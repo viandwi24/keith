@@ -18,7 +18,7 @@ Tests always set `KEITH_HOME` to a temporary directory.
 
 ## `config.toml`
 
-Parsed with Bun's built-in TOML support and validated with a zod schema in `core/src/config`. Unknown keys are an error (typos fail loudly). Any string value may be `"env:NAME"`, which is resolved from the environment at load. Missing env vars are an error naming the key. Every key has a default (the values below, except `mind.timezone`, which defaults to the system time zone), so an empty file is valid. A missing file, invalid TOML or an invalid value is `CONFIG_INVALID` naming the key. Under `[plugins]`, the keys `enabled`, `required` and `stopTimeoutMs` belong to the core and every table is a plugin section; any other key is an error.
+Parsed with Bun's built-in TOML support and validated with a zod schema in `core/src/config`. Unknown keys are an error (typos fail loudly). Any string value may be `"env:NAME"`, which is resolved from the environment at load. Missing env vars are an error naming the key. Every key has a default (the values below, except `mind.timezone`, which defaults to the system time zone), so an empty file is valid. The one exception is the optional `[voice]` section: when present, it must name its `vad`, `stt` and `tts` providers. A missing file, invalid TOML or an invalid value is `CONFIG_INVALID` naming the key. Under `[plugins]`, the keys `enabled`, `required` and `stopTimeoutMs` belong to the core and every table is a plugin section; any other key is an error.
 
 ```toml
 [server]
@@ -85,7 +85,20 @@ apiKey = "env:DEEPSEEK_API_KEY"
 
 [services]                         # optional: pick a winner when two plugins provide the same service
 # weather = "@keith/tool-weather"
+
+[voice]                            # optional (phase 3): absent = voice is off
+vad = "energy"                     # provider ids registered by the enabled voice plugins (ADR-0013)
+stt = "groq"                       # e.g. "groq" (@keith/voice-groq) or "speaches" (@keith/voice-speaches)
+tts = "openai"                     # e.g. "openai" (@keith/voice-openai) or "speaches"
+# language = "en"                  # hint for STT and TTS; omitted = detected
+maxUtteranceMs = 30000             # an utterance this long goes to STT anyway
+bargeIn = true                     # speech on the focus node interrupts a reply
+bargeInMinMs = 300                 # minimum speech before it counts as a barge-in
 ```
+
+`[voice]` picks providers by id; each voice plugin's own section (API key, base URL, model, voice) stays under `[plugins."<id>"]`. The config schema checks only the shape. `KEITH__VOICE__…` overrides are not supported, because the section has no defaults to override.
+
+> Planned (phase 3, P3-I1): at startup the core checks that the `[voice]` ids are registered providers and builds the voice pipeline from them.
 
 Each plugin section is validated by that plugin's own `config` schema. The core never interprets plugin sections.
 
