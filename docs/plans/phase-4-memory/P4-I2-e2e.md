@@ -4,8 +4,8 @@ title: "S-3 semantic end to end: a fact from day 1 is recalled on day 2"
 phase: 4
 wave: 4
 lane: I
-status: todo
-owner: null
+status: in-progress
+owner: agent-P4-I2
 depends: [P4-I1]
 owns:
   - tests/e2e/**
@@ -62,6 +62,11 @@ S-3's phase-4 promise runs in CI. A fact stated on day 1 is recalled on day 2 th
 3. Stop Keith, then start it again. Ask about each fact in different words. Note which ones were recalled, and whether `memory.recall` was called.
 4. Ask for a reminder in 3 minutes and wait for it. Then `keith backup`, stop Keith, `keith restore --force` from the backup, start, and ask again about one fact.
 5. Record the utility model, the memories written (content, visibility), the recall misses, and any fact that was wrong or too wide.
+
+
+## Notes from P4-I1 (coordinator)
+
+- The e2e harness maps `utility` to `fake:chat`. S-3 semantic needs a separate utility model (see `splitModelConfig` / `createSplitFake` in `packages/core/test/helpers.ts`) or a chat script that allows for the reflection/summary calls. The harness sets `tickMs = 3600000`; emit `scheduler.ticked` yourself (or lower it) to drive reflection and reminders.
 
 ## Outcome
 
