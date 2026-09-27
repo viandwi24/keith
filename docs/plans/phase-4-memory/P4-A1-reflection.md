@@ -4,7 +4,7 @@ title: "Reflection: idle threads become inferred memories and relationship notes
 phase: 4
 wave: 2
 lane: A
-status: in-progress
+status: review
 owner: agent-P4-A1
 depends: [P4-K1]
 owns:
@@ -71,12 +71,12 @@ When a thread has been idle for `memory.reflect.idleMinutes`, Keith reads what w
 
 ## Acceptance criteria
 
-- [ ] `reflect/job.test.ts` (fake clock, fake repos from `memory/testing/`, fake scheduler):
+- [x] `reflect/job.test.ts` (fake clock, fake repos from `memory/testing/`, fake scheduler):
   - A thread idle for less than `idleMinutes` isn't reflected; after `idleMinutes` it is, in the `background` lane.
   - Two ticks during one pass start one pass.
   - `enabled = false` does nothing.
   - `stop()` aborts a running pass.
-- [ ] `reflect/reflector.test.ts` (`createFakeLlm` as the utility model):
+- [x] `reflect/reflector.test.ts` (`createFakeLlm` as the utility model):
   - A stated fact becomes a `subject` memory with `source: 'inferred'` and no author.
   - A fact about someone else becomes `thread`.
   - `household` is never produced, even when the model asks for it.
@@ -86,10 +86,10 @@ When a thread has been idle for `memory.reflect.idleMinutes`, Keith reads what w
   - A `plugin` memory is never rewritten.
   - Card notes are capped, and `tone` is kept.
   - The cursor advances only after success, and `memory.reflected` carries the counts.
-- [ ] `reflect/failures.test.ts`: invalid JSON is retried once, then the cursor stays. Three failed passes advance it. An abort writes nothing.
-- [ ] **Privacy** (`reflect/visibility.test.ts`): a memory reflected from Tony's direct thread is not returned by `recall` or `core` for Pepper's viewer (I-4). The reflection prompt for a thread never contains memories that a participant can't see (I-3).
-- [ ] `reflect/recall.test.ts`: the corpus above. The hit rate is in the Outcome. Every case passes, or the task is `blocked` with ADR-0015 proposed.
-- [ ] `bun run check` passes.
+- [x] `reflect/failures.test.ts`: invalid JSON is retried once, then the cursor stays. Three failed passes advance it. An abort writes nothing.
+- [x] **Privacy** (`reflect/visibility.test.ts`): a memory reflected from Tony's direct thread is not returned by `recall` or `core` for Pepper's viewer (I-4). The reflection prompt for a thread never contains memories that a participant can't see (I-3).
+- [x] `reflect/recall.test.ts`: the corpus above. The hit rate is in the Outcome. Every case passes, or the task is `blocked` with ADR-0015 proposed.
+- [x] `bun run check` passes.
 
 ## Notes
 
@@ -100,4 +100,34 @@ When a thread has been idle for `memory.reflect.idleMinutes`, Keith reads what w
 
 ## Outcome
 
-_Filled by the agent when finishing: what was built, decisions (ADR links), deviations, follow-ups._
+**Built**
+- `memory/reflect/index.ts`: `createReflection(deps)` (signature and `ReflectionDeps` unchanged from P4-K1) composes the reflector and the job.
+- `memory/reflect/job.ts`: `createReflectionJob`. `start()` subscribes to `scheduler.ticked` when `memory.reflect.enabled` (idempotent). Each tick lists `threads.listForReflection({ idleBefore: clock.now() − idleMinutes × 60 000, limit: 4 })`, skips threads with a pass in flight and runs each pass through `scheduler.run('background', …)`. `stop()` unsubscribes, aborts running passes and waits for them. A failing tick or pass is logged, and the job keeps going.
+- `memory/reflect/reflector.ts`: `createReflector`. It reads `messages.range` after the cursor (`user` and `assistant` rows, at most `maxMessages`) and skips tool steps. It makes one extract call and, only with matches, one merge call (`runLoop`, `modelRole: 'utility'`, `tools: []`, `maxSteps: 1`, `persist: null`, `runCtx` = owner and participants). The replies are validated with zod. The scope follows ADR-0014, dedupe uses an exact-scope storage filter plus a re-check, and the update rules are ADR-0014's (`mayRewrite`). New memories go through `MemoryService.write`, and updates go through `memories.update` (content and `updatedAt` only). Card notes are capped, and `tone` and `blockedRelayFrom` are kept. Then it moves the cursor and emits `memory.reflected`. Failure handling is as specified: one retry per call, 3 failed passes over the same range advance the cursor with zero counts, a provider error keeps the cursor, and an abort writes nothing. Nothing is written before every model call has succeeded.
+- `memory/reflect/prompts.ts`: `EXTRACT_SYSTEM`, `MERGE_SYSTEM` and `RETRY_NOTE`.
+- `memory/testing/reflect.ts`: fakes built from the interfaces: `FakeMessagesRepository` (`seq`, `range`, `lastSeq`; `append` feeds `FakeThreadsRepository.lastSeqs` and `updatedAt`), `FakeRelationshipsRepository`, `createFakeScheduler` (records lanes), `createUtilityRunLoop` (a one-step RunLoop over `createFakeLlm`), and `createReflectionHarness`.
+- Tests: `job.test.ts` (7), `reflector.test.ts` (22), `failures.test.ts` (9), `visibility.test.ts` (3: I-4 recall/core, I-3 prompts with a filter-ignoring storage bug, I-3 thread isolation) and `recall.test.ts` (29).
+- `builtins/memory.ts`: the `memory.recall` description (and the `query` description) now says that matching is by word and asks for several keywords and synonyms. There is a test in `memory/builtins.test.ts`.
+- memory.md: the Reflection section describes what is built (input, prompts, scope, merge, cards, failures, recall result). The P4-A1 Planned marker is gone. A `> Planned (phase 4, P4-I1)` line remains, because bootstrap doesn't start the job yet.
+
+**FTS recall corpus.** The corpus has 24 facts written as reflection writes them (21 about Tony as `subject`, 3 `thread`), plus 4 private Pepper distractors. It has 26 day-2 questions, each with a plausible keyword query: paraphrases, plural and singular, names, dates, weekdays, possessives. It runs against a real `createTestDb()` database and the real `MemoryStore.recall`. **Hit rate: 26/26 (100%) in the top 3.** 25 of the 26 are at rank 1. `"sister's name"` is at rank 2, because the `s` token of the possessive matches every "Tony's …" fact. No Pepper memory is ever returned. The limit is recorded in a test: a lone paraphrase with no shared word (`fly` for "flight", `satay` for "peanuts") finds nothing, which is why the tool description now asks for synonyms. No ADR-0015: FTS is enough for this corpus.
+
+**Decisions**
+- **Scope comparison for `subject` memories ignores `threadId`.** Visibility doesn't depend on it, so a fact remembered in another thread (or in a task) still dedupes. For `thread` memories, the thread must match. Reflected `subject` memories store the thread as `threadId` (provenance), like `memory.remember` does.
+- **Group threads keep `about` as the subject** of their `thread` memories when it is a participant. Direct-thread `thread` memories have no subject, per "anything else → thread" and the non-participant → null rule.
+- **`about` and the notes' `personId` accept a participant's name as well as the id**, because models often answer with names. Anything else is null or ignored.
+- **The extract prompt contains no stored memories.** It holds only the thread's messages, the participant list and (in direct threads) the current card notes. Existing memories reach the model only in the merge call, and only in the candidate's scope and visible to every participant. That keeps I-3 easy to verify.
+- **Failures return `null`, not a throw.** `Reflector.reflect` returns null for "nothing new", a failed pass, a provider error and an abort. After the third failed pass it returns the zero result. Only invalid output counts toward the poison limit; a provider outage never skips messages.
+- **No model call for an empty pass.** A pass whose rows contain nothing to read (only tool steps) moves the cursor without calling the model. A thread with no current participants is handled the same way.
+- **A new card** (no relationships row) gets `tone: ''` and empty `blockedRelayFrom`. Notes that are the same as before aren't rewritten and don't count in `cardsUpdated`.
+- **Duplicate candidates within one extract reply** (same text, case-insensitive) are dropped before the search.
+
+**Deviations**
+- The job test uses the fakes from `memory/testing` (`FakeThreadsRepository.listForReflection` over its `lastSeqs` map, now fed by `FakeMessagesRepository.append`), plus a controllable fake `Reflector` for the concurrency and stop cases. One test runs the real reflector end to end through a tick.
+- `recall.test.ts` imports `../../storage/testing.ts` (`createTestDb`), as the task asks. That's a deep import across core folders (R-3 names only `types.ts`/`index.ts`). It is test-only, and `createTestDb` is documented as "Test helper for every lane".
+- Per-tick limit: while 4 passes are still running, the next tick lists the same 4 threads, skips them and starts nothing new. Passes are short, and the next tick after they finish picks up the rest. I kept `limit: 4` as specified instead of widening the listing.
+
+**Follow-ups**
+- core.md still has the shared `> Planned (phase 4, P4-A1 / P4-B1)` note under "Memory jobs". It says `reflect` returns null. core.md isn't in this task's `updates`, so P4-B1 or P4-I1 should drop the P4-A1 half. config.md's phase-4 note is P4-I1's.
+- P4-I1: build `createReflection` in bootstrap with the real `runLoop`, `scheduling` scheduler and `MemoryStore`, and `start()`/`stop()` the job. The real `threads.listForReflection`, `messages.range` and `setReflectedThrough` come from P4-S1; this lane tested against fakes of their JSDoc contracts.
+- P4-I2: a live-model check of the prompts (third-person facts, JSON compliance) belongs in the human run.
