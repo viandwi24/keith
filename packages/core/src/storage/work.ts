@@ -147,6 +147,7 @@ export function createDeliveriesRepository(db: Orm): DeliveriesRepository {
         .all()
         .map(toDelivery)
     },
+    // Placeholder (P3-K2): the optional `messageId` is ignored; P3-H3 stores it (D4).
     async markDelivered(ids, deliveredAt) {
       if (ids.length === 0) return
       db.update(deliveries)

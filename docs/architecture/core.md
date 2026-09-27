@@ -222,7 +222,10 @@ export interface VoiceConfig {
   maxUtteranceMs: number
   /** Speech on the focus node while `thinking` or `speaking` interrupts the reply. Default true. */
   bargeIn: boolean
-  /** Speech must last this long before it counts as a barge-in. Default 300. */
+  /**
+   * Speech must last this long before it counts as a barge-in. Default 600: above the energy VAD's
+   * 500 ms hangover, so a short noise has ended (`speaking: false`) before it would count.
+   */
   bargeInMinMs: number
 }
 
@@ -542,6 +545,13 @@ type MessageRecordBase = {
   content: string
   meta: MessageMeta | null
   createdAt: number
+  /**
+   * Position in the thread: per thread, strictly increasing, assigned by the repository on
+   * insert (`append` ignores a value passed in). It defines message order; `createdAt` does not.
+   * Set on every record `get` and `page` return. Optional only so callers can build a record
+   * for `append` without one.
+   */
+  seq?: number | undefined
 }
 
 export type UserMessageRecord = MessageRecordBase & { role: 'user' }
@@ -566,12 +576,12 @@ export type MessageRecord = UserMessageRecord | AssistantMessageRecord | ToolMes
 export type MessagePage = { messages: MessageRecord[]; hasMore: boolean }
 
 export interface MessagesRepository {
-  /** Also bumps the thread's `updated_at`. */
+  /** Assigns `seq`. Also bumps the thread's `updated_at`. */
   append(m: MessageRecord): Promise<void>
   get(id: MessageId): Promise<MessageRecord | null>
   /**
-   * The `limit` messages just before `before` (or the latest), oldest first, in a stable order
-   * (created_at, then id). `roles` defaults to all roles.
+   * The `limit` messages just before `before` (or the latest), oldest first, in `seq` order.
+   * `roles` defaults to all roles.
    */
   page(q: {
     threadId: ThreadId
@@ -607,12 +617,22 @@ export interface CommitmentsRepository {
   listExpired(now: number): Promise<Commitment[]>
 }
 
+/** A stored delivery: the domain `Delivery` plus the message that delivered it. */
+export type DeliveryRecord = Delivery & {
+  /**
+   * The assistant message whose turn delivered the item. Null (or absent) while pending, and for
+   * items delivered before this column existed.
+   */
+  messageId?: MessageId | null | undefined
+}
+
 export interface DeliveriesRepository {
   create(d: Delivery): Promise<void>
-  get(id: DeliveryId): Promise<Delivery | null>
+  get(id: DeliveryId): Promise<DeliveryRecord | null>
   /** Pending deliveries of a thread, by urgency (critical first), then age. */
   pendingFor(threadId: ThreadId): Promise<Delivery[]>
-  markDelivered(ids: DeliveryId[], deliveredAt: number): Promise<void>
+  /** Only changes `pending` rows. `messageId`: the message that delivered them, stored on each. */
+  markDelivered(ids: DeliveryId[], deliveredAt: number, messageId?: MessageId | undefined): Promise<void>
 }
 
 // memories + memories_fts (docs/architecture/storage.md#memory-search-filter)
@@ -749,12 +769,17 @@ export interface OpenedThread {
 }
 
 export interface ThreadManager {
-  /** The server calls open() and sends the thread.opened frame itself from the return value. */
+  /**
+   * The server calls open() and sends the thread.opened frame itself from the return value.
+   * `messages` holds at most `historyLimit` visible messages (0..200, default 50; the
+   * `thread.open` value as-is), oldest first.
+   */
   open(a: {
     personId: PersonId
     nodeId: NodeId
     threadId?: ThreadId | undefined
     arrival: Arrival | null
+    historyLimit?: number | undefined
   }): Promise<OpenedThread>
   detach(a: { nodeId: NodeId; threadId?: ThreadId | undefined }): void
   input(a: {

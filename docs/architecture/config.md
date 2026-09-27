@@ -93,7 +93,7 @@ tts = "openai"                     # e.g. "openai" (@keith/voice-openai) or "spe
 # language = "en"                  # hint for STT and TTS; omitted = detected
 maxUtteranceMs = 30000             # an utterance this long goes to STT anyway
 bargeIn = true                     # speech on the focus node interrupts a reply
-bargeInMinMs = 300                 # minimum speech before it counts as a barge-in
+bargeInMinMs = 600                 # minimum speech before it counts as a barge-in (above the VAD hangover)
 ```
 
 `[voice]` picks providers by id; each voice plugin's own section (API key, base URL, model, voice) stays under `[plugins."<id>"]`. The config schema checks only the shape. `KEITH__VOICE__…` overrides are not supported, because the section has no defaults to override.

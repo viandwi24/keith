@@ -68,7 +68,10 @@ export interface VoiceConfig {
   maxUtteranceMs: number
   /** Speech on the focus node while `thinking` or `speaking` interrupts the reply. Default true. */
   bargeIn: boolean
-  /** Speech must last this long before it counts as a barge-in. Default 300. */
+  /**
+   * Speech must last this long before it counts as a barge-in. Default 600: above the energy VAD's
+   * 500 ms hangover, so a short noise has ended (`speaking: false`) before it would count.
+   */
   bargeInMinMs: number
 }
 

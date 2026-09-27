@@ -27,12 +27,17 @@ export interface OpenedThread {
 }
 
 export interface ThreadManager {
-  /** The server calls open() and sends the thread.opened frame itself from the return value. */
+  /**
+   * The server calls open() and sends the thread.opened frame itself from the return value.
+   * `messages` holds at most `historyLimit` visible messages (0..200, default 50; the
+   * `thread.open` value as-is), oldest first.
+   */
   open(a: {
     personId: PersonId
     nodeId: NodeId
     threadId?: ThreadId | undefined
     arrival: Arrival | null
+    historyLimit?: number | undefined
   }): Promise<OpenedThread>
   detach(a: { nodeId: NodeId; threadId?: ThreadId | undefined }): void
   input(a: {

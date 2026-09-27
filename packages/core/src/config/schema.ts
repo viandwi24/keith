@@ -105,7 +105,7 @@ export const configSchema = z.strictObject({
       language: z.string().min(1).optional(),
       maxUtteranceMs: posInt().default(30_000),
       bargeIn: z.boolean().default(true),
-      bargeInMinMs: z.number().int().nonnegative().default(300),
+      bargeInMinMs: z.number().int().nonnegative().default(600),
     })
     .optional(),
 })

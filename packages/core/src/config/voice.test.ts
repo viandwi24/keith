@@ -26,7 +26,7 @@ describe('[voice] config (phase 3)', () => {
       tts: 'openai',
       maxUtteranceMs: 30_000,
       bargeIn: true,
-      bargeInMinMs: 300,
+      bargeInMinMs: 600,
     })
   })
 
