@@ -14,7 +14,7 @@ import type { ZodType } from 'zod'
 import type { DeliveryKind, TurnKind, Urgency, Visibility } from './common.ts'
 
 /**
- * Core events (phase 1). See docs/contracts/events.md. Every event is a past-tense fact; `data`
+ * Core events (phase 1, plus the phase-4 additions). See docs/contracts/events.md. Every event is a past-tense fact; `data`
  * is plain JSON.
  */
 export interface CoreEventMap {
@@ -50,6 +50,20 @@ export interface CoreEventMap {
   'delivery.delivered': { deliveryId: DeliveryId; threadId: ThreadId; messageId: MessageId }
   'memory.written': { memoryId: MemoryId; visibility: Visibility; subjectPersonId: PersonId | null }
   'scheduler.ticked': { at: number }
+  /**
+   * Phase 4: a reflection pass over a thread finished, also when it wrote nothing. `throughSeq` is
+   * the new reflection cursor; the counts are memories written, memories merged (updated) and
+   * relationship cards whose notes changed.
+   */
+  'memory.reflected': {
+    threadId: ThreadId
+    throughSeq: number
+    written: number
+    merged: number
+    cardsUpdated: number
+  }
+  /** Phase 4: `threads.summary` changed; it now covers the thread's messages up to `throughSeq`. */
+  'thread.summarized': { threadId: ThreadId; throughSeq: number }
 }
 
 /**
@@ -111,6 +125,8 @@ export const CORE_EVENT_NAMES = [
   'delivery.delivered',
   'memory.written',
   'scheduler.ticked',
+  'memory.reflected',
+  'thread.summarized',
 ] as const satisfies readonly (keyof CoreEventMap)[]
 
 // Compile-time check that CORE_EVENT_NAMES lists every key of CoreEventMap.

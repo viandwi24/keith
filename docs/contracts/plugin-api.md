@@ -143,6 +143,8 @@ interface SkillRegistry { register(skill: Skill): void }
 
 Only `name` + `description` go into every context (the skills index). The model loads `instructions` with `skill.load`.
 
+The core may register **default** skills (phase 4: `morning_briefing`). A plugin that registers a skill with a default's name replaces the default instead of failing with `TOOL_NAME_TAKEN`, and the default comes back if that plugin is removed. A second plugin with the same name still fails.
+
 ## Agents
 
 ```ts
