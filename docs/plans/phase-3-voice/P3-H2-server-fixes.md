@@ -4,7 +4,7 @@ title: "Hardening: server fixes (welcome close, chat.text@1, notice, RATE_LIMITE
 phase: 3
 wave: 6
 lane: H
-status: review
+status: done
 owner: agent-P3-H2
 depends: [P3-K2]
 owns:
