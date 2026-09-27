@@ -3,6 +3,8 @@
  * owns the agent loop (ADR-0004).
  */
 
+import type { AudioCodec } from '@keith/protocol'
+
 /** A JSON Schema object, converted from zod by the core. */
 export type JsonSchema = { [key: string]: unknown }
 
@@ -112,17 +114,32 @@ export function isProviderError(error: unknown, code?: ProviderErrorCode): error
   return error instanceof ProviderError && (code === undefined || error.code === code)
 }
 
-// Voice (phase 3). The shapes are fixed; the option and chunk types are finalized by the
-// phase-3 contract task (additive), so they are open placeholders here.
+// Voice (phase 3). Finalized by task P3-K1 (ADR-0013).
 
-/** Finalized in phase 3. */
-export type AudioChunk = { data: Uint8Array; [key: string]: unknown }
-/** Finalized in phase 3. */
-export type AudioInput = { [key: string]: unknown }
-/** Finalized in phase 3. */
-export type SttOptions = { [key: string]: unknown }
-/** Finalized in phase 3. */
-export type TtsOptions = { [key: string]: unknown }
+/**
+ * A piece of encoded audio. For `pcm16`, `data` holds 16-bit signed little-endian mono samples
+ * and always an even number of bytes (whole samples).
+ */
+export type AudioChunk = {
+  data: Uint8Array
+  codec: AudioCodec
+  /** Hz. */
+  sampleRate: number
+}
+/** One complete utterance for batch STT (`SttProvider.transcribe`). The core sends `pcm16`. */
+export type AudioInput = AudioChunk
+export type SttOptions = {
+  /** BCP-47 or ISO-639-1 hint, e.g. `en`. Omitted: the provider detects the language. */
+  language?: string | undefined
+  /** Vocabulary or context hint (names, jargon). Adapters pass it on or ignore it. */
+  prompt?: string | undefined
+}
+export type TtsOptions = {
+  /** Overrides the adapter's configured voice. */
+  voice?: string | undefined
+  /** Hint for multilingual voices. Adapters pass it on or ignore it. */
+  language?: string | undefined
+}
 /** Finalized in phase 8. */
 export type RealtimeOptions = { [key: string]: unknown }
 /** Finalized in phase 8. */
@@ -154,6 +171,7 @@ export interface SttStream {
   events(): AsyncIterable<{ type: 'partial' | 'final'; text: string }>
 }
 
+/** Every chunk of one `stream()` call has the same `codec` and `sampleRate`. */
 export interface TtsProvider {
   id: string
   stream(

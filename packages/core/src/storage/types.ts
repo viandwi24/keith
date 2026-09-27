@@ -133,7 +133,12 @@ export interface ThreadsRepository {
 
 // messages (docs/architecture/storage.md#messages-and-tool-calls)
 
-export type MessageMeta = { cancelled?: boolean | undefined; proactive?: boolean | undefined }
+export type MessageMeta = {
+  cancelled?: boolean | undefined
+  proactive?: boolean | undefined
+  /** Phase 3: a spoken reply cut by barge-in; `content` holds only this many characters. */
+  spokenChars?: number | undefined
+}
 
 /** A UI block on an assistant message, with the tool that produced it (for `ui.action`). */
 export type MessageUiEntry = { block: UiBlock; toolCallId: string; toolName: string }

@@ -173,6 +173,11 @@ export function applyFrame(state: ChatState, frame: CoreFrame): ChatState {
       return addNotice(state, 'error', `${frame.data.code}: ${frame.data.message}`)
     case 'ping':
       return state
+    // Phase 3 audio frames don't change the chat state. P3-E1 surfaces them as client events.
+    case 'audio.start':
+    case 'audio.end':
+    case 'audio.stop':
+      return state
   }
 }
 

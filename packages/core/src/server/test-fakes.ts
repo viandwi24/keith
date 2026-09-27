@@ -256,6 +256,7 @@ export type FakeThreadManager = ThreadManager & {
     input: { threadId: ThreadId; personId: PersonId; nodeId: NodeId; text: string }[]
     cancel: { threadId: ThreadId; nodeId: NodeId }[]
     action: Parameters<ThreadManager['action']>[0][]
+    voiceActivity: Parameters<ThreadManager['voiceActivity']>[0][]
   }
   /** Messages `open` returns for a thread. */
   history: Map<ThreadId, MessageDto[]>
@@ -267,7 +268,14 @@ export type FakeThreadManager = ThreadManager & {
 
 /** A ThreadManager that opens the person's `main` thread (thr_…0001-style ids per person). */
 export function createFakeThreadManager(repos: FakeRepos): FakeThreadManager {
-  const calls: FakeThreadManager['calls'] = { open: [], detach: [], input: [], cancel: [], action: [] }
+  const calls: FakeThreadManager['calls'] = {
+    open: [],
+    detach: [],
+    input: [],
+    cancel: [],
+    action: [],
+    voiceActivity: [],
+  }
   const history = new Map<ThreadId, MessageDto[]>()
   const states = new Map<ThreadId, TurnState>()
   const tm: FakeThreadManager = {
@@ -278,6 +286,9 @@ export function createFakeThreadManager(repos: FakeRepos): FakeThreadManager {
     async action(a) {
       calls.action.push({ ...a })
       if (tm.failAction) throw tm.failAction
+    },
+    voiceActivity(a) {
+      calls.voiceActivity.push({ ...a })
     },
     async open(a) {
       calls.open.push({ ...a })

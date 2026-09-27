@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { AudioCodec, AudioStreamId, SampleRate } from '../audio.ts'
 import { Capability } from '../capabilities.ts'
 import { MESSAGES_PAGE, PROTOCOL_VERSION } from '../dto.ts'
 import { type FrameParseResult, frameSchema, parseFrameWith } from '../envelope.ts'
@@ -55,10 +56,21 @@ export const UiActionFrame = frameSchema(
 )
 export type UiActionFrame = z.infer<typeof UiActionFrame>
 
+/** Phase 3: the node starts sending audio. Chunks follow as binary frames of kind 1. */
+export const AudioStartFrame = frameSchema(
+  'audio.start',
+  z.object({ threadId: ThreadId, streamId: AudioStreamId, codec: AudioCodec, sampleRate: SampleRate }),
+)
+export type AudioStartFrame = z.infer<typeof AudioStartFrame>
+
+/** Phase 3: the node stops sending audio on this stream (e.g. mic closed, push-to-talk released). */
+export const AudioEndFrame = frameSchema('audio.end', z.object({ streamId: AudioStreamId }))
+export type AudioEndFrame = z.infer<typeof AudioEndFrame>
+
 export const PongFrame = frameSchema('pong', z.object({}))
 export type PongFrame = z.infer<typeof PongFrame>
 
-/** Every frame a node may send to the core (phases 1–2). */
+/** Every frame a node may send to the core (phases 1–3). */
 export const NodeFrame = z.discriminatedUnion('type', [
   HelloFrame,
   ThreadOpenFrame,
@@ -66,6 +78,8 @@ export const NodeFrame = z.discriminatedUnion('type', [
   InputTextFrame,
   InputCancelFrame,
   UiActionFrame,
+  AudioStartFrame,
+  AudioEndFrame,
   PongFrame,
 ])
 export type NodeFrame = z.infer<typeof NodeFrame>
@@ -78,6 +92,8 @@ export const NODE_FRAME_SCHEMAS = {
   'input.text': InputTextFrame,
   'input.cancel': InputCancelFrame,
   'ui.action': UiActionFrame,
+  'audio.start': AudioStartFrame,
+  'audio.end': AudioEndFrame,
   pong: PongFrame,
 } as const satisfies Record<NodeFrameType, z.ZodType>
 

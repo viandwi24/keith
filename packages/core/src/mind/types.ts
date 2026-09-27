@@ -57,6 +57,13 @@ export interface ThreadManager {
     actionId: string
     value?: unknown
   }): Promise<void>
+  /**
+   * Phase 3: the voice pipeline's VAD saw speech start or stop on a node's audio stream.
+   * `speaking: true` moves an idle thread to `listening`, and on the focus node while `thinking`
+   * or `speaking` it is a barge-in (the turn is cancelled and speech output stopped).
+   * `speaking: false` without a following input returns `listening` to `idle`.
+   */
+  voiceActivity(a: { threadId: ThreadId; nodeId: NodeId; speaking: boolean }): void
   state(threadId: ThreadId): TurnState
 }
 
