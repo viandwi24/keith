@@ -2,7 +2,8 @@
  * Dependency rule checker (R-1, R-2, R-4, R-5 in docs/rules/engineering.md).
  *
  * Scans every source file in packages/, plugins/, apps/ and tests/ and reports imports that break
- * the dependency direction, plugin isolation, storage isolation or provider isolation.
+ * the dependency direction, plugin isolation, storage isolation or provider isolation. Only
+ * `tests/e2e` may import `@keith/core`; the rest of `tests/` may not.
  *
  * Usage: bun scripts/check-deps.ts [root]
  */
@@ -20,6 +21,8 @@ export type Area =
   | { kind: 'plugin-app'; name: string }
   | { kind: 'app'; name: string }
   | { kind: 'e2e' }
+  /** Files under `tests/` outside `tests/e2e`: anything but `@keith/core` (hardening item D6). */
+  | { kind: 'tests' }
   | { kind: 'other' }
 
 export type ImportRef = {
@@ -70,16 +73,17 @@ export function areaOf(file: string): Area {
   if (top === 'plugins' && name) return { kind: 'plugin', name }
   if (top === 'apps' && name) return { kind: 'app', name }
   if (top === 'tests' && name === 'e2e') return { kind: 'e2e' }
+  if (top === 'tests') return { kind: 'tests' }
   return { kind: 'other' }
 }
 
 /** Returns the package root folder for a repo-relative file (e.g. `plugins/tool-x`). */
 function packageRootOf(file: string): string | null {
   const parts = file.split('/')
+  if (parts[0] === 'tests') return parts.length < 3 ? 'tests' : `tests/${parts[1]}`
   if (parts.length < 3) return null
   if (parts[0] === 'packages' || parts[0] === 'plugins' || parts[0] === 'apps')
     return `${parts[0]}/${parts[1]}`
-  if (parts[0] === 'tests') return `tests/${parts[1]}`
   return null
 }
 
@@ -221,6 +225,7 @@ function allowedKeithImports(area: Area): Set<string> | 'any' {
       return new Set(['@keith/protocol', '@keith/sdk'])
     case 'app':
       return new Set(['@keith/protocol', '@keith/client'])
+    case 'tests':
     case 'e2e':
     case 'other':
       return 'any'
@@ -269,6 +274,10 @@ export function checkFile(file: string, source: string): Violation[] {
           add('R-1', `${describe(area)} may not import '${specifier}'`)
         }
       }
+    }
+
+    if (area.kind === 'tests' && packageName(specifier) === '@keith/core') {
+      add('R-1', `only tests/e2e may import '${specifier}'; other tests/ files may not`)
     }
 
     if (isStorage(specifier) && !file.startsWith('packages/core/src/storage/')) {

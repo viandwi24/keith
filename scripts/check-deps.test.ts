@@ -188,3 +188,42 @@ describe('checkFile: @keith/client and browser apps of client-app plugins (ADR-0
     expect(await checkRepo(root)).toEqual([])
   })
 })
+
+describe('checkFile: tests/ outside e2e may not import @keith/core (D6)', () => {
+  test('areaOf classifies tests/ files', () => {
+    expect(areaOf('tests/e2e/s1.test.ts')).toEqual({ kind: 'e2e' })
+    expect(areaOf('tests/unit/a.test.ts')).toEqual({ kind: 'tests' })
+    expect(areaOf('tests/a.test.ts')).toEqual({ kind: 'tests' })
+  })
+  test('a tests/ file importing @keith/core or a subpath fails', () => {
+    expect(checkFile('tests/unit/a.test.ts', "import { x } from '@keith/core'")[0]?.rule).toBe('R-1')
+    expect(
+      checkFile('tests/a.test.ts', "import type { x } from '@keith/core/src/mind/types.ts'")[0]?.rule,
+    ).toBe('R-1')
+    expect(checkFile('tests/unit/a.test.ts', "const m = await import('@keith/core')")[0]?.rule).toBe('R-1')
+  })
+  test('a tests/ file may import other workspace packages', () => {
+    const src = [
+      "import { a } from '@keith/protocol'",
+      "import { b } from '@keith/sdk/testing'",
+      "import { c } from '@keith/client/testing'",
+      "import { d } from '@keith/web'",
+    ].join('\n')
+    expect(checkFile('tests/unit/a.test.ts', src)).toEqual([])
+  })
+  test('a relative import from tests/ into core source fails', () => {
+    expect(checkFile('tests/a.test.ts', "import x from '../packages/core/src/index.ts'")[0]?.rule).toBe('R-1')
+    expect(
+      checkFile('tests/unit/a.test.ts', "import x from '../../packages/core/src/index.ts'")[0]?.rule,
+    ).toBe('R-1')
+  })
+  test('checkRepo flags a fixture tests/ file and leaves tests/e2e alone', async () => {
+    const root = await fixtureRepo({
+      'tests/unit/bad.test.ts': "import { x } from '@keith/core'\n",
+      'tests/e2e/ok.test.ts': "import { x } from '@keith/core'\n",
+    })
+    const violations = await checkRepo(root)
+    expect(violations).toHaveLength(1)
+    expect(violations[0]).toMatchObject({ file: 'tests/unit/bad.test.ts', line: 1, rule: 'R-1' })
+  })
+})
