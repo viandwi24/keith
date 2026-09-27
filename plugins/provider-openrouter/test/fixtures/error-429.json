@@ -1,0 +1,16 @@
+{
+  "_fixture": "synthetic, built by hand from https://openrouter.ai/docs/api_reference/errors-and-debugging (2026-09-26); re-record from the real API",
+  "status": 429,
+  "headers": {
+    "Retry-After": "60"
+  },
+  "body": {
+    "error": {
+      "code": 429,
+      "message": "Rate limit exceeded",
+      "metadata": {
+        "error_type": "rate_limit_exceeded"
+      }
+    }
+  }
+}

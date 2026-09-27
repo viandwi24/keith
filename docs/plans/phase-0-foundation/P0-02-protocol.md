@@ -4,8 +4,8 @@ title: Implement @keith/protocol
 phase: 0
 wave: 2
 lane: P
-status: todo
-owner: null
+status: done
+owner: claude
 depends: [P0-01]
 owns:
   - packages/protocol/**
@@ -50,11 +50,11 @@ The wire contract as code: zod schemas and inferred types for every phase-1 and 
 
 ## Acceptance criteria
 
-- [ ] Every frame in the protocol tables marked phase 1 or 2 has a schema and a round-trip test.
-- [ ] Doc example test passes and fails if an example is broken (prove it with a fixture).
-- [ ] `uiBlockToText` covers every standard block type.
-- [ ] The package depends only on `zod`.
-- [ ] `bun run check` passes.
+- [x] Every frame in the protocol tables marked phase 1 or 2 has a schema and a round-trip test.
+- [x] Doc example test passes and fails if an example is broken (prove it with a fixture).
+- [x] `uiBlockToText` covers every standard block type.
+- [x] The package depends only on `zod`.
+- [x] `bun run check` passes.
 
 ## Notes
 
@@ -62,4 +62,25 @@ If a contract turns out ambiguous while implementing, fix the ambiguity in the d
 
 ## Outcome
 
-_To be filled._
+**Built** (`@keith/protocol`, depends only on `zod@^4.6.5`)
+
+- `src/ids.ts`: `ID_PREFIXES` for all 11 prefixes, `prefixedId(prefix)` (a zod `templateLiteral`, so ids are typed `` `thr_${string}` `` and validated as prefix + 26-char Crockford ULID with first char ≤ 7), named schemas `PersonId`, `ThreadId`, `MessageId`, …, and `isPrefixedId`.
+- `src/envelope.ts`: `FrameEnvelope`, `frameSchema(type, data)`, `makeFrame(type, data, { id, ts, re? })` typed per frame type, and the shared `parseFrameWith`.
+- `src/frames/node-to-core.ts` / `core-to-node.ts`: one schema per phase-1/2 frame (7 node → core, 12 core → node), the `NodeFrame` / `CoreFrame` discriminated unions, `NODE_FRAME_SCHEMAS` / `CORE_FRAME_SCHEMAS`, and `parseNodeFrame(input)` / `parseCoreFrame(input)` returning `{ ok: true, frame } | { ok: false, code, message, frameId? }`.
+- `src/dto.ts`: `PersonDto`, `ThreadDto`, `MessageDto`, `TurnState`, `Tier`, `Modality`, `Timestamp`, `PROTOCOL_VERSION`, `DEFAULT_PORT`, and the phase-1 HTTP bodies (`HealthResponse`, `LoginRequest/Response`, `LogoutResponse`, `MeResponse`, `ThreadsResponse`, `MessagesQuery` (coerces query strings), `MessagesResponse`).
+- `src/capabilities.ts`: `KNOWN_CAPABILITIES`, `Capability`, `parseCapability`, `isKnownCapability`, `hasCapabilities`.
+- `src/ui/blocks.ts`: hand-written `UiBlock` types (the schema is recursive) and the `UiBlock` schema with all limits (depth ≤ 4, ≤ 256 KB UTF-8, URL schemes, ≤ 200 table rows, id pattern, unique ids per tree). `src/ui/to-text.ts`: `uiBlockToText` for every block type.
+- `src/errors.ts`: `ErrorCode`, `HttpErrorBody`, `WS_CLOSE_CODES`.
+- Tests (160): a round-trip test for every frame type, invalid cases per frame, envelope and parse-failure tests, DTO/HTTP tests, id, capability and UI block limit tests, `uiBlockToText` per type. `test/doc-examples.test.ts` parses every ` ```json frame ` / ` ```json block ` fence in `protocol.md` and `ui-blocks.md`, proves a broken fixture (`test/fixtures/broken-examples.md`) fails, and checks that the frame types in the protocol tables marked phase 1 or 2 are exactly the implemented schemas.
+
+**Contract clarifications made in the docs** (this task owned them until the freeze)
+
+- `protocol.md`: added error code `INVALID_REQUEST` for HTTP bodies/queries that fail validation (the list had no code for it). Envelope `id`/`re` are 1..64 chars; error replies set `re`. Unknown fields are ignored (dropped), so additive changes stay compatible. Envelope `v` ≠ 1 or `hello.protocol` ≠ 1 → close `4009`, surfaced by the parsers as `UNSUPPORTED_PROTOCOL`. `hello.capabilities` must be well-formed (≤ 64). `thread.open.historyLimit` is 0..200. The messages endpoint: `limit` defaults to 50, pages are oldest first. All ids are validated as prefixed ULIDs and timestamps are integer ms. `FileDto` is left to the phase-2 `/v1/files` task. Added a code map.
+- `ui-blocks.md`: depth counting (top-level = 1), size is UTF-8 bytes of the JSON, `/v1/files/<id>` without `..`, id uniqueness checked per tree by the schema and per message by the core, tables need ≥ 1 column, actions ≥ 1 action, `width`/`height` are positive integers, unknown fields ignored, and the exact `uiBlockToText` output per type.
+
+**Deviations**
+
+- Schemas and their inferred types share a name (`PersonDto` is both) instead of `PersonDtoSchema` + `PersonDto`. Documented in the code map.
+- Parse functions accept raw text **or** an already-parsed value (`input: unknown`), not only a JSON string.
+- Optional fields use zod `.optional()`, so inferred types are `field?: T | undefined`. That is friendlier to producers under `exactOptionalPropertyTypes`.
+

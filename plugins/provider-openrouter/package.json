@@ -1,0 +1,14 @@
+{
+  "name": "@keith/provider-openrouter",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@keith/protocol": "workspace:*",
+    "@keith/sdk": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@keith/client",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./test/testing.ts"
+  },
+  "dependencies": {
+    "@keith/protocol": "workspace:*"
+  }
+}

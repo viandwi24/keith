@@ -1,0 +1,20 @@
+{
+  "name": "@keith/tui",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "keith-tui": "./src/index.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@keith/client": "workspace:*",
+    "@keith/protocol": "workspace:*",
+    "@opentui/core": "^0.5.12"
+  },
+  "scripts": {
+    "start": "bun src/index.ts"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "_fixture": "synthetic, built by hand from https://openrouter.ai/docs/api_reference/errors-and-debugging (2026-09-26); re-record from the real API",
+  "status": 401,
+  "body": {
+    "error": {
+      "code": 401,
+      "message": "No auth credentials found",
+      "metadata": {
+        "error_type": "authentication"
+      }
+    }
+  }
+}

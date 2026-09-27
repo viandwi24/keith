@@ -1,5 +1,7 @@
 # Event catalog v1
 
+**Frozen: v1 (2026-09-26).** Changes follow the [freeze rules](README.md#freeze-rules).
+
 Internal event bus (in-process). Not the wire protocol. Types live in `@keith/sdk` (`CoreEventMap`), and the bus lives in `core/src/events`.
 
 ## Conventions
@@ -9,6 +11,8 @@ Internal event bus (in-process). Not the wire protocol. Types live in `@keith/sd
 - Every event is delivered as `{ name, at: number, data }`. `data` is plain JSON (no class instances, no functions).
 - Core namespaces are reserved: `core`, `plugin`, `node`, `person`, `thread`, `turn`, `tool`, `task`, `commitment`, `delivery`, `memory`, `scheduler`.
 - Plugins emit only in their own namespace and should `ctx.events.define(name, schema)` their events.
+- Ids in payloads are the typed prefixed ids from `@keith/protocol` (`PersonId`, `ThreadId`, …). `error` fields carry an error message; `turn.failed.code` is a `KeithErrorCode`. `delivery.enqueued.kind` is a delivery kind from [core.md](../architecture/core.md#deliveries) (`task_result`, `task_failed`, `plugin`, `reminder`, `relay`, `invitation`).
+- In code: `CoreEventMap` (types), `CORE_EVENT_NAMES` (runtime list, checked against this table by a test), `CORE_EVENT_NAMESPACES`, `EVENT_NAME_PATTERN`.
 
 ## Core events
 

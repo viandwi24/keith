@@ -1,0 +1,19 @@
+: synthetic fixture, built by hand from https://openrouter.ai/docs/api_reference/streaming (2026-09-26); no live recording yet.
+: Re-record from the real API and scrub keys and ids (follow-up task in P1-D1 Outcome).
+
+: OPENROUTER PROCESSING
+
+data: {"id":"gen-fixture-1","provider":"ExampleProvider","model":"example/model","object":"chat.completion.chunk","created":1790000000,"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-fixture-1","provider":"ExampleProvider","model":"example/model","object":"chat.completion.chunk","created":1790000000,"choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-fixture-1","provider":"ExampleProvider","model":"example/model","object":"chat.completion.chunk","created":1790000000,"choices":[{"index":0,"delta":{"role":"assistant","content":"! How can"},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-fixture-1","provider":"ExampleProvider","model":"example/model","object":"chat.completion.chunk","created":1790000000,"choices":[{"index":0,"delta":{"role":"assistant","content":" I help today?"},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-fixture-1","provider":"ExampleProvider","model":"example/model","object":"chat.completion.chunk","created":1790000000,"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":"stop","native_finish_reason":"stop","logprobs":null}]}
+
+data: {"id":"gen-fixture-1","provider":"ExampleProvider","model":"example/model","object":"chat.completion.chunk","created":1790000000,"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":"stop","native_finish_reason":"stop","logprobs":null}],"usage":{"prompt_tokens":21,"completion_tokens":8,"total_tokens":29,"cost":0.0001,"prompt_tokens_details":{"cached_tokens":4},"completion_tokens_details":{"reasoning_tokens":0}}}
+
+data: [DONE]
+

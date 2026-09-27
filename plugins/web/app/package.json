@@ -1,0 +1,10 @@
+{
+  "name": "@keith/web-app",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#components/*": "./components/*.tsx",
+    "#lib/*": "./lib/*.ts",
+    "#hooks/*": "./hooks/*.ts"
+  }
+}

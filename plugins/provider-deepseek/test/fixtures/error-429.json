@@ -1,0 +1,12 @@
+{
+  "_fixture": "synthetic, built by hand from https://api-docs.deepseek.com/quick_start/error_codes (2026-09-26); re-record from the real API",
+  "status": 429,
+  "body": {
+    "error": {
+      "message": "Rate Limit Reached",
+      "type": "rate_limit_error",
+      "param": null,
+      "code": "rate_limit_reached"
+    }
+  }
+}

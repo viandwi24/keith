@@ -1,5 +1,7 @@
 # Wire protocol v1
 
+**Frozen: v1 (2026-09-26).** Changes follow the [freeze rules](README.md#freeze-rules).
+
 The protocol between the core and every Node. Implemented as zod schemas in `@keith/protocol`. This document is normative, and the schema test parses every ` ```json frame` example below.
 
 ## Transport
@@ -20,7 +22,10 @@ The protocol between the core and every Node. Implemented as zod schemas in `@ke
 | `GET /v1/threads/:id/messages?before=<msgId>&limit=<n≤200>` | bearer | — | `{ messages: MessageDto[], hasMore }` | 1 |
 | `POST /v1/files` · `GET /v1/files/:id` | bearer | multipart | `{ file: FileDto }` | 2 |
 
-Errors: HTTP status + `{ error: { code, message } }`. Codes are listed at the end of this document.
+- `messages`: `limit` is 1..200 and defaults to 50. The page holds the `limit` messages just before `before` (or the latest ones when `before` is omitted), **oldest first**. `hasMore` is true when older messages exist.
+- `FileDto` and the files endpoints are specified under [Files](#files) (additive, phase 2, task P2-K1).
+
+Errors: HTTP status + `{ error: { code, message } }`. Codes are listed at the end of this document. A request body or query that fails validation gets `400` with `INVALID_REQUEST`.
 
 ## DTOs
 
@@ -38,6 +43,20 @@ type TurnState  = 'idle' | 'listening' | 'thinking' | 'speaking'
 
 `tool` role messages are internal and never sent to nodes. Tool activity reaches nodes as `tool.activity` frames.
 
+Every id in a DTO or frame payload is a prefixed ULID (`thr_…`, `msg_…`, `per_…`, `nod_…`; see [conventions](../rules/conventions.md#identifiers)) and is validated as one: the prefix, then 26 Crockford base32 characters. Timestamps (`ts`, `createdAt`, `updatedAt`, `expiresAt`) are integer milliseconds since the Unix epoch.
+
+## Files
+
+Phase 2, additive (task P2-K1).
+
+```ts
+type FileDto = { id: string /* fil_… */; name: string; mime: string; size: number; createdAt: number }
+```
+
+- `POST /v1/files`: `multipart/form-data` with one part named `file`, at most `FILE_MAX_BYTES` (10 MiB). Response `{ file: FileDto }`. Too large or missing part → `400 INVALID_REQUEST`.
+- `GET /v1/files/:id`: the bytes, with `content-type` = the stored `mime`. `404 NOT_FOUND` when the file doesn't exist or the person may not read it (the core defines who may, see [storage.md](../architecture/storage.md)).
+- UI blocks reference files by the core-relative URL `/v1/files/<id>` (`fileUrl(id)` in `@keith/protocol`).
+
 ## Envelope
 
 ```ts
@@ -51,14 +70,19 @@ type Frame = {
 }
 ```
 
-Unknown `type` → the receiver replies `error { code: 'UNKNOWN_FRAME' }` and keeps the connection. An invalid payload for a known type → `error { code: 'INVALID_FRAME' }`.
+- `id` and `re` are 1..64 characters.
+- Unknown `type` → the receiver replies `error { code: 'UNKNOWN_FRAME' }` and keeps the connection. An invalid payload for a known type → `error { code: 'INVALID_FRAME' }`. Both replies set `re` to the rejected frame's `id` when it could be read.
+- Envelope `v` other than 1, or `hello.protocol` other than 1 → the core closes with `4009`.
+- **Unknown fields are ignored** (dropped on parse), in the envelope and in `data`. This keeps additive changes (a new optional field) compatible in both directions.
+
+`@keith/protocol` implements this as `parseNodeFrame(input)` (used by the core) and `parseCoreFrame(input)` (used by nodes). Each takes the raw text or an already-parsed value and returns `{ ok: true, frame }` or `{ ok: false, code, message, frameId? }`, where `code` is `INVALID_FRAME`, `UNKNOWN_FRAME` or `UNSUPPORTED_PROTOCOL` (→ close `4009`). `makeFrame(type, data, { id, ts, re? })` builds a typed frame.
 
 ## Node → core frames
 
 | type | data | Phase |
 |---|---|---|
-| `hello` | `{ protocol: 1, client: { name, version }, capabilities: string[], nodeId?: string }`. `client` describes the software, e.g. `keith-tui` | 1 |
-| `thread.open` | `{ threadId?: string, historyLimit?: number }` (default 50) | 1 |
+| `hello` | `{ protocol: 1, client: { name, version }, capabilities: string[], nodeId?: string }`. `client` describes the software, e.g. `keith-tui`. Capabilities are well-formed `name@major` ids (at most 64); unknown ones are ignored | 1 |
+| `thread.open` | `{ threadId?: string, historyLimit?: number }` (0..200, default 50) | 1 |
 | `thread.close` | `{ threadId: string }` | 1 |
 | `input.text` | `{ threadId: string, text: string }` (1..16 000 chars) | 1 |
 | `input.cancel` | `{ threadId: string }` | 1 |
@@ -134,4 +158,19 @@ bytes 21..  : codec payload (Opus packet or PCM16LE)
 
 ## Error codes
 
-`UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `INVALID_FRAME`, `UNKNOWN_FRAME`, `THREAD_BUSY` (reserved), `RATE_LIMITED`, `PROVIDER_ERROR`, `INTERNAL`.
+`UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `INVALID_REQUEST` (HTTP body or query failed validation), `INVALID_FRAME`, `UNKNOWN_FRAME`, `THREAD_BUSY` (reserved), `RATE_LIMITED`, `PROVIDER_ERROR`, `INTERNAL`.
+
+## Code map
+
+| Export | File |
+|---|---|
+| `FrameEnvelope`, `makeFrame`, `FrameParseResult` | `src/envelope.ts` |
+| `NodeFrame`, `parseNodeFrame`, one schema per node frame (`HelloFrame`, …) | `src/frames/node-to-core.ts` |
+| `CoreFrame`, `parseCoreFrame`, one schema per core frame (`WelcomeFrame`, …) | `src/frames/core-to-node.ts` |
+| `PersonDto`, `ThreadDto`, `MessageDto`, `TurnState`, `Tier`, HTTP bodies (`LoginRequest`, `MessagesQuery`, …) | `src/dto.ts` |
+| `ID_PREFIXES`, `prefixedId`, `ThreadId`, `MessageId`, … | `src/ids.ts` |
+| `KNOWN_CAPABILITIES`, `Capability`, `parseCapability` | `src/capabilities.ts` |
+| `ErrorCode`, `HttpErrorBody`, `WS_CLOSE_CODES` | `src/errors.ts` |
+| `UiBlock`, `uiBlockToText` | `src/ui/` ([ui-blocks.md](ui-blocks.md)) |
+
+Each schema and its inferred type share a name (`PersonDto` is both).

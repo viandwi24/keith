@@ -4,8 +4,8 @@ title: Scaffold the workspace and tooling
 phase: 0
 wave: 1
 lane: S
-status: todo
-owner: null
+status: done
+owner: claude
 depends: []
 owns:
   - package.json
@@ -77,11 +77,11 @@ A Bun workspace with every phase-1 package skeleton, strict TypeScript, Biome, a
 
 ## Acceptance criteria
 
-- [ ] `scripts/check-deps.ts` has tests: a fixture plugin importing `@keith/core` fails, and one importing `@keith/sdk` passes.
-- [ ] `scripts/plans.ts --lint` has a test that detects an overlapping `owns` in one wave.
-- [ ] CI runs on push and PR.
-- [ ] `stack.md` records the zod, Biome and TypeScript versions used.
-- [ ] `bun run check` passes.
+- [x] `scripts/check-deps.ts` has tests: a fixture plugin importing `@keith/core` fails, and one importing `@keith/sdk` passes.
+- [x] `scripts/plans.ts --lint` has a test that detects an overlapping `owns` in one wave.
+- [x] CI runs on push and PR.
+- [x] `stack.md` records the zod, Biome and TypeScript versions used.
+- [x] `bun run check` passes.
 
 ## Notes
 
@@ -90,4 +90,28 @@ A Bun workspace with every phase-1 package skeleton, strict TypeScript, Biome, a
 
 ## Outcome
 
-_To be filled._
+**Built**
+
+- Bun workspace (`packages/*`, `plugins/*`, `apps/*`) with six skeleton packages: `@keith/protocol`, `@keith/sdk`, `@keith/core`, `@keith/tui`, `@keith/provider-openrouter`, `@keith/provider-deepseek`. Each was created with `bun init --yes` in its folder, then renamed, given `"exports": { ".": "./src/index.ts" }`, workspace dependencies per the dependency direction, and an `export {}` placeholder in `src/index.ts`.
+- `tsconfig.base.json` (R-15 flags plus Bun's recommended bundler-mode options and `types: ["bun"]`), per-package `tsconfig.json` extending it, and a root `tsconfig.json` whose `include` covers every package, `scripts/` and `tests/`. `bun run typecheck` = `tsc --noEmit -p tsconfig.json`.
+- Biome initialized with `bunx --bun biome init`, then configured: 2 spaces, single quotes, no semicolons, line width 110, recommended rules plus `noExplicitAny` and `noNonNullAssertion` as errors.
+- Root scripts: `check` (typecheck → lint → deps → plans --lint → test), `typecheck`, `lint`, `format`, `deps`, `plans`, `dev` (prints "not yet").
+- `scripts/check-deps.ts`: scans `packages/`, `plugins/`, `apps/`, `tests/` and reports R-1 (including relative imports that leave their package), R-2 (with the `import type … from '@keith/<plugin>/service'` exception), R-4 (`bun:sqlite`, `drizzle-orm`, `drizzle-kit`, `better-sqlite3` outside `core/src/storage`) and R-5 (a list of vendor AI SDK packages and scopes outside `plugins/provider-*`). 22 tests, including the fixture plugins from the acceptance criteria (built in a temp dir).
+- `scripts/plans.ts`: board, `--ready`, `--lint` (required fields, status enum, duplicate ids, unknown `depends`, same-wave `owns` overlap with `bun.lock` exempt). Uses `Bun.YAML`, no dependencies. 19 tests.
+- `.github/workflows/ci.yml`: on push and PR, `actions/checkout@v7`, `oven-sh/setup-bun@v2` (version from `packageManager`), `bun install --frozen-lockfile`, `bun run check`.
+- `zod@4.6.5` added to `@keith/protocol` with `bun add`. Versions recorded in [stack.md](../../architecture/stack.md#versions-in-use): Bun 1.3.11, TypeScript 7.0.2, Biome 2.5.14, zod 4.6.5.
+
+**Deviations**
+
+- The container sets `BUN_OPTIONS=--smol`, which makes Bun 1.3.11's `bun init` treat `init` as the target folder. `bun init` was run with that variable unset (`env -u BUN_OPTIONS bun init --yes`). Other `bun` commands are unaffected.
+- `bun init` also generated `index.ts`, `README.md`, `CLAUDE.md`, `.gitignore`, `bun.lock` and `node_modules` inside each package. Files outside `owns` were deleted; `index.ts` moved to `src/index.ts`. The root `.gitignore` is the generated one. The root `CLAUDE.md` and `README.md` were left untouched (init is non-destructive).
+- `format` runs `biome check --write .` rather than `biome format --write .`, so it also applies Biome's import sorting, which `lint` enforces.
+- Added a `deps` script (`bun scripts/check-deps.ts`) so the check can run on its own. `check` calls it.
+- Added `"packageManager": "bun@1.3.11"` so CI and local runs use the same Bun.
+- TypeScript 7 (the native compiler) is the current `latest` on npm and was chosen over 5.x. It needs `types: ["bun"]` explicitly; everything else in Bun's recommended config works unchanged.
+- Claim/branch steps from agent-workflow.md were not done as separate commits on `main`: the coordinator ran phase 0 sequentially on one branch, one commit per task.
+
+**Follow-ups**
+
+- `AGENTS.md` lists commands but not `deps`; the coordinator may add it (outside this task's `owns`).
+

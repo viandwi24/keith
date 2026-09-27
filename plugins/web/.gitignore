@@ -1,0 +1,6 @@
+# Built browser app (also ignored at the root): `bun run build` writes it.
+dist
+# `shadcn add` runs from app/ (see app/components.json) and installs there; dependencies belong in
+# this package.json instead.
+app/node_modules
+app/bun.lock

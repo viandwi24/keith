@@ -1,0 +1,7 @@
+: synthetic fixture, built by hand from https://openrouter.ai/docs/api_reference/streaming (2026-09-26); no live recording yet.
+: Re-record from the real API and scrub keys and ids (follow-up task in P1-D1 Outcome).
+
+data: {"id":"gen-fixture-1","provider":"ExampleProvider","model":"example/model","object":"chat.completion.chunk","created":1790000000,"choices":[{"index":0,"delta":{"role":"assistant","content":"Partial"},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-fixture-1","provider":"ExampleProvider","model":"example/model","object":"chat.completion.chunk","created":1790000000,"choices":[{"index":0,"delta":{"content":""},"finish_reason":"error","native_finish_reason":"error","logprobs":null}],"error":{"code":429,"message":"Rate limit exceeded","metadata":{"error_type":"rate_limit_exceeded","provider_code":"rate_limited"}}}
+

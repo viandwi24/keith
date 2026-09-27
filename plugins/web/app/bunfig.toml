@@ -1,0 +1,4 @@
+# Used by `bun run dev` (which runs from this folder): Bun's dev server bundles index.html with
+# the Tailwind plugin. The production build passes the plugin to `Bun.build` itself (build.ts).
+[serve.static]
+plugins = ["bun-plugin-tailwind"]

@@ -16,6 +16,8 @@ The exact API is in [contracts/plugin-api.md](../contracts/plugin-api.md). This 
 | Headless file-access agent on another machine | No, it's a Node | Separate process with `fs@1` |
 | Third-party tool server you don't trust | No, it's an MCP server | Bridged into the tool registry (phase 8) |
 
+A client-app plugin that ships a browser UI (today only `@keith/web`) keeps two halves in one package ([ADR-0011](../decisions/0011-client-app-browser-side.md)): server code in `src/` and the browser app in `app/`, which builds to `dist/`. The server half never imports `app/`. The whole server side of `@keith/web` is one `ctx.http.static('/', dist, { spaFallback: 'index.html' })`, with no `/p/web/` routes. The config option `distDir` overrides the folder (a relative path resolves against the core's working directory). If the folder has no `index.html`, the plugin logs a warning and serves a small "web app isn't built" placeholder page at `/`, so the core keeps running without the build.
+
 Like a Linux distro, Keith works as CLI only. The web plugin is a desktop environment you can install on top, and applications (tools) don't depend on which one is installed. They speak the shared protocol (UI blocks).
 
 ## Plugin kinds
@@ -104,6 +106,33 @@ Rule of thumb: if the emitter needs an answer, use a service. If the emitter doe
 
 ## Loading
 
-- Plugins are listed by package name in `config.toml` under `plugins.enabled` and loaded with dynamic `import()` in list order.
-- Each plugin's config section is validated against its `config` zod schema before `setup`.
+- Plugins are listed by package name in `config.toml` under `plugins.enabled` and loaded with dynamic `import()` in list order. The package's default export must be a plugin whose `id` equals the package name. `bootstrap(opts)` and tests may also pass plugin objects directly; they load after the configured ones.
+- Each plugin's config section is validated against its `config` zod schema before `setup` (defaults applied). An invalid section fails the plugin at the `setup` stage with `CONFIG_INVALID`.
 - **Planned:** loading from a local path (`plugins.enabled = ["./my-plugin"]`) for personal plugins.
+
+## Host rules
+
+The plugin host (`core/src/plugins`) applies these rules. Each has a test.
+
+| Situation | Result |
+|---|---|
+| Package can't be imported, has no plugin default export, or exports another id | Logged (`stage: 'load'`), skipped, not listed in `status()`. No `plugin.failed` event (its `stage` is `setup` or `start` only). Throws if the plugin is in `plugins.required` |
+| `plugins.required` names a plugin that isn't enabled | `load` throws `CONFIG_INVALID` |
+| Invalid, reserved or already-taken `namespace` | The plugin fails setup with `PLUGIN_NAMESPACE_INVALID` |
+| Registry outside the plugin's kind | `PLUGIN_KIND_VIOLATION`, thrown synchronously at the call |
+| `ctx.services.get` / `find` during `setup` | Throws `SERVICE_MISSING` saying services are available from `start` on |
+| `needs` lists a service nobody provides | That plugin's `start` fails with `SERVICE_MISSING` naming the service(s). Checked right before each plugin's `start` |
+| `setup` or `start` throws | Registrations rolled back (services, tools, skills, agents, providers, routes, ws handlers, event handlers and schemas), state `failed`, error logged, `plugin.failed` emitted. `ctx.data` is kept |
+| A `plugins.required` plugin fails | `load` (setup) or `startAll` (start) throws |
+| After all setups, a `models` role names an unregistered provider | `load` throws `CONFIG_INVALID` naming the role and the ref |
+| `stop` runs longer than `plugins.stopTimeoutMs` | Abandoned and logged. Only started plugins are stopped, in reverse load order |
+
+Registry rules:
+
+- **Services:** providing a taken name throws `SERVICE_CONFLICT`. When `[services]` names a winner for that service, only the winner's implementation is kept, whatever the load order, and the others are ignored (logged).
+- **Tools:** the name must match `TOOL_NAME_PATTERN` and its first segment must be the plugin's namespace (`TOOL_NAME_INVALID`). Names are unique (`TOOL_NAME_TAKEN`). Built-ins use `registerBuiltin` and must be in a reserved namespace.
+- **`tools.invoke`** never throws. In order: unknown tool (`NOT_FOUND`), `minTier` against the lowest tier among the participants (`TIER_INSUFFICIENT`), zod input validation (`TOOL_INPUT_INVALID`), then `run` with `timeoutMs` (`TOOL_TIMEOUT`, the tool's signal is aborted). Refusals never call `run`. A throw becomes `INTERNAL` (or the thrown `KeithError`'s code). Each failure comes back as `{ error: true, content: '<CODE>: <message>' }`. It emits `tool.called` before `run` and `tool.completed` after it.
+- **Skills and agents:** snake_case names, unique. There is no dedicated error code, so they reuse `TOOL_NAME_INVALID` and `TOOL_NAME_TAKEN`. No plugin agent may be called `general`.
+- **Providers:** two providers with the same id throw `SERVICE_CONFLICT`. `providers.llm.resolve(role)` splits `config.models[role]` at the first `:` into provider id and model id.
+- **Events:** a plugin may `emit` and `define` only names that match `EVENT_NAME_PATTERN` and start with `<namespace>.` (`PLUGIN_NAMESPACE_INVALID`). A payload that fails its defined schema makes `emit` throw `INTERNAL`.
+- **WS frame types** registered by a plugin must start with `<namespace>.` (`PLUGIN_NAMESPACE_INVALID`).

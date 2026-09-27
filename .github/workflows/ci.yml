@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      # Chromium for the Playwright e2e tests (tests/e2e/s8-web.test.ts), matching the installed
+      # Playwright version (https://playwright.dev/docs/ci).
+      - run: bunx playwright install --with-deps chromium
+      # The web app the core serves at / (plugins/web/dist). The S-8 e2e test builds its own copy.
+      - run: bun run --cwd plugins/web build
+      - run: bun run check
+      # S-8 in a real browser, five runs in a row (P2-I1 acceptance: no flakes).
+      - run: for i in 1 2 3 4 5; do bun test tests/e2e/s8-web.test.ts || exit 1; done

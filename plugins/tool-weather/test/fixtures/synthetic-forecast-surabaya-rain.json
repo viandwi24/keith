@@ -1,0 +1,54 @@
+{
+  "latitude": -7.2759223,
+  "longitude": 112.785774,
+  "generationtime_ms": 0.1,
+  "utc_offset_seconds": 25200,
+  "timezone": "Asia/Jakarta",
+  "timezone_abbreviation": "GMT+7",
+  "elevation": 6.0,
+  "current_units": {
+    "time": "iso8601",
+    "interval": "seconds",
+    "temperature_2m": "°C",
+    "relative_humidity_2m": "%",
+    "apparent_temperature": "°C",
+    "precipitation": "mm",
+    "weather_code": "wmo code",
+    "wind_speed_10m": "km/h"
+  },
+  "current": {
+    "time": "2026-09-27T11:15",
+    "interval": 900,
+    "temperature_2m": 31.2,
+    "relative_humidity_2m": 78,
+    "apparent_temperature": 36.4,
+    "precipitation": 0.0,
+    "weather_code": 3,
+    "wind_speed_10m": 12.0
+  },
+  "hourly_units": {
+    "time": "iso8601",
+    "precipitation_probability": "%",
+    "precipitation": "mm",
+    "weather_code": "wmo code"
+  },
+  "hourly": {
+    "time": [
+      "2026-09-27T11:00",
+      "2026-09-27T12:00",
+      "2026-09-27T13:00",
+      "2026-09-27T14:00",
+      "2026-09-27T15:00",
+      "2026-09-27T16:00",
+      "2026-09-27T17:00",
+      "2026-09-27T18:00",
+      "2026-09-27T19:00",
+      "2026-09-27T20:00",
+      "2026-09-27T21:00",
+      "2026-09-27T22:00"
+    ],
+    "precipitation_probability": [5, 10, 20, 35, 45, 80, 60, 30, 10, 5, 5, 0],
+    "precipitation": [0, 0, 0, 0, 0.1, 2.4, 1.1, 0.2, 0, 0, 0, 0],
+    "weather_code": [3, 3, 3, 3, 3, 61, 80, 3, 2, 1, 1, 0]
+  }
+}

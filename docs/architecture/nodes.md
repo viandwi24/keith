@@ -46,14 +46,36 @@ node  → thread.close | socket closes     → detach, presence update
 
 - `nodeId` is issued by the core on first `welcome`. Nodes should persist it and send it back in later `hello`s so the core recognizes the same device. The TUI stores it in `$XDG_CONFIG_HOME/keith/tui.json` (default `~/.config/keith/tui.json`), since it may run on a different machine than the core, and the browser stores it in `localStorage`.
 - The core must receive `hello` within 5 s of upgrade or it closes the socket with code `4001`.
-- Heartbeat: the core sends `ping` every 25 s and drops a node silent for 60 s.
+- Heartbeat: the core sends `ping` every 25 s and drops a node silent for 60 s (close `4010`). Any frame from the node counts as a sign of life, so a node answers `ping` with `pong`.
+
+### How the core handles a connection
+
+Implemented in `packages/core/src/server/`.
+
+| Situation | Core behavior |
+|---|---|
+| `?token=` missing, unknown or expired | Upgrade, then close `4003`. An expired token is deleted. |
+| No `hello` within 5 s | Close `4001` |
+| Envelope `v` ≠ 1 or `hello.protocol` ≠ 1 | Close `4009` |
+| Any other frame before `hello`, or a second `hello` | `error { INVALID_FRAME }`, connection stays open |
+| `hello.nodeId` names a known node that is not connected right now | Reused. Otherwise the token's earlier node id is tried, then a new id is issued. Two live sockets never share a node id (two browser tabs with one `localStorage` get different ids) |
+| `hello` accepted | `nodes` row upserted (name, capabilities), `auth_tokens.node_id` filled, `welcome`, `node.connected` |
+| `thread.open` | Arrival decided (see [core.md](core.md#presence-and-arrival)), `ThreadManager.open`, node attached, then one `thread.opened` with the last `historyLimit` messages of what `open` returned |
+| `input.text` / `input.cancel` for a thread this node has not opened | `error { FORBIDDEN }` |
+| `thread.close` or socket close | Node detached from the thread (or from all threads). The person becomes away when their last node detaches (`person.left`). `node.disconnected` on socket close |
+| `<namespace>.*` frame registered by a plugin | Payload validated with the plugin's schema, then its handler runs |
+| Unknown type | `error { UNKNOWN_FRAME }`. Binary frames get `INVALID_FRAME` until phase 3 |
+
+Frames from one node are handled in order. `input.text` is handed to the ThreadManager without waiting for the turn, so a later `input.cancel` is not blocked. Errors thrown by the ThreadManager become `error` frames (`NOT_FOUND`, `FORBIDDEN` and `PROVIDER_ERROR` pass through, everything else is `INTERNAL`).
 
 ## Auth (phase 1)
 
 - `keith setup` (interactive CLI) creates the **owner** Person with a username and password (Argon2id via `Bun.password`).
 - `POST /v1/auth/login` returns an opaque random token. Its SHA-256 hash is stored with an expiry (`auth.tokenTtlDays`, default 30).
 - HTTP uses `Authorization: Bearer <token>`. WS uses `?token=` because browsers can't set headers on upgrade.
-- `POST /v1/auth/logout` deletes the token.
+- `POST /v1/auth/logout` deletes the token. A WebSocket already open with that token stays open; the token is checked only on upgrade.
+- Tokens are 32 random bytes, base64url. An expired token is deleted the first time it is presented. A login for an unknown username still runs one password verification, so it takes about as long as a wrong password.
+- `GET /v1/threads/:id/messages` answers `404 NOT_FOUND` for a thread the caller is not a participant of (the same as a missing one).
 - The server binds to `127.0.0.1` by default. Remote access (Tailscale, reverse proxy) is the operator's job. Keith doesn't terminate TLS in phase 1.
 
 > Planned (phase 5): adding members and guests (`keith person add`, invite links). Planned (phase 7): node pairing for headless nodes (6-digit code shown in an attended node, exchanged for a node token).
@@ -61,5 +83,5 @@ node  → thread.close | socket closes     → detach, presence update
 ## Focus and presence
 
 - **Focus** (per Thread) = the node of the most recent input. Audio output goes there only. Text and UI go to all attached nodes (I-7).
-- If the focus node detaches, focus falls to the most recently attached remaining node.
+- If the focus node detaches, focus falls to the most recently attached remaining node. `AttachmentRegistry.attachedTo(threadId)` lists nodes in attach order, most recent last.
 - **Presence** (per Person) = at least one attended node has one of their Threads open. See [core.md](core.md#presence-and-arrival).

@@ -1,0 +1,22 @@
+{
+  "results": [
+    {
+      "id": 1625822,
+      "name": "Surabaya",
+      "latitude": -7.24917,
+      "longitude": 112.75083,
+      "elevation": 8.0,
+      "feature_code": "PPLA",
+      "country_code": "ID",
+      "admin1_id": 1642668,
+      "admin2_id": 1625820,
+      "timezone": "Asia/Jakarta",
+      "population": 2874314,
+      "country_id": 1643084,
+      "country": "Indonesia",
+      "admin1": "East Java",
+      "admin2": "Kota Surabaya"
+    }
+  ],
+  "generationtime_ms": 0.62453747
+}

@@ -18,7 +18,7 @@ Tests always set `KEITH_HOME` to a temporary directory.
 
 ## `config.toml`
 
-Parsed with Bun's built-in TOML support and validated with a zod schema in `core/src/config`. Unknown keys are an error (typos fail loudly). Any string value may be `"env:NAME"`, which is resolved from the environment at load. Missing env vars are an error naming the key.
+Parsed with Bun's built-in TOML support and validated with a zod schema in `core/src/config`. Unknown keys are an error (typos fail loudly). Any string value may be `"env:NAME"`, which is resolved from the environment at load. Missing env vars are an error naming the key. Every key has a default (the values below, except `mind.timezone`, which defaults to the system time zone), so an empty file is valid. A missing file, invalid TOML or an invalid value is `CONFIG_INVALID` naming the key. Under `[plugins]`, the keys `enabled`, `required` and `stopTimeoutMs` belong to the core and every table is a plugin section; any other key is an error.
 
 ```toml
 [server]
@@ -87,18 +87,30 @@ apiKey = "env:DEEPSEEK_API_KEY"
 # weather = "@keith/tool-weather"
 ```
 
-`keith setup` asks which provider to use (DeepSeek or OpenRouter), enables only that plugin, asks for a model id (it offers a default, labelled as possibly outdated since vendor ids change), and maps all three roles to it. Users split roles across models later by editing the file.
-
 Each plugin section is validated by that plugin's own `config` schema. The core never interprets plugin sections.
+
+### `keith setup`
+
+`keith setup` asks which provider to use (DeepSeek or OpenRouter), enables only that plugin (also listed in `required`), asks for a model id (it offers a default, `deepseek-flash` or `~openai/gpt-sol-latest`, labelled as possibly outdated since vendor ids change), and maps all three roles to it. The API key is written as `env:DEEPSEEK_API_KEY` / `env:OPENROUTER_API_KEY`, never literally. Users split roles across models later by editing the file. It then asks whether to enable the optional `@keith/web` (the browser app) and `@keith/tool-weather` plugins (default yes). They go into `enabled` but not `required`, each with a commented `[plugins."<id>"]` section. On an existing config it only prints how to add a missing one.
+
+It also creates `KEITH_HOME` with `files/`, `plugins/` and `logs/`, writes `persona.md` from `defaultPersona(mind.name)`, applies the migrations, and creates the **owner** Person (name, username, password asked twice, at least 8 characters, hashed with `Bun.password`).
+
+Running it again is safe: an existing `config.toml` or `persona.md` is kept as is, and when an owner exists it only offers to reset that owner's password. It never creates a second owner.
+
+Answers are read from the terminal (raw mode, so the password is not echoed) or one per line from piped stdin. Code and tests drive it through a `Prompter` (`scriptedPrompter(answers)` in tests).
+
+The first-party provider plugins (`@keith/provider-deepseek`, `@keith/provider-openrouter`) are dependencies of `@keith/core`, so the plugin host's `import()` of a name in `plugins.enabled` resolves them. Third-party plugins must be installed where the core can resolve them.
 
 ## Secrets
 
 - Never store secrets in `config.toml` literally in shared examples. Use `env:`.
-- The logger redacts any config value whose key matches `/key|token|secret|password/i`.
+- The logger redacts any config value whose key matches `/key|token|secret|password/i`: every log field with such a key, at any depth, is written as `[redacted]`.
 - An encrypted credential store is out of scope until a plugin needs per-person OAuth tokens. It needs an ADR then.
 
 ## Precedence
 
-Config file < environment overrides < CLI flags (`keith start --port 5000`).
+Config file < environment overrides < CLI flags (`keith start --port 5000 --host 0.0.0.0`).
 
-Environment overrides use `KEITH__` plus the key path, with `__` between segments. Segments are matched to schema keys case-insensitively: `KEITH__SERVER__PORT=5000`, `KEITH__MIND__TURN__MAXSTEPS=12` → `mind.turn.maxSteps`. Values are parsed as JSON when possible, otherwise as strings. Plugin sections can't be overridden this way. Use `env:` inside them.
+Environment overrides use `KEITH__` plus the key path, with `__` between segments. Segments are matched to schema keys case-insensitively: `KEITH__SERVER__PORT=5000`, `KEITH__MIND__TURN__MAXSTEPS=12` → `mind.turn.maxSteps`. Values are parsed as JSON when possible, otherwise as strings (`KEITH__PLUGINS__ENABLED='["@keith/provider-openrouter"]'`). Plugin sections and `[services]` can't be overridden this way. Use `env:` inside them. A `KEITH__` variable that matches no key is an error. `env:` references are resolved after overrides, so an override may itself be `"env:NAME"`.
+
+In code: `loadConfig({ home, flags })` reads `<home>/config.toml`; `parseConfig(table, { env, flags })` does the rest and is what tests use. `keithPaths(home)` gives the layout above. `DEFAULT_PERSONA_TEMPLATE` / `defaultPersona(name)` hold the default `persona.md` text that `keith setup` writes.
