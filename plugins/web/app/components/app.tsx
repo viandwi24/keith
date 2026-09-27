@@ -1,5 +1,6 @@
 import { createAuth, type Fetch, type SessionStore, type StoredSession } from '@keith/client'
 import { useEffect, useMemo, useState } from 'react'
+import { browserVoice, type VoiceEnv } from '../lib/voice.ts'
 import { ChatScreen } from './chat/chat-screen.tsx'
 import { type Credentials, LoginForm } from './login-form.tsx'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card.tsx'
@@ -10,13 +11,16 @@ export type AppProps = {
   /** Where the session (token, nodeId) is kept: `localStorage` in the browser. */
   store: SessionStore
   fetch?: Fetch | undefined
+  /** The mic and speaker. Default: the browser's (`browserVoice()`); tests pass a fake. */
+  voice?: VoiceEnv | undefined
 }
 
 type Screen = { kind: 'loading' } | { kind: 'login' } | { kind: 'chat'; session: StoredSession }
 
 /** The browser Node: sign in, then the main thread. */
-export function App({ baseUrl, store, fetch }: AppProps) {
+export function App({ baseUrl, store, fetch, voice }: AppProps) {
   const auth = useMemo(() => createAuth({ baseUrl, store, fetch }), [baseUrl, store, fetch])
+  const voiceEnv = useMemo(() => voice ?? browserVoice(), [voice])
   const [screen, setScreen] = useState<Screen>({ kind: 'loading' })
 
   useEffect(() => {
@@ -65,6 +69,7 @@ export function App({ baseUrl, store, fetch }: AppProps) {
           auth={auth}
           session={screen.session}
           fetch={fetch}
+          voice={voiceEnv}
           onSignedOut={() => setScreen({ kind: 'login' })}
         />
       )

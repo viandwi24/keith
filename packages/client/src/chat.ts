@@ -1,7 +1,11 @@
 import {
+  AUDIO_FRAME_KIND,
+  type AudioStreamId,
   type ClientInfo,
   type CoreFrame,
   DEFAULT_HISTORY_LIMIT,
+  decodeAudioFrame,
+  encodeAudioFrame,
   type FrameData,
   type FrameOf,
   INPUT_TEXT_MAX_CHARS,
@@ -15,6 +19,7 @@ import {
   UI_BLOCK_ID_PATTERN,
   WS_CLOSE_CODES,
 } from '@keith/protocol'
+import { AUDIO_IN_SAMPLE_RATE, type AudioEvent, newStreamId, pcm16ToBytes } from './audio.ts'
 import { ClientError } from './errors.ts'
 import { type Fetch, listMessages, wsUrl } from './http.ts'
 import {
@@ -35,6 +40,26 @@ import {
 
 export const DEFAULT_CAPABILITIES: readonly string[] = ['chat.text@1']
 
+/** What the embedding app can do with audio. Each flag adds its capability to `hello`. */
+export type AudioSupport = {
+  /** Can capture and send a microphone stream: declares `audio.in@1`. */
+  input?: boolean | undefined
+  /** Can play the core's audio: declares `audio.out@1`. */
+  output?: boolean | undefined
+}
+
+/**
+ * The capabilities a client declares: `base` without any `audio.*` entry, plus `audio.in@1` /
+ * `audio.out@1` only when `audio` says the app can. A node that plays no audio (the TUI) never
+ * declares them.
+ */
+export function clientCapabilities(base: readonly string[], audio: AudioSupport = {}): string[] {
+  const out = base.filter((c) => !c.startsWith('audio.'))
+  if (audio.input) out.push('audio.in@1')
+  if (audio.output) out.push('audio.out@1')
+  return out
+}
+
 export type Backoff = { initialMs: number; maxMs: number; factor: number }
 
 export const DEFAULT_BACKOFF: Backoff = { initialMs: 500, maxMs: 15_000, factor: 2 }
@@ -49,6 +74,13 @@ export type ChatClientDeps = {
   client: ClientInfo
   /** Declared in `hello`. Default `['chat.text@1']`; a UI-capable node adds `ui.render@1`. */
   capabilities?: readonly string[] | undefined
+  /**
+   * Audio the app can capture and play (phase 3). Only this adds `audio.in@1` / `audio.out@1` to
+   * `hello` (see `clientCapabilities`). Default: none.
+   */
+  audio?: AudioSupport | undefined
+  /** Audio from the core (with `audio.output`), and `flush` when this node sends a new input. */
+  onAudio?: ((event: AudioEvent) => void) | undefined
   onState: (state: ChatState) => void
   /** Called when the core issues a new `nodeId`, so it can be persisted. */
   onNodeId?: ((nodeId: NodeId) => void) | undefined
@@ -78,6 +110,15 @@ export type UiActionInput = {
 
 export type UiActionResult = { ok: true } | { ok: false; reason: 'invalid' | 'offline' }
 
+export type AudioStartResult =
+  | { ok: true; streamId: AudioStreamId }
+  | { ok: false; reason: 'unsupported' | 'offline' }
+
+export type AudioSendResult =
+  | { ok: true }
+  /** `invalid`: a bad sequence, or a chunk too big for one frame (`AUDIO_FRAME_MAX_BYTES`). */
+  | { ok: false; reason: 'unsupported' | 'offline' | 'unknown-stream' | 'invalid' }
+
 export type LoadOlderResult =
   | { ok: true; added: number }
   | { ok: false; reason: 'no-thread' | 'no-more' | 'busy' | 'failed'; error?: ClientError | undefined }
@@ -92,6 +133,15 @@ export type ChatClient = {
   cancel(): boolean
   /** Sends `ui.action` for a button of an `actions` block (nodes with `ui.render@1`). */
   sendUiAction(action: UiActionInput): UiActionResult
+  /**
+   * Starts a microphone stream for the open thread: sends `audio.start` (PCM16, 16 kHz) with a new
+   * stream id. Needs `audio.input`. A lost connection ends every stream: start a new one.
+   */
+  startAudio(): AudioStartResult
+  /** Sends one chunk of a started stream as a kind-1 binary frame (`sequence` 0, 1, 2, …). */
+  sendAudio(streamId: AudioStreamId, sequence: number, pcm16: Int16Array): AudioSendResult
+  /** Sends `audio.end` for a started stream. Returns false when there was none (or offline). */
+  endAudio(streamId: AudioStreamId): boolean
   /** Fetches the page of history before the oldest shown message and prepends it. */
   loadOlder(): Promise<LoadOlderResult>
   /**
@@ -114,7 +164,8 @@ export function createChatClient(deps: ChatClientDeps): ChatClient {
   const newId = deps.newId ?? (() => crypto.randomUUID())
   const backoff = deps.backoff ?? DEFAULT_BACKOFF
   const historyLimit = deps.historyLimit ?? DEFAULT_HISTORY_LIMIT
-  const capabilities = [...(deps.capabilities ?? DEFAULT_CAPABILITIES)]
+  const audio = deps.audio ?? {}
+  const capabilities = clientCapabilities(deps.capabilities ?? DEFAULT_CAPABILITIES, audio)
   const schedule =
     deps.schedule ??
     ((fn: () => void, ms: number) => {
@@ -134,6 +185,8 @@ export function createChatClient(deps: ChatClientDeps): ChatClient {
   let stopped = false
   /** `close()`, 4009 or an abort: nothing restarts it. */
   let closed = false
+  /** Microphone streams started on the current socket (the core forgets them when it closes). */
+  const audioStreams = new Set<AudioStreamId>()
 
   const update = (next: ChatState) => {
     state = next
@@ -154,6 +207,7 @@ export function createChatClient(deps: ChatClientDeps): ChatClient {
   const connect = () => {
     if (stopped) return
     const ws = new WebSocket(wsUrl(deps.baseUrl, token))
+    ws.binaryType = 'arraybuffer'
     socket = ws
     ws.addEventListener('open', () => {
       if (socket !== ws) return
@@ -166,13 +220,13 @@ export function createChatClient(deps: ChatClientDeps): ChatClient {
     })
     ws.addEventListener('message', (event) => {
       if (socket !== ws) return
-      // Binary frames carry audio (phase 3); this client declares no audio capability.
-      if (typeof event.data !== 'string') return
-      onText(event.data)
+      if (typeof event.data === 'string') onText(event.data)
+      else onBinary(event.data)
     })
     ws.addEventListener('close', (event) => {
       if (socket !== ws) return
       socket = null
+      audioStreams.clear()
       onClose(event.code, event.reason)
     })
     // An `error` event is always followed by `close`, which handles reconnecting.
@@ -193,6 +247,20 @@ export function createChatClient(deps: ChatClientDeps): ChatClient {
     onFrame(result.frame)
   }
 
+  /** Binary frames carry audio (phase 3). Without `audio.output` the core sends none. */
+  const onBinary = (data: unknown) => {
+    if (!audio.output || !deps.onAudio) return
+    if (!(data instanceof ArrayBuffer) && !ArrayBuffer.isView(data)) return
+    const result = decodeAudioFrame(data)
+    if (!result.ok) {
+      notice('warn', `ignored an invalid audio frame from the core (${result.message})`)
+      return
+    }
+    const { kind, streamId, sequence, payload } = result.frame
+    if (kind !== AUDIO_FRAME_KIND.out) return
+    deps.onAudio({ type: 'chunk', streamId, sequence, payload })
+  }
+
   const onFrame = (frame: CoreFrame) => {
     switch (frame.type) {
       case 'ping':
@@ -206,6 +274,16 @@ export function createChatClient(deps: ChatClientDeps): ChatClient {
         }
         update(applyFrame(state, frame))
         sendFrame('thread.open', { ...(threadId ? { threadId } : {}), historyLimit })
+        return
+      case 'audio.start':
+        // `messageId` marks the core → node direction (parseCoreFrame gives the core's frame).
+        if ('messageId' in frame.data) deps.onAudio?.({ type: 'start', ...frame.data })
+        return
+      case 'audio.end':
+        deps.onAudio?.({ type: 'end', streamId: frame.data.streamId })
+        return
+      case 'audio.stop':
+        deps.onAudio?.({ type: 'stop', streamId: frame.data.streamId })
         return
       case 'thread.opened': {
         threadId = frame.data.thread.id
@@ -245,6 +323,7 @@ export function createChatClient(deps: ChatClientDeps): ChatClient {
     cancelTimer = null
     const ws = socket
     socket = null
+    audioStreams.clear()
     if (ws && ws.readyState !== WebSocket.CLOSED) ws.close(1000, 'client closed')
   }
 
@@ -279,6 +358,8 @@ export function createChatClient(deps: ChatClientDeps): ChatClient {
       if (!sendFrame('input.text', { threadId: thread.id, text: trimmed }))
         return { ok: false, reason: 'offline' }
       update(applyLocal(state, { type: 'sent', text: trimmed }))
+      // A new input supersedes whatever the core is still saying.
+      deps.onAudio?.({ type: 'flush', reason: 'input' })
       return { ok: true }
     },
     cancel() {
@@ -305,6 +386,41 @@ export function createChatClient(deps: ChatClientDeps): ChatClient {
         ...('value' in action ? { value: action.value } : {}),
       }
       return sendFrame('ui.action', data) ? { ok: true } : { ok: false, reason: 'offline' }
+    },
+    startAudio() {
+      if (!audio.input) return { ok: false, reason: 'unsupported' }
+      const thread = state.thread
+      if (!isOnline() || !thread) return { ok: false, reason: 'offline' }
+      const streamId = newStreamId(now)
+      const sent = sendFrame('audio.start', {
+        threadId: thread.id,
+        streamId,
+        codec: 'pcm16',
+        sampleRate: AUDIO_IN_SAMPLE_RATE,
+      })
+      if (!sent) return { ok: false, reason: 'offline' }
+      audioStreams.add(streamId)
+      return { ok: true, streamId }
+    },
+    sendAudio(streamId, sequence, pcm16) {
+      if (!audio.input) return { ok: false, reason: 'unsupported' }
+      if (!socket || socket.readyState !== WebSocket.OPEN) return { ok: false, reason: 'offline' }
+      if (!audioStreams.has(streamId)) return { ok: false, reason: 'unknown-stream' }
+      let bytes: Uint8Array<ArrayBuffer>
+      try {
+        const frame = { kind: AUDIO_FRAME_KIND.in, streamId, sequence, payload: pcm16ToBytes(pcm16) }
+        // `encodeAudioFrame` allocates a plain `ArrayBuffer` (never a shared one).
+        bytes = encodeAudioFrame(frame) as Uint8Array<ArrayBuffer>
+      } catch (error) {
+        if (error instanceof RangeError) return { ok: false, reason: 'invalid' }
+        throw error
+      }
+      socket.send(bytes)
+      return { ok: true }
+    },
+    endAudio(streamId) {
+      if (!audioStreams.delete(streamId)) return false
+      return sendFrame('audio.end', { streamId })
     },
     async loadOlder() {
       const thread = state.thread

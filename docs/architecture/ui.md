@@ -70,12 +70,27 @@ The browser half of `@keith/web` (`plugins/web/app/`, a Node per [ADR-0011](../d
 | unknown type | the entry's `fallbackText` |
 
 Other rendering rules:
-- The app declares `chat.text@1` and `ui.render@1` in `hello` and keeps its session (token, `nodeId`) in `localStorage` through `@keith/client`'s `webStorageSessionStore`.
+- The app declares `chat.text@1` and `ui.render@1` in `hello`, plus `audio.in@1` and `audio.out@1` when the page can record and play audio (see [Voice in the web app](#voice-in-the-web-app-phase-3)). It keeps its session (token, `nodeId`) in `localStorage` through `@keith/client`'s `webStorageSessionStore`.
 - Blocks attach below their assistant message; floating blocks sit in the timeline where they arrived.
 - Assistant rows with no text, no blocks and no streaming (tool steps in `GET /v1/threads/:id/messages`) are not shown (`isHiddenEntry` in `@keith/client`, shared with the TUI).
 - Proactive messages carry a badge; tool activity shows as one line per tool call; the turn state shows above the input, with a Cancel button while a turn runs.
 - A lost connection shows a banner with the retry countdown and "Retry now". A rejected token (close `4003`) shows a sign-in form, then reconnects with the new token and keeps the thread.
 - shadcn/ui components live in `plugins/web/app/components/ui/` and are added with `bunx --bun shadcn@latest add <name>` run from `plugins/web/app/`, which holds `components.json` and a small `package.json` (name `@keith/web-app`, only the `#components/*`, `#lib/*`, `#hooks/*` import aliases the CLI needs). The CLI also installs the component's npm dependencies there: add them to `plugins/web/package.json` with `bun add` instead, and delete `app/node_modules` and `app/bun.lock` (both are gitignored).
+
+### Voice in the web app (phase 3)
+
+The browser only captures and plays raw audio; VAD, STT and TTS run in the core ([voice.md](voice.md), [ADR-0013](../decisions/0013-voice-v1-transport-and-providers.md)). Task P3-E1.
+
+| Part | How |
+|---|---|
+| Capabilities | `@keith/client` adds `audio.in@1` / `audio.out@1` to `hello` only when the app passes `audio: { input, output }` to `createChatClient` (`clientCapabilities`). The web app does so when the page has `AudioContext`, `AudioWorkletNode` and `getUserMedia` in a secure context (HTTPS or localhost; `lib/voice.ts`). The TUI never passes it, so it stays `chat.text@1` |
+| Mic (`lib/mic.ts`) | `getUserMedia({ audio: { echoCancellation, noiseSuppression, autoGainControl: true } })` → an AudioWorklet (loaded from a Blob URL) that posts the raw float samples in 20 ms batches → `Pcm16Encoder` (`lib/pcm.ts`: a box-filter downsampler to 16 kHz int16, then exact 320-sample chunks) |
+| Sending | `client.startAudio()` sends `audio.start` (`pcm16`, 16 000 Hz, a new bare-ULID stream id), `client.sendAudio(streamId, sequence, pcm16)` sends kind-1 binary frames (`encodeAudioFrame`), `client.endAudio(streamId)` sends `audio.end`. A lost connection forgets the stream; the next chunk starts a new one |
+| Modes (`components/chat/voice-controls.tsx`) | **Mic on/off**: open mic, one stream while it is on, and the core's VAD decides turns. **Hold to talk**: pressing stops Keith's audio and opens a stream, releasing sends `audio.end`. "Listening…" shows while the mic is on and `thread.state` is `listening` |
+| Playback | The client surfaces `audio.start` (core → node), kind-2 chunks, `audio.end` and `audio.stop` as `onAudio` events, plus `flush` when this node sends a typed input. `createPlaybackQueue` (`@keith/client`) plays each stream in `sequence` order, back to back, and stops at once on `audio.stop` or `flush`. The web app's sink (`lib/web-audio.ts`) plays each chunk as an `AudioBufferSourceNode` at the rate announced in `audio.start`, on an `AudioContext` created on first use and resumed on the mic click (autoplay policy). "Speaking" shows while audio plays |
+| Errors | A denied permission, a missing or busy mic, or an insecure page shows one inline line under the voice buttons (`micErrorMessage`). Text chat keeps working |
+
+Not built yet: Opus / WebCodecs (ADR-0013 follow-up), wake word, any VAD in the browser.
 
 ## Nodes without `ui.render@1` (the TUI)
 

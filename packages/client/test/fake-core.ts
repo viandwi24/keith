@@ -1,5 +1,10 @@
 import {
+  AUDIO_FRAME_KIND,
+  type AudioFrame,
+  type AudioStreamId,
   type CoreFrameType,
+  decodeAudioFrame,
+  encodeAudioFrame,
   type FrameData,
   LoginRequest,
   type MessageDto,
@@ -21,7 +26,8 @@ import type { Server, ServerWebSocket } from 'bun'
  * (`@keith/client`, the TUI, the web app): the HTTP API (`login`, `logout`, `me`, `threads`,
  * `messages` paging) and the `/v1/ws` socket with `hello`/`welcome`, `thread.open`/`thread.opened`,
  * a scripted streaming reply to `input.text` (optionally with tool activity and a UI block), pushed
- * proactive messages and `ui.render` frames. It listens on 127.0.0.1 with a random port and never
+ * proactive messages and `ui.render` frames, and audio (phase 3): it records the node's binary
+ * frames and can speak a stream of PCM16 chunks to `audio.out@1` sockets. It listens on 127.0.0.1 with a random port and never
  * touches the network. Test-only: it uses `Bun.serve`.
  */
 
@@ -53,6 +59,18 @@ export type FakeCoreOptions = {
   tickMs?: number
   /** Seeds the thread with this many history messages (alternating user and assistant). */
   history?: number
+  /** Answers requests outside `/v1` (e.g. a built web app's files). Default: 404. */
+  serve?: ((req: Request) => Response | Promise<Response>) | undefined
+}
+
+export type PushAudioOptions = {
+  /** PCM16 chunks, sent as kind-2 binary frames with sequence 0, 1, 2, … */
+  chunks: Int16Array[]
+  /** Announced in `audio.start`. Default 24 000. */
+  sampleRate?: number
+  messageId?: MessageId
+  /** Send `audio.end` after the last chunk. Default true. */
+  end?: boolean
 }
 
 export type FakeCore = {
@@ -65,6 +83,8 @@ export type FakeCore = {
   readonly received: NodeFrame[]
   /** Number of `hello`s received (one per connection). */
   readonly hellos: number
+  /** Every binary frame received that decoded, in order. */
+  readonly receivedAudio: AudioFrame[]
   readonly nodeId: `nod_${string}`
   /** Sends an unsolicited assistant message to every socket with the thread open (I-11). */
   pushProactive(text: string): Promise<void>
@@ -73,6 +93,15 @@ export type FakeCore = {
    * as the core does. Without `messageId` the block floats in the thread.
    */
   pushUi(block: UiBlock, opts?: { messageId?: MessageId; fallbackText?: string }): void
+  /**
+   * Speaks one stream to every socket with the thread open that declared `audio.out@1`:
+   * `audio.start`, the chunks as binary frames, then `audio.end`. Returns the stream id.
+   */
+  pushAudio(opts: PushAudioOptions): AudioStreamId
+  /** Sends `audio.stop` for a stream (barge-in) to the same sockets. */
+  stopAudio(streamId: AudioStreamId): void
+  /** Sets the thread's turn state and broadcasts `thread.state` (e.g. `listening` on VAD start). */
+  setTurnState(state: ThreadDto['state']): void
   /** Sends `ping` to every socket. Returns the frame ids. */
   ping(): string[]
   /** Invalidates every issued token (the next connect is closed with 4003). */
@@ -100,6 +129,7 @@ export function startFakeCore(opts: FakeCoreOptions = {}): FakeCore {
   }
   const messages: MessageDto[] = []
   const received: NodeFrame[] = []
+  const receivedAudio: AudioFrame[] = []
   const tokens = new Set<string>()
   const sockets = new Set<ServerWebSocket<SocketData>>()
   let counter = 100
@@ -140,6 +170,38 @@ export function startFakeCore(opts: FakeCoreOptions = {}): FakeCore {
       },
       'ui.render@1',
     )
+  }
+
+  const audioSockets = () =>
+    [...sockets].filter((ws) => ws.data.threadOpen && ws.data.capabilities.includes('audio.out@1'))
+
+  const pushAudio = (o: PushAudioOptions): AudioStreamId => {
+    const streamId = fakeId('msg', nextId()).slice('msg_'.length)
+    const messageId = o.messageId ?? fakeId('msg', nextId())
+    for (const ws of audioSockets()) {
+      send(ws, 'audio.start', {
+        threadId: thread.id,
+        messageId,
+        streamId,
+        codec: 'pcm16',
+        sampleRate: o.sampleRate ?? 24_000,
+      })
+      for (const [sequence, chunk] of o.chunks.entries()) {
+        const payload = new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength)
+        ws.send(encodeAudioFrame({ kind: AUDIO_FRAME_KIND.out, streamId, sequence, payload }))
+      }
+      if (o.end ?? true) send(ws, 'audio.end', { streamId })
+    }
+    return streamId
+  }
+
+  const onBinary = (ws: ServerWebSocket<SocketData>, raw: Uint8Array) => {
+    const result = decodeAudioFrame(raw)
+    if (!result.ok) {
+      send(ws, 'error', { code: 'INVALID_FRAME', message: result.message })
+      return
+    }
+    receivedAudio.push(result.frame)
   }
 
   const setState = (state: ThreadDto['state']) => {
@@ -298,6 +360,7 @@ export function startFakeCore(opts: FakeCoreOptions = {}): FakeCore {
           if (srv.upgrade(req, { data })) return undefined
           return new Response('upgrade failed', { status: 400 })
         }
+        if (!url.pathname.startsWith('/v1/') && opts.serve) return opts.serve(req)
         return api(req, url)
       },
       websocket: {
@@ -309,7 +372,11 @@ export function startFakeCore(opts: FakeCoreOptions = {}): FakeCore {
           sockets.add(ws)
         },
         message(ws, raw) {
-          const result = parseNodeFrame(typeof raw === 'string' ? raw : raw.toString())
+          if (typeof raw !== 'string') {
+            onBinary(ws, raw)
+            return
+          }
+          const result = parseNodeFrame(raw)
           if (!result.ok) {
             send(ws, 'error', {
               code: result.code === 'UNKNOWN_FRAME' ? 'UNKNOWN_FRAME' : 'INVALID_FRAME',
@@ -343,6 +410,12 @@ export function startFakeCore(opts: FakeCoreOptions = {}): FakeCore {
     get hellos() {
       return hellos
     },
+    receivedAudio,
+    pushAudio,
+    stopAudio(streamId) {
+      for (const ws of audioSockets()) send(ws, 'audio.stop', { streamId })
+    },
+    setTurnState: (state) => setState(state),
     nodeId,
     pushProactive: (text) => streamAssistant(text, true),
     pushUi: (block, o = {}) => renderUi(block, o.messageId, o.fallbackText),

@@ -10,6 +10,8 @@ import {
 import { cn } from 'cn'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useChat } from '../../hooks/use-chat.ts'
+import { useMic, usePlayback } from '../../hooks/use-voice.ts'
+import type { VoiceEnv } from '../../lib/voice.ts'
 import { type BlockEnv, BlockEnvContext } from '../blocks/block-context.tsx'
 import { type Credentials, LoginForm } from '../login-form.tsx'
 import { Alert, AlertDescription, AlertTitle } from '../ui/alert.tsx'
@@ -18,27 +20,42 @@ import { Button } from '../ui/button.tsx'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card.tsx'
 import { Composer } from './composer.tsx'
 import { EntryView, isHiddenEntry } from './entries.tsx'
+import { VoiceControls } from './voice-controls.tsx'
 
 const ACTION_ERRORS = {
   invalid: 'This button cannot be used.',
   offline: 'Not connected: the click was not sent.',
 } as const
 
-/** The main thread: history, streaming replies, tool lines, UI blocks, input, connection state. */
+/**
+ * The main thread: history, streaming replies, tool lines, UI blocks, input, voice, connection
+ * state.
+ */
 export function ChatScreen({
   baseUrl,
   auth,
   session,
   fetch,
+  voice,
   onSignedOut,
 }: {
   baseUrl: string
   auth: Auth
   session: StoredSession
   fetch?: Fetch | undefined
+  voice: VoiceEnv
   onSignedOut: () => void
 }) {
-  const { state, client } = useChat({ baseUrl, session, auth, fetch })
+  const playback = usePlayback(voice)
+  const { state, client } = useChat({
+    baseUrl,
+    session,
+    auth,
+    fetch,
+    audio: playback.support,
+    onAudio: playback.onAudio,
+  })
+  const mic = useMic({ client, env: voice, playback })
   const [token, setToken] = useState(session.token)
   const authRequired = state.connection.kind === 'auth-required'
 
@@ -109,6 +126,13 @@ export function ChatScreen({
 
         <footer className="flex flex-col gap-2 border-t px-4 py-3">
           <TurnIndicator state={state} />
+          <VoiceControls
+            mic={mic}
+            unavailable={voice.unavailable}
+            online={online}
+            listening={state.turnState === 'listening'}
+            playing={playback.playing}
+          />
           <Composer
             online={online}
             busy={state.turnState !== 'idle'}
