@@ -32,6 +32,7 @@ C5 and the mind side of D3 from [hardening-audit.md](hardening-audit.md).
 **In:**
 - When a delivery or briefing turn delivers items that carry `ui` (plugin deliveries, task results), the blocks are attached to that turn's assistant message: persisted as `ui` entries, sent as `ui.render` to `ui.render@1` nodes, with fallback text for the others, exactly like tool UI. Items are marked delivered with the message id.
 - Remove the 1 ms restamp (`inOrder`) now that storage orders by `seq`.
+- Pass the delivering message id into `repos.deliveries.markDelivered(ids, at, messageId)` from `scheduler/deliveries.ts` (P3-K2 note). Make `seq` set in `mind/testing/fakes.ts` and `scheduler/testing/fakes.ts` so read-back records match storage.
 
 **Out:** anything not listed; items owned by another hardening task.
 

@@ -4,8 +4,8 @@ title: "Hardening: single-instance lock and rotating log files"
 phase: 3
 wave: 6
 lane: H
-status: todo
-owner: null
+status: in-progress
+owner: agent-P3-H4
 depends: [P3-K2]
 owns:
   - packages/core/src/shared/logger.ts

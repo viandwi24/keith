@@ -4,8 +4,8 @@ title: "Hardening: TUI --logout and history scrollback"
 phase: 3
 wave: 6
 lane: H
-status: todo
-owner: null
+status: in-progress
+owner: agent-P3-H6
 depends: [P3-K2]
 owns:
   - apps/tui/**

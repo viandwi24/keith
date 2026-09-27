@@ -4,8 +4,8 @@ title: "Hardening: storage message seq and deliveries.message_id"
 phase: 3
 wave: 6
 lane: H
-status: todo
-owner: null
+status: in-progress
+owner: agent-P3-H3
 depends: [P3-K2]
 owns:
   - packages/core/src/storage/**
@@ -31,6 +31,7 @@ D3 and D4 from [hardening-audit.md](hardening-audit.md): messages get a per-thre
 - Every message query orders by `seq` (pages, `before` cursors, recent windows).
 - `deliveries.message_id` (nullable, FK to messages, set null on delete). `markDelivered(ids, at, messageId?)` stores it.
 - storage.md updated.
+- Replace storage.md's `(created_at, id)` ordering text with `seq`. Reading back always sets `seq` (the type is optional only because of fakes outside storage, per P3-K2).
 
 **Out:** anything not listed; items owned by another hardening task.
 

@@ -4,8 +4,8 @@ title: "Hardening: Mind fixes (tool events, flush guards, focus, history, cancel
 phase: 3
 wave: 6
 lane: H
-status: todo
-owner: null
+status: in-progress
+owner: agent-P3-H1
 depends: [P3-K2]
 owns:
   - packages/core/src/mind/**
@@ -37,6 +37,7 @@ Fix B1–B6 and the mind side of C2 from [hardening-audit.md](hardening-audit.md
 - B5: `open` honors `historyLimit` (1..200, default 50).
 - B6: `MindThreadManager.cancelAll(): Promise<void>` aborts every running turn and resolves when they persisted. (Bootstrap switches to it in P3-I3.)
 - C2: a turn that fails because the provider answered `rate_limited` (after the retries) raises `KeithError('RATE_LIMITED')` instead of `PROVIDER_ERROR`.
+- Update core.md's provider-error prose for the `RATE_LIMITED` split (P3-K2 note).
 
 **Out:** anything not listed; items owned by another hardening task.
 
