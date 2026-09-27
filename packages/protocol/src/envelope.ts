@@ -58,6 +58,30 @@ export function makeFrame<T extends FrameType>(
   return (opts.re === undefined ? frame : { ...frame, re: opts.re }) as unknown as FrameOf<T>
 }
 
+export type CoreFrameOf<T extends CoreFrame['type']> = Extract<CoreFrame, { type: T }>
+export type NodeFrameOf<T extends NodeFrame['type']> = Extract<NodeFrame, { type: T }>
+
+/**
+ * `makeFrame` for one direction. Needed for the types both directions share (`audio.start`,
+ * `audio.end`), where `makeFrame` can only return the union of the two frames.
+ */
+export function makeCoreFrame<T extends CoreFrame['type']>(
+  type: T,
+  data: CoreFrameOf<T>['data'],
+  opts: MakeFrameOptions,
+): CoreFrameOf<T> {
+  return makeFrame(type, data as FrameData<T>, opts) as unknown as CoreFrameOf<T>
+}
+
+/** `makeFrame` for frames a node sends. See `makeCoreFrame`. */
+export function makeNodeFrame<T extends NodeFrame['type']>(
+  type: T,
+  data: NodeFrameOf<T>['data'],
+  opts: MakeFrameOptions,
+): NodeFrameOf<T> {
+  return makeFrame(type, data as FrameData<T>, opts) as unknown as NodeFrameOf<T>
+}
+
 /** Why a frame was rejected. `UNSUPPORTED_PROTOCOL` maps to WS close code 4009, the others to an `error` frame. */
 export type FrameParseErrorCode = 'INVALID_FRAME' | 'UNKNOWN_FRAME' | 'UNSUPPORTED_PROTOCOL'
 

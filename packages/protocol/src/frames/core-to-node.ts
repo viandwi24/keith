@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { AudioCodec, AudioStreamId, SampleRate } from '../audio.ts'
 import { MessageDto, PersonDto, PROTOCOL_VERSION, ThreadDto, TurnState } from '../dto.ts'
 import { type FrameParseResult, frameSchema, parseFrameWith } from '../envelope.ts'
 import { ErrorCode } from '../errors.ts'
@@ -87,7 +88,31 @@ export type ErrorFrame = z.infer<typeof ErrorFrame>
 export const PingFrame = frameSchema('ping', z.object({}))
 export type PingFrame = z.infer<typeof PingFrame>
 
-/** Every frame the core may send to a node (phases 1–2). */
+/**
+ * Phase 3: the core starts speaking an assistant message on this node. Chunks follow as binary
+ * frames of kind 2. Same type name as the node's `audio.start`, different direction and payload.
+ */
+export const AudioOutStartFrame = frameSchema(
+  'audio.start',
+  z.object({
+    threadId: ThreadId,
+    messageId: MessageId,
+    streamId: AudioStreamId,
+    codec: AudioCodec,
+    sampleRate: SampleRate,
+  }),
+)
+export type AudioOutStartFrame = z.infer<typeof AudioOutStartFrame>
+
+/** Phase 3: every chunk of the stream was sent. The node plays what it has queued, then stops. */
+export const AudioOutEndFrame = frameSchema('audio.end', z.object({ streamId: AudioStreamId }))
+export type AudioOutEndFrame = z.infer<typeof AudioOutEndFrame>
+
+/** Phase 3: barge-in or cancel. The node stops playback now and drops queued chunks of the stream. */
+export const AudioStopFrame = frameSchema('audio.stop', z.object({ streamId: AudioStreamId }))
+export type AudioStopFrame = z.infer<typeof AudioStopFrame>
+
+/** Every frame the core may send to a node (phases 1–3). */
 export const CoreFrame = z.discriminatedUnion('type', [
   WelcomeFrame,
   ThreadOpenedFrame,
@@ -101,6 +126,9 @@ export const CoreFrame = z.discriminatedUnion('type', [
   NoticeFrame,
   ErrorFrame,
   PingFrame,
+  AudioOutStartFrame,
+  AudioOutEndFrame,
+  AudioStopFrame,
 ])
 export type CoreFrame = z.infer<typeof CoreFrame>
 export type CoreFrameType = CoreFrame['type']
@@ -118,6 +146,9 @@ export const CORE_FRAME_SCHEMAS = {
   notice: NoticeFrame,
   error: ErrorFrame,
   ping: PingFrame,
+  'audio.start': AudioOutStartFrame,
+  'audio.end': AudioOutEndFrame,
+  'audio.stop': AudioStopFrame,
 } as const satisfies Record<CoreFrameType, z.ZodType>
 
 export const CORE_FRAME_TYPES = Object.keys(CORE_FRAME_SCHEMAS) as CoreFrameType[]

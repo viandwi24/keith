@@ -49,7 +49,14 @@ export const MessageDto = z.object({
   /** UI blocks attached to this message. */
   ui: z.array(UiBlock).optional(),
   createdAt: Timestamp,
-  meta: z.object({ cancelled: z.boolean().optional(), proactive: z.boolean().optional() }).optional(),
+  meta: z
+    .object({
+      cancelled: z.boolean().optional(),
+      proactive: z.boolean().optional(),
+      /** Phase 3: a spoken reply cut by barge-in; `content` holds only this many characters. */
+      spokenChars: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
 })
 export type MessageDto = z.infer<typeof MessageDto>
 
