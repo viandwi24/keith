@@ -1,6 +1,6 @@
 # ADR-0014: Reflection writes conservative inferred memories; thread summaries run on their own
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-09-27
 - **Rules/invariants affected:** I-3, I-4, I-5, R-6
 

@@ -19,7 +19,7 @@ One decision per file. Accepted ADRs are never edited except for their status li
 | [0011](0011-client-app-browser-side.md) | The browser side of a client-app plugin follows the app rules | accepted |
 | [0012](0012-web-bundler.md) | Bun's HTML bundler for the web app | accepted |
 | [0013](0013-voice-v1-transport-and-providers.md) | Voice v1: PCM16 on the wire, energy VAD, OpenAI-compatible STT/TTS | accepted |
-| [0014](0014-reflection-writes-conservative-inferred-memories.md) | Reflection writes conservative inferred memories; thread summaries run on their own | proposed |
+| [0014](0014-reflection-writes-conservative-inferred-memories.md) | Reflection writes conservative inferred memories; thread summaries run on their own | accepted |
 
 ## Writing an ADR
 
