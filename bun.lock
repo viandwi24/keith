@@ -100,6 +100,30 @@
         "zod": "^4.6.5",
       },
     },
+    "plugins/voice-groq": {
+      "name": "@keith/voice-groq",
+      "version": "0.0.0",
+      "dependencies": {
+        "@keith/sdk": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
+    "plugins/voice-openai": {
+      "name": "@keith/voice-openai",
+      "version": "0.0.0",
+      "dependencies": {
+        "@keith/sdk": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
+    "plugins/voice-speaches": {
+      "name": "@keith/voice-speaches",
+      "version": "0.0.0",
+      "dependencies": {
+        "@keith/sdk": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "plugins/web": {
       "name": "@keith/web",
       "version": "0.0.0",
@@ -309,6 +333,12 @@
     "@keith/tui": ["@keith/tui@workspace:apps/tui"],
 
     "@keith/vad-energy": ["@keith/vad-energy@workspace:plugins/vad-energy"],
+
+    "@keith/voice-groq": ["@keith/voice-groq@workspace:plugins/voice-groq"],
+
+    "@keith/voice-openai": ["@keith/voice-openai@workspace:plugins/voice-openai"],
+
+    "@keith/voice-speaches": ["@keith/voice-speaches@workspace:plugins/voice-speaches"],
 
     "@keith/web": ["@keith/web@workspace:plugins/web"],
 

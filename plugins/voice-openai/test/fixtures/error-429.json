@@ -1,0 +1,12 @@
+{
+  "_fixture": "synthetic, built by hand from https://platform.openai.com/docs/guides/error-codes (2026-09-27); re-record from the real API",
+  "status": 429,
+  "body": {
+    "error": {
+      "message": "Rate limit reached for gpt-4o-mini-tts in organization org-**** on requests per min (RPM). Please try again in 1s.",
+      "type": "requests",
+      "param": null,
+      "code": "rate_limit_exceeded"
+    }
+  }
+}

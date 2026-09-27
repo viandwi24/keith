@@ -1,0 +1,8 @@
+{
+  "_fixture": "synthetic, built by hand from https://console.groq.com/docs/speech-to-text (response_format json, 2026-09-27); re-record from the real API",
+  "status": 200,
+  "body": {
+    "text": " What's the weather like in Lisbon tomorrow?",
+    "x_groq": { "id": "req_01k0000000000000000000000" }
+  }
+}

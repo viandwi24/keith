@@ -1,0 +1,7 @@
+{
+  "_fixture": "synthetic, the FastAPI error shape speaches returns for an unknown model (2026-09-27); re-record from a real speaches server",
+  "status": 404,
+  "body": {
+    "detail": "Model 'speaches-ai/unknown' is not installed locally. You can download the model using `POST /v1/models`"
+  }
+}
