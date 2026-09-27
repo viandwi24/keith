@@ -16,6 +16,8 @@ import type {
   Modality,
   NodeId,
   PersonId,
+  Reminder,
+  ReminderId,
   Task,
   TaskId,
   TaskStatus,
@@ -106,10 +108,21 @@ export interface ThreadRecord {
   slug: string | null
   title: string
   ownerPersonId: PersonId | null
-  /** Rolling summary (phase 4). */
+  /** Rolling summary (phase 4), written by `setSummary`. */
   summary: string | null
   createdAt: number
   updatedAt: number
+  /**
+   * Phase 4: the last message `seq` that `summary` covers; null = no summary yet. Set on every
+   * record `get`, `getBySlug` and `listForPerson` return. Optional only so existing record
+   * literals (and `create` input) compile without it; `create` stores it as given (absent = null).
+   */
+  summaryThroughSeq?: number | null | undefined
+  /**
+   * Phase 4: the last message `seq` that reflection has read; null = never reflected. Same rules
+   * as `summaryThroughSeq`.
+   */
+  reflectedThroughSeq?: number | null | undefined
 }
 
 export interface ThreadParticipantRecord {
@@ -129,6 +142,26 @@ export interface ThreadsRepository {
   /** Current participants (left_at is null). */
   participants(threadId: ThreadId): Promise<ThreadParticipantRecord[]>
   touch(id: ThreadId, updatedAt: number): Promise<void>
+  /**
+   * Phase 4: stores the rolling summary and the last message `seq` it covers
+   * (`summaryThroughSeq`). Does not touch `updated_at`. A missing thread is a no-op.
+   */
+  setSummary(id: ThreadId, s: { summary: string; throughSeq: number }): Promise<void>
+  /**
+   * Phase 4: moves the reflection cursor (`reflectedThroughSeq`) to `seq`. Does not touch
+   * `updated_at`. A missing thread is a no-op.
+   */
+  setReflectedThrough(id: ThreadId, seq: number): Promise<void>
+  /**
+   * Phase 4: threads that are due for reflection: `updated_at ≤ idleBefore` and at least one
+   * message whose `seq` is greater than the reflection cursor (null counts as 0). Oldest
+   * `updated_at` first (ties by id), at most `limit`. `lastSeq` is the thread's highest message
+   * `seq`.
+   */
+  listForReflection(q: {
+    idleBefore: number
+    limit: number
+  }): Promise<{ thread: ThreadRecord; lastSeq: number }[]>
 }
 
 // messages (docs/architecture/storage.md#messages-and-tool-calls)
@@ -198,6 +231,19 @@ export interface MessagesRepository {
     limit: number
     roles?: MessageRecord['role'][] | undefined
   }): Promise<MessagePage>
+  /**
+   * Phase 4: the first `limit` messages with `seq > afterSeq`, ascending by `seq`, each with its
+   * `seq` set. `roles` (default: all roles) filters the rows before the limit applies, so rows of
+   * other roles are skipped without counting.
+   */
+  range(q: {
+    threadId: ThreadId
+    afterSeq: number
+    limit: number
+    roles?: MessageRecord['role'][] | undefined
+  }): Promise<MessageRecord[]>
+  /** Phase 4: the thread's highest message `seq`, all roles; 0 when the thread has no messages. */
+  lastSeq(threadId: ThreadId): Promise<number>
 }
 
 // tasks, commitments, deliveries
@@ -242,6 +288,33 @@ export interface DeliveriesRepository {
   pendingFor(threadId: ThreadId): Promise<Delivery[]>
   /** Only changes `pending` rows. `messageId`: the message that delivered them, stored on each. */
   markDelivered(ids: DeliveryId[], deliveredAt: number, messageId?: MessageId | undefined): Promise<void>
+}
+
+// reminders (phase 4)
+
+export interface RemindersRepository {
+  /** Stores the reminder as given (normally `pending`, with null `firedAt`/`cancelledAt`/`deliveryId`). */
+  create(r: Reminder): Promise<void>
+  get(id: ReminderId): Promise<Reminder | null>
+  /**
+   * `pending` reminders with `dueAt ≤ now`, soonest first (ties by id). `limit` caps the result;
+   * omitted = all.
+   */
+  listDue(now: number, limit?: number | undefined): Promise<Reminder[]>
+  /** The person's `pending` reminders, soonest first (ties by id). */
+  listPending(personId: PersonId): Promise<Reminder[]>
+  /** How many `pending` reminders the person has. */
+  countPending(personId: PersonId): Promise<number>
+  /**
+   * Sets `status = 'fired'`, `firedAt = at` and `deliveryId`, only if the reminder is `pending`.
+   * Returns whether a row changed (false: unknown id, or already fired or cancelled).
+   */
+  markFired(id: ReminderId, at: number, deliveryId: DeliveryId): Promise<boolean>
+  /**
+   * Sets `status = 'cancelled'` and `cancelledAt = at`, only if the reminder is `pending`.
+   * Returns whether a row changed (false: unknown id, or already fired or cancelled).
+   */
+  cancel(id: ReminderId, at: number): Promise<boolean>
 }
 
 // memories + memories_fts (docs/architecture/storage.md#memory-search-filter)
@@ -318,6 +391,8 @@ export interface Repositories {
   memories: MemoriesRepository
   pluginData: PluginDataRepository
   files: FilesRepository
+  /** Phase 4. */
+  reminders: RemindersRepository
 }
 
 /** An open database. Used only by bootstrap (and test helpers); everything else gets `Repositories`. */

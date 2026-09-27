@@ -171,6 +171,18 @@ export function createFakeRepos(): FakeRepos {
         const t = data.threads.get(id)
         if (t) t.updatedAt = updatedAt
       },
+      async setSummary(id, s) {
+        const t = data.threads.get(id)
+        if (t) data.threads.set(id, { ...t, summary: s.summary, summaryThroughSeq: s.throughSeq })
+      },
+      async setReflectedThrough(id, seq) {
+        const t = data.threads.get(id)
+        if (t) data.threads.set(id, { ...t, reflectedThroughSeq: seq })
+      },
+      // The server never reflects; nothing is due.
+      async listForReflection() {
+        return []
+      },
     },
     messages: {
       async append(m) {
@@ -190,6 +202,19 @@ export function createFakeRepos(): FakeRepos {
         }
         const page = list.slice(-q.limit)
         return { messages: page, hasMore: list.length > page.length }
+      },
+      // This fake stores no `seq`: a message's seq is its 1-based position in its thread.
+      async range(q) {
+        const roles = q.roles ?? ['user', 'assistant', 'tool']
+        return data.messages
+          .filter((m) => m.threadId === q.threadId)
+          .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
+          .map((m, i) => ({ ...m, seq: i + 1 }))
+          .filter((m) => m.seq > q.afterSeq && roles.includes(m.role))
+          .slice(0, Math.max(0, q.limit))
+      },
+      async lastSeq(threadId) {
+        return data.messages.filter((m) => m.threadId === threadId).length
       },
     },
     files: {
@@ -397,8 +422,13 @@ export function testConfig(overrides: { awayAfterMinutes?: number } = {}): Keith
         graceMs: 1_500,
       },
       context: { recentMessages: 30 },
+      reminder: { maxPerPerson: 50 },
     },
-    memory: { coreMaxChars: 2_000 },
+    memory: {
+      coreMaxChars: 2_000,
+      reflect: { enabled: true, idleMinutes: 20, maxMessages: 200, cardMaxChars: 1_000 },
+      summary: { enabled: true, minMessages: 20, maxChars: 2_000 },
+    },
     scheduler: { foreground: 4, delivery: 2, background: 2, tickMs: 30_000 },
     models: { foreground: 'fake:model', background: 'fake:model', utility: 'fake:model' },
     auth: { tokenTtlDays: 30 },

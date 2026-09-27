@@ -31,8 +31,35 @@ export interface KeithConfig {
       graceMs: number
     }
     context: { recentMessages: number }
+    /** Phase 4: `[mind.reminder]`. */
+    reminder: {
+      /** Pending reminders per person. Default 50. */
+      maxPerPerson: number
+    }
   }
-  memory: { coreMaxChars: number }
+  memory: {
+    coreMaxChars: number
+    /** Phase 4: `[memory.reflect]`, the reflection job (ADR-0014). */
+    reflect: {
+      /** Default true. */
+      enabled: boolean
+      /** A thread is reflected after this long without a stored message. Fractional allowed. Default 20. */
+      idleMinutes: number
+      /** Messages read per pass; more wait for the next pass. Default 200. */
+      maxMessages: number
+      /** Cap on `relationships.notes` written by reflection. Default 1000. */
+      cardMaxChars: number
+    }
+    /** Phase 4: `[memory.summary]`, the thread summary job (ADR-0014). */
+    summary: {
+      /** Default true. */
+      enabled: boolean
+      /** Rows out of the recent-messages window before the summary is updated. Default 20. */
+      minMessages: number
+      /** Cap on `threads.summary`. Default 2000. */
+      maxChars: number
+    }
+  }
   scheduler: { foreground: number; delivery: number; background: number; tickMs: number }
   models: Record<ModelRole, ModelRef>
   auth: { tokenTtlDays: number }

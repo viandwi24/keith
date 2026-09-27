@@ -142,6 +142,13 @@ export type RegisteredSkill = { skill: Skill; pluginId: string | null }
 export interface CoreSkillRegistry extends PluginScoped<SkillRegistry> {
   get(name: string): RegisteredSkill | undefined
   list(): RegisteredSkill[]
+  /**
+   * Phase 4: registers a core **default** skill (owner `core`, `pluginId` null). A plugin that
+   * registers a skill with the same name replaces the default instead of failing with
+   * `TOOL_NAME_TAKEN`, and `removeByPlugin` brings the default back. Registering a default twice
+   * with the same name throws `TOOL_NAME_TAKEN`. The name pattern applies as for plugins.
+   */
+  registerDefault(skill: Skill): void
 }
 
 export interface CoreAgentRegistry extends PluginScoped<AgentRegistry> {

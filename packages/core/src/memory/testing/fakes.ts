@@ -196,6 +196,27 @@ export class FakeThreadsRepository implements ThreadsRepository {
     const t = this.rows.get(id)
     if (t) t.updatedAt = updatedAt
   }
+  /** Fixture: each thread's highest message `seq` (this fake stores no messages). */
+  readonly lastSeqs = new Map<ThreadId, number>()
+  async setSummary(id: ThreadId, s: { summary: string; throughSeq: number }): Promise<void> {
+    const t = this.rows.get(id)
+    if (t) this.rows.set(id, { ...t, summary: s.summary, summaryThroughSeq: s.throughSeq })
+  }
+  async setReflectedThrough(id: ThreadId, seq: number): Promise<void> {
+    const t = this.rows.get(id)
+    if (t) this.rows.set(id, { ...t, reflectedThroughSeq: seq })
+  }
+  async listForReflection(q: {
+    idleBefore: number
+    limit: number
+  }): Promise<{ thread: ThreadRecord; lastSeq: number }[]> {
+    return [...this.rows.values()]
+      .map((thread) => ({ thread, lastSeq: this.lastSeqs.get(thread.id) ?? 0 }))
+      .filter((r) => r.thread.updatedAt <= q.idleBefore && r.lastSeq > (r.thread.reflectedThroughSeq ?? 0))
+      .sort((a, b) => a.thread.updatedAt - b.thread.updatedAt || a.thread.id.localeCompare(b.thread.id))
+      .slice(0, q.limit)
+      .map((r) => ({ thread: { ...r.thread }, lastSeq: r.lastSeq }))
+  }
 }
 
 export class FakeTasksRepository implements TasksRepository {

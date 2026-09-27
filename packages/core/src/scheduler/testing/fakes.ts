@@ -13,6 +13,7 @@ import type {
   IdPrefix,
   Ids,
   PersonId,
+  Reminder,
   Task,
   ThreadId,
   Tier,
@@ -26,6 +27,7 @@ import type {
   PersonsRepository,
   RelationshipRecord,
   RelationshipsRepository,
+  RemindersRepository,
   Repositories,
   TasksRepository,
   ThreadParticipantRecord,
@@ -50,8 +52,13 @@ export function createTestConfig(
       commitment: { ttlMs: overrides.commitmentTtlMs ?? 604_800_000 },
       arrival: { awayAfterMinutes: 30, briefing: 'on-greeting', holdMs: 120_000, graceMs: 1_500 },
       context: { recentMessages: 40 },
+      reminder: { maxPerPerson: 50 },
     },
-    memory: { coreMaxChars: 4000 },
+    memory: {
+      coreMaxChars: 4000,
+      reflect: { enabled: true, idleMinutes: 20, maxMessages: 200, cardMaxChars: 1_000 },
+      summary: { enabled: true, minMessages: 20, maxChars: 2_000 },
+    },
     scheduler: { foreground: 4, delivery: 2, background: 2, tickMs: 30_000, ...overrides.scheduler },
     models: { foreground: 'fake:fg', background: 'fake:bg', utility: 'fake:util' },
     auth: { tokenTtlDays: 30 },
@@ -125,11 +132,55 @@ const URGENCY_RANK: Record<Urgency, number> = { critical: 0, high: 1, normal: 2,
 
 export type FakeRepos = Pick<
   Repositories,
-  'tasks' | 'commitments' | 'deliveries' | 'threads' | 'persons' | 'relationships'
+  'tasks' | 'commitments' | 'deliveries' | 'threads' | 'persons' | 'relationships' | 'reminders'
 > & {
   readonly taskRows: Map<string, Task>
   readonly commitmentRows: Map<string, Commitment>
   readonly deliveryRows: Map<string, DeliveryRecord>
+  readonly reminderRows: Map<string, Reminder>
+}
+
+const byDue = (a: Reminder, b: Reminder) => a.dueAt - b.dueAt || a.id.localeCompare(b.id)
+
+/** The `RemindersRepository` contract from storage/types.ts, in memory. */
+export function createFakeRemindersRepository(rows = new Map<string, Reminder>()): RemindersRepository {
+  return {
+    async create(r) {
+      rows.set(r.id, { ...r })
+    },
+    async get(id) {
+      const r = rows.get(id)
+      return r ? { ...r } : null
+    },
+    async listDue(now, limit) {
+      return [...rows.values()]
+        .filter((r) => r.status === 'pending' && r.dueAt <= now)
+        .sort(byDue)
+        .slice(0, limit ?? Number.POSITIVE_INFINITY)
+        .map((r) => ({ ...r }))
+    },
+    async listPending(personId) {
+      return [...rows.values()]
+        .filter((r) => r.personId === personId && r.status === 'pending')
+        .sort(byDue)
+        .map((r) => ({ ...r }))
+    },
+    async countPending(personId) {
+      return [...rows.values()].filter((r) => r.personId === personId && r.status === 'pending').length
+    },
+    async markFired(id, at, deliveryId) {
+      const r = rows.get(id)
+      if (r?.status !== 'pending') return false
+      rows.set(id, { ...r, status: 'fired', firedAt: at, deliveryId })
+      return true
+    },
+    async cancel(id, at) {
+      const r = rows.get(id)
+      if (r?.status !== 'pending') return false
+      rows.set(id, { ...r, status: 'cancelled', cancelledAt: at })
+      return true
+    },
+  }
 }
 
 export function createFakeRepos(): FakeRepos {
@@ -140,6 +191,7 @@ export function createFakeRepos(): FakeRepos {
   const participantRows: ThreadParticipantRecord[] = []
   const personRows = new Map<string, PersonRecord>()
   const relationshipRows = new Map<string, RelationshipRecord>()
+  const reminderRows = new Map<string, Reminder>()
 
   const tasks: TasksRepository = {
     async create(t) {
@@ -242,6 +294,18 @@ export function createFakeRepos(): FakeRepos {
       const t = threadRows.get(id)
       if (t) threadRows.set(id, { ...t, updatedAt })
     },
+    async setSummary(id, s) {
+      const t = threadRows.get(id)
+      if (t) threadRows.set(id, { ...t, summary: s.summary, summaryThroughSeq: s.throughSeq })
+    },
+    async setReflectedThrough(id, seq) {
+      const t = threadRows.get(id)
+      if (t) threadRows.set(id, { ...t, reflectedThroughSeq: seq })
+    },
+    // These fakes store no messages, so no thread is ever due for reflection.
+    async listForReflection() {
+      return []
+    },
   }
 
   const persons: PersonsRepository = {
@@ -285,9 +349,11 @@ export function createFakeRepos(): FakeRepos {
     threads,
     persons,
     relationships,
+    reminders: createFakeRemindersRepository(reminderRows),
     taskRows,
     commitmentRows,
     deliveryRows,
+    reminderRows,
   }
 }
 
