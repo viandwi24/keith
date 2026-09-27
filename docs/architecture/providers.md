@@ -89,11 +89,19 @@ See [voice.md](voice.md). The core runs the voice pipeline, so provider choice i
 
 The Groq, OpenAI and speaches services all speak the OpenAI audio API, so `@keith/sdk` has `createOpenAICompatibleStt` and `createOpenAICompatibleTts` (contract: [providers.md](../contracts/providers.md#openai-compatible-audio); code: `packages/sdk/src/providers/openai-audio.ts`). Each voice plugin is a thin configuration of them, like the LLM plugins:
 
-| Plugin | Registers | Default base URL |
-|---|---|---|
-| `@keith/voice-groq` | STT `groq` | `https://api.groq.com/openai/v1` |
-| `@keith/voice-openai` | TTS `openai` | `https://api.openai.com/v1` |
-| `@keith/voice-speaches` | STT and TTS `speaches` | `http://127.0.0.1:8000/v1` |
-| `@keith/vad-energy` | VAD `energy` | none (in process) |
+| Plugin | Namespace | Registers | Default base URL | Config (`[plugins."<id>"]`) |
+|---|---|---|---|---|
+| `@keith/voice-groq` | `voice_groq` | STT `groq` | `https://api.groq.com/openai/v1` | `apiKey` (required), `baseUrl`, `model` (`whisper-large-v3-turbo`) |
+| `@keith/voice-openai` | `voice_openai` | TTS `openai` | `https://api.openai.com/v1` | `apiKey` (required), `baseUrl`, `model` (`gpt-4o-mini-tts`), `voice` (`alloy`) |
+| `@keith/voice-speaches` | `speaches` | STT and TTS `speaches` | `http://127.0.0.1:8000/v1` | `apiKey` (optional), `baseUrl`, `sttModel`, `ttsModel`, `voice`, `sampleRate` (24000) |
+| `@keith/vad-energy` | | VAD `energy` | none (in process) | |
 
-> Planned (phase 3): the helpers' bodies (P3-B1; today they throw "not implemented"), the three voice plugins (P3-B1) and `@keith/vad-energy` (P3-D1).
+The Groq and OpenAI plugins use `voice_*` namespaces so that `groq` and `openai` stay free for LLM plugins of the same vendors. speaches' model and voice ids change between releases, so their defaults (`Systran/faster-whisper-small`, `speaches-ai/Kokoro-82M-v1.0-ONNX`, `af_heart`) live only in the plugin's config schema.
+
+How the helpers behave, beyond the contract:
+
+- **STT** sends the utterance as `audio.wav` (a 44-byte PCM WAV header at the chunk's `sampleRate`) and trims the returned text. Audio that isn't `pcm16` is refused with `ProviderError('bad_request')` before any request.
+- **TTS** skips empty or whitespace-only text pieces (every vendor rejects an empty `input`). When a body read ends mid-sample, the odd byte is carried to the next chunk, so every `AudioChunk` holds whole samples; a trailing half sample at the end of a body is dropped.
+- Both omit the `authorization` header when no `apiKey` is set, and race every await (request, body read, next text piece) against the call's `signal`, so an abort ends with `ProviderError('aborted')` even if the vendor or the text source stalls. Aborting or leaving the TTS iterator early cancels the body reader and closes the request.
+
+> Planned (phase 3): `@keith/vad-energy` (P3-D1).
