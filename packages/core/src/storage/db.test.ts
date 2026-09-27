@@ -5,10 +5,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
-import type { DeliveryId, MessageId, ThreadId } from '../shared/types.ts'
+import type { DeliveryId, MessageId, PersonId, ThreadId } from '../shared/types.ts'
 import { MIGRATIONS_FOLDER, openDb } from './db.ts'
 import { person, testId, thread } from './fixtures.ts'
 import { createTestDb } from './testing.ts'
+import type { ThreadRecord } from './types.ts'
 
 let dirs: string[] = []
 
@@ -59,6 +60,7 @@ describe('openDb', () => {
       'memories_fts',
       'plugin_data',
       'files',
+      'reminders',
       'memories_fts_insert',
       'memories_fts_update',
       'memories_fts_delete',
@@ -142,6 +144,56 @@ describe('openDb', () => {
     })
     expect((await db.repos.messages.get('msg_f' as MessageId))?.seq).toBe(5)
     db.close()
+  })
+
+  test('P4-S1: a phase-3 database migrates to the phase-4 schema; existing threads have null cursors', async () => {
+    // A database migrated with every migration up to the end of phase 3.
+    const dir = tempDir()
+    const oldMigrations = join(dir, 'migrations')
+    const phase3 = readdirSync(MIGRATIONS_FOLDER, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && e.name <= '20260927045314_delivery-message-id')
+      .map((e) => e.name)
+    expect(phase3).toHaveLength(7)
+    for (const name of phase3)
+      cpSync(join(MIGRATIONS_FOLDER, name), join(oldMigrations, name), { recursive: true })
+    const path = join(dir, 'keith.db')
+    const raw = new Database(path, { create: true, strict: true })
+    migrate(drizzle({ client: raw }), { migrationsFolder: oldMigrations })
+    raw.run("insert into persons (id, name, tier, created_at) values ('per_1', 'P', 'owner', 1)")
+    raw.run(
+      `insert into threads (id, kind, slug, title, owner_person_id, summary, created_at, updated_at)
+       values ('thr_a', 'direct', 'main', 'T', 'per_1', 'old summary', 1, 2)`,
+    )
+    raw.run("insert into thread_participants (thread_id, person_id, joined_at) values ('thr_a', 'per_1', 1)")
+    raw.run(
+      "insert into messages (id, thread_id, role, modality, content, seq, created_at) values ('msg_a', 'thr_a', 'user', 'text', 'x', 1, 1)",
+    )
+    raw.close()
+
+    const db = openDb(path)
+    const threadId = 'thr_a' as ThreadId
+    const expected: ThreadRecord = {
+      id: threadId,
+      kind: 'direct',
+      slug: 'main',
+      title: 'T',
+      ownerPersonId: 'per_1' as PersonId,
+      summary: 'old summary',
+      createdAt: 1,
+      updatedAt: 2,
+      summaryThroughSeq: null,
+      reflectedThroughSeq: null,
+    }
+    expect(await db.repos.threads.get(threadId)).toEqual(expected)
+    // The null reflection cursor counts as 0, so the old thread is due.
+    expect(await db.repos.threads.listForReflection({ idleBefore: 10, limit: 5 })).toEqual([
+      { thread: expected, lastSeq: 1 },
+    ])
+    expect(await db.repos.reminders.countPending('per_1' as PersonId)).toBe(0)
+    db.close()
+    expect(migrationCount(path)).toBe(
+      readdirSync(MIGRATIONS_FOLDER, { withFileTypes: true }).filter((e) => e.isDirectory()).length,
+    )
   })
 
   test('deleting a message clears deliveries.message_id (on delete set null)', async () => {

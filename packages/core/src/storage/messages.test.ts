@@ -2,7 +2,7 @@ import { Database } from 'bun:sqlite'
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { isKeithError, type LlmMessage } from '@keith/sdk'
 import type { MessageId } from '../shared/types.ts'
-import { seed, testId, thread } from './fixtures.ts'
+import { person, seed, testId, thread } from './fixtures.ts'
 import { createTestDb, type TestDb } from './testing.ts'
 import type { AssistantMessageRecord, MessageRecord, ToolMessageRecord, UserMessageRecord } from './types.ts'
 
@@ -206,5 +206,55 @@ describe('messages', () => {
       error = e
     }
     expect(isKeithError(error, 'STORAGE_CORRUPT')).toBe(true)
+  })
+})
+
+describe('messages.range and lastSeq (phase 4)', () => {
+  test('lastSeq is 0 for an empty thread, then the highest seq of any role', async () => {
+    expect(await db.repos.messages.lastSeq(threadId)).toBe(0)
+    expect(await db.repos.messages.lastSeq(testId('thr', 99))).toBe(0)
+    for (const m of [userMessage(1, 10), assistant, tool]) await db.repos.messages.append(m)
+    expect(await db.repos.messages.lastSeq(threadId)).toBe(3)
+  })
+
+  test('range returns rows after afterSeq in seq order, capped by limit, built like page', async () => {
+    for (const [i, t] of [50, 40, 30, 20, 10].entries()) await db.repos.messages.append(userMessage(i + 1, t))
+    const range = await db.repos.messages.range({ threadId, afterSeq: 1, limit: 3 })
+    expect(range.map((m) => [m.id, m.seq])).toEqual([
+      [testId('msg', 2), 2],
+      [testId('msg', 3), 3],
+      [testId('msg', 4), 4],
+    ])
+    const page = await db.repos.messages.page({ threadId, limit: 5 })
+    expect(range).toEqual(page.messages.slice(1, 4))
+    expect(await db.repos.messages.range({ threadId, afterSeq: 5, limit: 3 })).toEqual([])
+    expect(await db.repos.messages.range({ threadId, afterSeq: 0, limit: 0 })).toEqual([])
+  })
+
+  test('range filters by roles before the limit applies', async () => {
+    for (const m of [userMessage(1, 10), assistant, tool, userMessage(4, 30), userMessage(5, 40)])
+      await db.repos.messages.append(m)
+    const range = await db.repos.messages.range({
+      threadId,
+      afterSeq: 1,
+      limit: 2,
+      roles: ['user', 'assistant'],
+    })
+    expect(range.map((m) => [m.role, m.seq])).toEqual([
+      ['assistant', 2],
+      ['user', 4],
+    ])
+    expect(range[0]).toEqual({ ...assistant, seq: 2 })
+    expect(await db.repos.messages.range({ threadId, afterSeq: 0, limit: 5, roles: [] })).toEqual([])
+  })
+
+  test('range stays inside its thread', async () => {
+    await db.repos.persons.create(person(2))
+    await db.repos.threads.create(thread(2, testId('per', 2)), [testId('per', 2)])
+    await db.repos.messages.append(userMessage(1, 10))
+    await db.repos.messages.append({ ...userMessage(2, 10), threadId: testId('thr', 2) })
+    expect((await db.repos.messages.range({ threadId, afterSeq: 0, limit: 10 })).map((m) => m.id)).toEqual([
+      testId('msg', 1),
+    ])
   })
 })

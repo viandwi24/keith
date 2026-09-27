@@ -1,4 +1,4 @@
-// Drizzle schema for every phase-1 and phase-2 table in docs/architecture/storage.md. drizzle-kit reads this file
+// Drizzle schema for every phase-1 to phase-4 table in docs/architecture/storage.md. drizzle-kit reads this file
 // (packages/core/drizzle.config.ts) to generate migrations; never edit a generated migration.
 // JSON columns are plain text here; repositories parse them with zod on read (R-9).
 // `memories_fts` is an FTS5 virtual table created by a custom migration, not declared here.
@@ -12,6 +12,7 @@ import type {
   MessageId,
   NodeId,
   PersonId,
+  ReminderId,
   TaskId,
   ThreadId,
 } from '../shared/types.ts'
@@ -35,6 +36,7 @@ export const DELIVERY_KINDS = [
 export const URGENCY_LEVELS = ['low', 'normal', 'high', 'critical'] as const
 export const DELIVERY_STATUSES = ['pending', 'delivered', 'dismissed'] as const
 export const MEMORY_SOURCES = ['stated', 'inferred', 'relayed', 'plugin'] as const
+export const REMINDER_STATUSES = ['pending', 'fired', 'cancelled'] as const
 
 export const persons = sqliteTable('persons', {
   id: text('id').$type<PersonId>().primaryKey(),
@@ -94,6 +96,10 @@ export const threads = sqliteTable(
     summary: text('summary'),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
+    /** Phase 4: the last message `seq` that `summary` covers; null = no summary yet. */
+    summaryThroughSeq: integer('summary_through_seq'),
+    /** Phase 4: the last message `seq` that reflection has read; null = never reflected. */
+    reflectedThroughSeq: integer('reflected_through_seq'),
   },
   (t) => [uniqueIndex('threads_owner_slug_idx').on(t.ownerPersonId, t.slug)],
 )
@@ -297,4 +303,30 @@ export const files = sqliteTable(
     createdAt: integer('created_at').notNull(),
   },
   (t) => [index('files_owner_idx').on(t.ownerPersonId)],
+)
+
+export const reminders = sqliteTable(
+  'reminders',
+  {
+    id: text('id').$type<ReminderId>().primaryKey(),
+    personId: text('person_id')
+      .$type<PersonId>()
+      .notNull()
+      .references(() => persons.id, { onDelete: 'cascade' }),
+    /** Null = the person's `main` thread. */
+    threadId: text('thread_id')
+      .$type<ThreadId>()
+      .references(() => threads.id, { onDelete: 'cascade' }),
+    text: text('text').notNull(),
+    dueAt: integer('due_at').notNull(),
+    status: text('status', { enum: REMINDER_STATUSES }).notNull(),
+    createdAt: integer('created_at').notNull(),
+    firedAt: integer('fired_at'),
+    cancelledAt: integer('cancelled_at'),
+    /** The `reminder` delivery it fired as; null until fired. */
+    deliveryId: text('delivery_id')
+      .$type<DeliveryId>()
+      .references(() => deliveries.id, { onDelete: 'set null' }),
+  },
+  (t) => [index('reminders_status_due_idx').on(t.status, t.dueAt)],
 )

@@ -1,9 +1,8 @@
 // threads + thread_participants repository.
 
-import { KeithError } from '@keith/sdk'
-import { and, asc, desc, eq, isNull } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, isNull, lte, type SQL, sql } from 'drizzle-orm'
 import type { Orm } from './orm.ts'
-import { threadParticipants, threads } from './schema.ts'
+import { messages, threadParticipants, threads } from './schema.ts'
 import type { ThreadRecord, ThreadsRepository } from './types.ts'
 
 type ThreadRow = typeof threads.$inferSelect
@@ -18,14 +17,34 @@ function toThread(row: ThreadRow): ThreadRecord {
     summary: row.summary,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    summaryThroughSeq: row.summaryThroughSeq,
+    reflectedThroughSeq: row.reflectedThroughSeq,
   }
 }
+
+/** `"table"."column"`, always qualified (Drizzle drops the table name of columns in a select list). */
+function qualified(table: string, column: { name: string }): SQL {
+  return sql`${sql.identifier(table)}.${sql.identifier(column.name)}`
+}
+
+/**
+ * The thread's highest message `seq` (0 without messages), a correlated subquery that uses the
+ * (thread_id, seq) index. Columns are qualified by hand: in a select list Drizzle would print
+ * `"id"`, which inside the subquery resolves to `messages.id`.
+ */
+const lastSeqOfThread: SQL<number> = sql<number>`(select coalesce(max(${qualified('messages', messages.seq)}), 0) from ${messages} where ${qualified('messages', messages.threadId)} = ${qualified('threads', threads.id)})`
 
 export function createThreadsRepository(db: Orm): ThreadsRepository {
   return {
     async create(t, participants) {
       db.transaction((tx) => {
-        tx.insert(threads).values(t).run()
+        tx.insert(threads)
+          .values({
+            ...t,
+            summaryThroughSeq: t.summaryThroughSeq ?? null,
+            reflectedThroughSeq: t.reflectedThroughSeq ?? null,
+          })
+          .run()
         if (participants.length > 0) {
           tx.insert(threadParticipants)
             .values(
@@ -73,15 +92,27 @@ export function createThreadsRepository(db: Orm): ThreadsRepository {
     async touch(id, updatedAt) {
       db.update(threads).set({ updatedAt }).where(eq(threads.id, id)).run()
     },
-    // Placeholders (P4-K1): task P4-S1 adds the cursor columns and implements them.
-    async setSummary() {
-      throw new KeithError('INTERNAL', 'threads.setSummary is not implemented yet (P4-S1)')
+    async setSummary(id, { summary, throughSeq }) {
+      db.update(threads).set({ summary, summaryThroughSeq: throughSeq }).where(eq(threads.id, id)).run()
     },
-    async setReflectedThrough() {
-      throw new KeithError('INTERNAL', 'threads.setReflectedThrough is not implemented yet (P4-S1)')
+    async setReflectedThrough(id, seq) {
+      db.update(threads).set({ reflectedThroughSeq: seq }).where(eq(threads.id, id)).run()
     },
-    async listForReflection() {
-      throw new KeithError('INTERNAL', 'threads.listForReflection is not implemented yet (P4-S1)')
+    async listForReflection({ idleBefore, limit }) {
+      if (limit <= 0) return []
+      return db
+        .select({ thread: threads, lastSeq: lastSeqOfThread })
+        .from(threads)
+        .where(
+          and(
+            lte(threads.updatedAt, idleBefore),
+            gt(lastSeqOfThread, sql`coalesce(${threads.reflectedThroughSeq}, 0)`),
+          ),
+        )
+        .orderBy(asc(threads.updatedAt), asc(threads.id))
+        .limit(limit)
+        .all()
+        .map((r) => ({ thread: toThread(r.thread), lastSeq: r.lastSeq }))
     },
   }
 }
