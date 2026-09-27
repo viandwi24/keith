@@ -23,3 +23,6 @@ jobs:
       - run: for i in 1 2 3 4 5; do bun test tests/e2e/s1-arrival.test.ts || exit 1; done
       # S-7 in a real browser with a fake microphone (a generated WAV), five runs in a row (P3-I2).
       - run: for i in 1 2 3 4 5; do bun test tests/e2e/s7-voice.test.ts || exit 1; done
+      # S-3 semantic (reflection, restart, memory.recall, I-4) and the S-1 reminder, five runs in a row (P4-I2).
+      - run: for i in 1 2 3 4 5; do bun test tests/e2e/s3-semantic.test.ts || exit 1; done
+      - run: for i in 1 2 3 4 5; do bun test tests/e2e/s1-reminder.test.ts || exit 1; done
