@@ -1,6 +1,6 @@
 # Phase 3: Voice (overview)
 
-> Overview only.
+> Task files are in [phase-3-voice/](phase-3-voice/README.md). This overview is kept for history.
 
 **Goal:** speak to Keith from the browser and hear it answer. Switching device or modality mid-conversation just works (S-7). See [voice.md](../architecture/voice.md).
 

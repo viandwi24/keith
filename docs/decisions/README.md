@@ -18,12 +18,13 @@ One decision per file. Accepted ADRs are never edited except for their status li
 | [0010](0010-tui-framework.md) | OpenTUI (core API, no React) for the TUI node | accepted |
 | [0011](0011-client-app-browser-side.md) | The browser side of a client-app plugin follows the app rules | accepted |
 | [0012](0012-web-bundler.md) | Bun's HTML bundler for the web app | accepted |
+| [0013](0013-voice-v1-transport-and-providers.md) | Voice v1: PCM16 on the wire, energy VAD, OpenAI-compatible STT/TTS | proposed |
 
 ## Writing an ADR
 
 Copy the template below to `NNNN-<slug>.md` (the next free number). Agents create ADRs with `status: proposed`. Only the coordinator sets `accepted` and updates this index, so agents never edit this file.
 
-**Reserved numbers:** `0011` for P2-K1 (browser side of client-app plugins), `0012` for P2-C1 (web bundler). Other agents start at `0013`. If two agents collide on a number, the coordinator renumbers the later one.
+**Reserved numbers:** `0011` for P2-K1 (browser side of client-app plugins), `0012` for P2-C1 (web bundler), `0013` for P3-K1 (voice v1 transport and providers). Other agents start at `0014`. If two agents collide on a number, the coordinator renumbers the later one.
 
 ```markdown
 # ADR-NNNN: <decision as a short statement>
