@@ -4,7 +4,7 @@ title: "S-3 semantic end to end: a fact from day 1 is recalled on day 2"
 phase: 4
 wave: 4
 lane: I
-status: done
+status: review
 owner: agent-P4-I2
 depends: [P4-I1]
 owns:
