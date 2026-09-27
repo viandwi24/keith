@@ -4,7 +4,7 @@ title: "Reflection: idle threads become inferred memories and relationship notes
 phase: 4
 wave: 2
 lane: A
-status: review
+status: done
 owner: agent-P4-A1
 depends: [P4-K1]
 owns:
