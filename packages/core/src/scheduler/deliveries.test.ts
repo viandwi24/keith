@@ -72,6 +72,9 @@ describe('delivery queue', () => {
     await h.deliveries.markDelivered([], messageId)
     expect(await h.deliveries.pendingFor(tony.threadId)).toEqual([])
     expect(h.repos.deliveryRows.get(a.id)).toMatchObject({ status: 'delivered', deliveredAt: h.clock.now() })
+    // The delivering message reaches storage; a second mark keeps the first one.
+    expect(await h.repos.deliveries.get(a.id)).toMatchObject({ messageId })
+    expect(await h.repos.deliveries.get(b.id)).toMatchObject({ messageId })
     expect(h.events.of('delivery.delivered')).toEqual([
       { deliveryId: a.id, threadId: tony.threadId, messageId },
       { deliveryId: b.id, threadId: tony.threadId, messageId },

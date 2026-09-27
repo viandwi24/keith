@@ -428,7 +428,7 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
     events.emit('turn.started', { threadId: rt.threadId, turnId, kind: work.kind })
     try {
       for (const input of work.inputs) {
-        // Persisted now, not on arrival, so a queued input sorts after the reply it waited for.
+        // Persisted when its turn starts, so it follows the reply it waited for (`seq` order).
         await append({ ...input, createdAt: clock.now() })
       }
       const lane = work.kind === 'user' ? 'foreground' : 'delivery'
@@ -538,6 +538,9 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
         speech.stop()
       }
     }
+    // Items delivered by this turn bring their blocks along, like tool UI (C5). Only a turn that
+    // completes delivers its items, so a failed or cancelled turn attaches none.
+    if (!failed && !cancelled) attachDeliveryUi(rt, messageId, work.deliveries, ui)
     const content = failed ? (partial === '' ? APOLOGY_TEXT : `${partial}\n\n${APOLOGY_TEXT}`) : partial
     const meta: MessageMeta = {}
     if (proactive) meta.proactive = true
@@ -628,6 +631,34 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
     }
   }
 
+  /**
+   * The blocks of the delivered items (plugin deliveries, task results) as `ui` entries of the
+   * delivering message, rendered like tool UI. `toolName` is `delivery:<source>`, which names no
+   * tool, so a click on such a block becomes the input `(clicked: <label>)`.
+   */
+  function attachDeliveryUi(
+    rt: Runtime,
+    messageId: MessageId,
+    deliveries: readonly Delivery[],
+    ui: MessageUiEntry[],
+  ): void {
+    for (const d of deliveries) {
+      if (d.ui === null) continue
+      const where = { threadId: rt.threadId, messageId, deliveryId: d.id }
+      const block = validUiBlock(d.ui, log, where)
+      if (!block) continue
+      if (!idsFreeIn(block, ui)) {
+        log.warn('delivery ui block reuses a block id of this message; dropped', {
+          ...where,
+          blockId: block.id,
+        })
+        continue
+      }
+      ui.push({ block, toolCallId: `delivery:${d.id}`, toolName: `delivery:${d.source}` })
+      renderUi(rt, messageId, block, uiBlockToText(block))
+    }
+  }
+
   /** Sends `ui.render` to the thread's nodes with `ui.render@1`. */
   function renderUi(rt: Runtime, messageId: MessageId, block: UiBlock, fallbackText: string): void {
     const frame = makeFrame(
@@ -640,23 +671,8 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
     }
   }
 
-  /**
-   * History is ordered by `(createdAt, id)`. A turn's assistant message gets its id when the turn
-   * starts (for `message.started`), before the tool-step rows the run loop stores, and a queued
-   * input gets its id when it arrives. Within one millisecond that id order is wrong, so a record
-   * that would sort before the thread's latest row is stamped one millisecond after it.
-   */
-  async function inOrder<R extends MessageRecord>(record: R): Promise<R> {
-    const { messages } = await repos.messages.page({ threadId: record.threadId, limit: 1 })
-    const last = messages[0]
-    if (!last) return record
-    const sortsBefore =
-      record.createdAt < last.createdAt || (record.createdAt === last.createdAt && record.id < last.id)
-    return sortsBefore ? { ...record, createdAt: last.createdAt + 1 } : record
-  }
-
-  async function append(input: MessageRecord): Promise<MessageDto | null> {
-    const record = await inOrder(input)
+  /** Storage orders a thread's messages by `seq`, assigned on insert, so append order is history order. */
+  async function append(record: MessageRecord): Promise<MessageDto | null> {
     await repos.messages.append(record)
     events.emit('thread.message_added', {
       threadId: record.threadId,

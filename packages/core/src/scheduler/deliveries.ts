@@ -77,6 +77,7 @@ export function createDeliveryQueue(deps: DeliveryQueueDeps): DeliveryQueue {
       await repos.deliveries.markDelivered(
         pending.map((d) => d.id),
         clock.now(),
+        messageId,
       )
       for (const d of pending) {
         events.emit('delivery.delivered', { deliveryId: d.id, threadId: d.threadId, messageId })
