@@ -8,7 +8,7 @@ import { parseArgs } from 'node:util'
 import { isKeithError } from '@keith/sdk'
 import { type BootstrapOptions, bootstrap, KEITH_VERSION, type Keith } from '../bootstrap.ts'
 import { keithPaths } from '../config/index.ts'
-import { systemClock } from '../shared/index.ts'
+import { systemClock, withHomeLock } from '../shared/index.ts'
 import type { Clock } from '../shared/types.ts'
 import { openDb } from '../storage/index.ts'
 import { type Prompter, terminalPrompter } from './prompt.ts'
@@ -95,22 +95,28 @@ function describe(error: unknown): string {
 }
 
 async function setupCommand(io: CliIo): Promise<number> {
-  const prompter = io.prompter ?? terminalPrompter()
-  try {
-    await runSetup({ home: keithHome(io.env), prompter, out: io.out, clock: io.clock ?? systemClock })
-    return 0
-  } finally {
-    prompter.close()
-  }
+  const home = keithHome(io.env)
+  // Setup writes the database: it must not run next to a started Keith (I-1, config.md#logs-and-lock).
+  return await withHomeLock(home, async () => {
+    const prompter = io.prompter ?? terminalPrompter()
+    try {
+      await runSetup({ home, prompter, out: io.out, clock: io.clock ?? systemClock })
+      return 0
+    } finally {
+      prompter.close()
+    }
+  })
 }
 
 async function migrateCommand(io: CliIo): Promise<number> {
   const paths = keithPaths(keithHome(io.env))
   await mkdir(paths.home, { recursive: true })
-  const db = openDb(paths.dbFile)
-  db.close()
-  io.out(`Database is up to date: ${paths.dbFile}`)
-  return 0
+  return await withHomeLock(paths.home, async () => {
+    const db = openDb(paths.dbFile)
+    db.close()
+    io.out(`Database is up to date: ${paths.dbFile}`)
+    return 0
+  })
 }
 
 async function startCommand(args: string[], io: CliIo): Promise<number> {

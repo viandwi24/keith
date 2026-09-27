@@ -41,15 +41,25 @@ export type LoggerOptions = {
   write?: ((line: string) => void) | undefined
   /** Fields added to every line. */
   fields?: LogFields | undefined
+  /** Also receives every line (e.g. `createLogFile`, docs/architecture/config.md#logs). */
+  file?: { write(line: string): void } | undefined
 }
 
 /**
  * A JSON-lines logger: `{"ts":…,"level":"info","msg":"…",…fields}`. Field values whose key looks
- * secret are redacted (R-14).
+ * secret are redacted (R-14). Lines go to `write` (default stdout) and, when given, to `file`.
  */
 export function createLogger(opts: LoggerOptions): Logger {
   const min = LEVEL_ORDER[opts.level ?? 'info']
-  const write = opts.write ?? ((line: string) => process.stdout.write(`${line}\n`))
+  const out = opts.write ?? ((line: string) => process.stdout.write(`${line}\n`))
+  const file = opts.file
+  const write =
+    file === undefined
+      ? out
+      : (line: string) => {
+          out(line)
+          file.write(line)
+        }
   const make = (base: LogFields): Logger => {
     const log =
       (level: LogLevel) =>

@@ -55,6 +55,21 @@ describe('createLogger', () => {
     })
   })
 
+  test('writes each line to both write and file', () => {
+    const out: string[] = []
+    const file: string[] = []
+    const log = createLogger({
+      level: 'warn',
+      clock: createFakeClock(1),
+      write: (l) => out.push(l),
+      file: { write: (l) => file.push(l) },
+    })
+    log.info('dropped')
+    log.child({ password: 'p' }).error('kept')
+    expect(out).toEqual(['{"ts":1,"level":"error","msg":"kept","password":"[redacted]"}'])
+    expect(file).toEqual(out)
+  })
+
   test('systemClock returns the current time', () => {
     const before = Date.now()
     expect(systemClock.now()).toBeGreaterThanOrEqual(before)
