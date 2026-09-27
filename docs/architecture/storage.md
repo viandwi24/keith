@@ -44,7 +44,7 @@ Group-thread columns (`threads.kind`, `thread_participants`, `messages.author_pe
 - After a schema change, run `bunx drizzle-kit generate --name=<slug>` in `packages/core`. Raw SQL that Drizzle can't express (FTS5, triggers) goes in a custom migration: `bunx drizzle-kit generate --custom --name=<slug>`, then write the SQL into the generated file before it is ever applied.
 - `openDb` applies migrations with Drizzle's migrator, which records them in `__drizzle_migrations`. Reopening a migrated file applies nothing.
 - A new NOT NULL column that existing rows need a value for takes three migrations, all from drizzle-kit: add it nullable (`generate`), fill it (`generate --custom`, e.g. `message-seq-backfill`), then make it NOT NULL (`generate`, which rebuilds the table and copies the column).
-- Foreign keys: child rows of a person or thread (`relationships`, `auth_tokens`, `thread_participants`, `messages`) cascade on delete. `deliveries.message_id` is set null when its message is deleted. Other references have no action. `node_id` columns have no foreign key, because nodes are registered on `hello`, independently of tokens and messages.
+- Foreign keys: child rows of a person or thread (`relationships`, `auth_tokens`, `thread_participants`, `messages`, `reminders`) cascade on delete. `deliveries.message_id` is set null when its message is deleted, and `reminders.delivery_id` when its delivery is deleted. Other references have no action. `node_id` columns have no foreign key, because nodes are registered on `hello`, independently of tokens and messages.
 
 ## Messages and tool calls
 
@@ -71,13 +71,13 @@ One row per message. Columns used depend on `role`:
 
 ## Reminders and thread cursors (phase 4)
 
-> Planned (phase 4, P4-S1): the interfaces below are fixed in `storage/types.ts` (P4-K1); the columns, the `reminders` table and the repository members are built by P4-S1. Until then the new members throw `INTERNAL`.
+The columns and the `reminders` table come from the migration `reminders-thread-cursors`. Both cursor columns are nullable, so it needs no backfill.
 
 - **Thread cursors.** `threads.summary_through_seq` is the last message `seq` that `threads.summary` covers, and `threads.reflected_through_seq` the last `seq` reflection has read. Both are null until first set (null counts as 0), so existing threads need no backfill. `ThreadRecord` carries them as `summaryThroughSeq` and `reflectedThroughSeq` on every record `get`, `getBySlug` and `listForPerson` return.
 - `threads.setSummary(id, { summary, throughSeq })` and `threads.setReflectedThrough(id, seq)` write them. Neither touches `updated_at`, so the idle clock keeps running.
-- `threads.listForReflection({ idleBefore, limit })` returns the threads with `updated_at ≤ idleBefore` and a message past the reflection cursor, oldest `updated_at` first, each with its `lastSeq` (the highest message `seq`), in one query.
+- `threads.listForReflection({ idleBefore, limit })` returns the threads with `updated_at ≤ idleBefore` and a message past the reflection cursor, oldest `updated_at` first (ties by id), at most `limit`, each with its `lastSeq` (the highest message `seq`), in one query: `lastSeq` is a correlated `max(seq)` subquery per thread, served by the (thread_id, seq) index. A thread whose cursor equals its `lastSeq` is not returned. `threads.create` stores the cursors as given (absent = null).
 - `messages.range({ threadId, afterSeq, limit, roles? })` returns the first `limit` rows with `seq > afterSeq`, ascending, built exactly like `page` (with `seq`). `roles` filters before the limit. `messages.lastSeq(threadId)` is 0 for an empty thread.
-- **Reminders** (`RemindersRepository`, `repos.reminders`): `create`, `get`, `listDue(now, limit?)` (pending, `due_at ≤ now`, soonest first), `listPending(personId)` (soonest first), `countPending(personId)`, `markFired(id, at, deliveryId)` and `cancel(id, at)`. The last two are conditional updates (`WHERE status = 'pending'`) and return whether a row changed, so a second call changes nothing and returns false.
+- **Reminders** (`RemindersRepository`, `repos.reminders`): `create`, `get`, `listDue(now, limit?)` (pending, `due_at ≤ now`, soonest first, ties by id), `listPending(personId)` (soonest first, ties by id), `countPending(personId)`, `markFired(id, at, deliveryId)` and `cancel(id, at)`. The last two are conditional updates (`WHERE status = 'pending'`) and return whether a row changed, so a second call changes nothing and returns false. Deleting a person or a reminder's thread deletes the reminder; deleting its delivery sets `delivery_id` to null.
 
 ## Memory search filter
 
