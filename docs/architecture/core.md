@@ -22,6 +22,7 @@ export type {
   NodeId,
   PersonDto,
   PersonId,
+  ReminderId,
   TaskId,
   ThreadId,
   Tier,
@@ -125,6 +126,27 @@ export interface Delivery {
 export type NewDelivery = Pick<Delivery, 'personId' | 'kind' | 'content'> &
   Partial<Pick<Delivery, 'threadId' | 'authorPersonId' | 'source' | 'urgency' | 'ui'>>
 
+// Reminders (phase 4, docs/architecture/core.md#reminders)
+
+export type ReminderStatus = 'pending' | 'fired' | 'cancelled'
+
+export interface Reminder {
+  id: ReminderId
+  personId: PersonId
+  /** Where it is delivered; null = the person's `main` thread. */
+  threadId: ThreadId | null
+  /** What to remind of, 1..500 characters. */
+  text: string
+  /** When it is due (ms, UTC). It fires on the first scheduler tick at or after this time. */
+  dueAt: number
+  status: ReminderStatus
+  createdAt: number
+  firedAt: number | null
+  cancelledAt: number | null
+  /** The `reminder` delivery it fired as; null until fired. */
+  deliveryId: DeliveryId | null
+}
+
 // Memories (docs/architecture/memory.md#memory-record)
 
 export type MemorySource = 'stated' | 'inferred' | 'relayed' | 'plugin'
@@ -185,8 +207,35 @@ export interface KeithConfig {
       graceMs: number
     }
     context: { recentMessages: number }
+    /** Phase 4: `[mind.reminder]`. */
+    reminder: {
+      /** Pending reminders per person. Default 50. */
+      maxPerPerson: number
+    }
   }
-  memory: { coreMaxChars: number }
+  memory: {
+    coreMaxChars: number
+    /** Phase 4: `[memory.reflect]`, the reflection job (ADR-0014). */
+    reflect: {
+      /** Default true. */
+      enabled: boolean
+      /** A thread is reflected after this long without a stored message. Fractional allowed. Default 20. */
+      idleMinutes: number
+      /** Messages read per pass; more wait for the next pass. Default 200. */
+      maxMessages: number
+      /** Cap on `relationships.notes` written by reflection. Default 1000. */
+      cardMaxChars: number
+    }
+    /** Phase 4: `[memory.summary]`, the thread summary job (ADR-0014). */
+    summary: {
+      /** Default true. */
+      enabled: boolean
+      /** Rows out of the recent-messages window before the summary is updated. Default 20. */
+      minMessages: number
+      /** Cap on `threads.summary`. Default 2000. */
+      maxChars: number
+    }
+  }
   scheduler: { foreground: number; delivery: number; background: number; tickMs: number }
   models: Record<ModelRole, ModelRef>
   auth: { tokenTtlDays: number }
@@ -382,6 +431,13 @@ export type RegisteredSkill = { skill: Skill; pluginId: string | null }
 export interface CoreSkillRegistry extends PluginScoped<SkillRegistry> {
   get(name: string): RegisteredSkill | undefined
   list(): RegisteredSkill[]
+  /**
+   * Phase 4: registers a core **default** skill (owner `core`, `pluginId` null). A plugin that
+   * registers a skill with the same name replaces the default instead of failing with
+   * `TOOL_NAME_TAKEN`, and `removeByPlugin` brings the default back. Registering a default twice
+   * with the same name throws `TOOL_NAME_TAKEN`. The name pattern applies as for plugins.
+   */
+  registerDefault(skill: Skill): void
 }
 
 export interface CoreAgentRegistry extends PluginScoped<AgentRegistry> {
@@ -497,10 +553,21 @@ export interface ThreadRecord {
   slug: string | null
   title: string
   ownerPersonId: PersonId | null
-  /** Rolling summary (phase 4). */
+  /** Rolling summary (phase 4), written by `setSummary`. */
   summary: string | null
   createdAt: number
   updatedAt: number
+  /**
+   * Phase 4: the last message `seq` that `summary` covers; null = no summary yet. Set on every
+   * record `get`, `getBySlug` and `listForPerson` return. Optional only so existing record
+   * literals (and `create` input) compile without it; `create` stores it as given (absent = null).
+   */
+  summaryThroughSeq?: number | null | undefined
+  /**
+   * Phase 4: the last message `seq` that reflection has read; null = never reflected. Same rules
+   * as `summaryThroughSeq`.
+   */
+  reflectedThroughSeq?: number | null | undefined
 }
 
 export interface ThreadParticipantRecord {
@@ -520,6 +587,26 @@ export interface ThreadsRepository {
   /** Current participants (left_at is null). */
   participants(threadId: ThreadId): Promise<ThreadParticipantRecord[]>
   touch(id: ThreadId, updatedAt: number): Promise<void>
+  /**
+   * Phase 4: stores the rolling summary and the last message `seq` it covers
+   * (`summaryThroughSeq`). Does not touch `updated_at`. A missing thread is a no-op.
+   */
+  setSummary(id: ThreadId, s: { summary: string; throughSeq: number }): Promise<void>
+  /**
+   * Phase 4: moves the reflection cursor (`reflectedThroughSeq`) to `seq`. Does not touch
+   * `updated_at`. A missing thread is a no-op.
+   */
+  setReflectedThrough(id: ThreadId, seq: number): Promise<void>
+  /**
+   * Phase 4: threads that are due for reflection: `updated_at ≤ idleBefore` and at least one
+   * message whose `seq` is greater than the reflection cursor (null counts as 0). Oldest
+   * `updated_at` first (ties by id), at most `limit`. `lastSeq` is the thread's highest message
+   * `seq`.
+   */
+  listForReflection(q: {
+    idleBefore: number
+    limit: number
+  }): Promise<{ thread: ThreadRecord; lastSeq: number }[]>
 }
 
 // messages (docs/architecture/storage.md#messages-and-tool-calls)
@@ -589,6 +676,19 @@ export interface MessagesRepository {
     limit: number
     roles?: MessageRecord['role'][] | undefined
   }): Promise<MessagePage>
+  /**
+   * Phase 4: the first `limit` messages with `seq > afterSeq`, ascending by `seq`, each with its
+   * `seq` set. `roles` (default: all roles) filters the rows before the limit applies, so rows of
+   * other roles are skipped without counting.
+   */
+  range(q: {
+    threadId: ThreadId
+    afterSeq: number
+    limit: number
+    roles?: MessageRecord['role'][] | undefined
+  }): Promise<MessageRecord[]>
+  /** Phase 4: the thread's highest message `seq`, all roles; 0 when the thread has no messages. */
+  lastSeq(threadId: ThreadId): Promise<number>
 }
 
 // tasks, commitments, deliveries
@@ -633,6 +733,33 @@ export interface DeliveriesRepository {
   pendingFor(threadId: ThreadId): Promise<Delivery[]>
   /** Only changes `pending` rows. `messageId`: the message that delivered them, stored on each. */
   markDelivered(ids: DeliveryId[], deliveredAt: number, messageId?: MessageId | undefined): Promise<void>
+}
+
+// reminders (phase 4)
+
+export interface RemindersRepository {
+  /** Stores the reminder as given (normally `pending`, with null `firedAt`/`cancelledAt`/`deliveryId`). */
+  create(r: Reminder): Promise<void>
+  get(id: ReminderId): Promise<Reminder | null>
+  /**
+   * `pending` reminders with `dueAt ≤ now`, soonest first (ties by id). `limit` caps the result;
+   * omitted = all.
+   */
+  listDue(now: number, limit?: number | undefined): Promise<Reminder[]>
+  /** The person's `pending` reminders, soonest first (ties by id). */
+  listPending(personId: PersonId): Promise<Reminder[]>
+  /** How many `pending` reminders the person has. */
+  countPending(personId: PersonId): Promise<number>
+  /**
+   * Sets `status = 'fired'`, `firedAt = at` and `deliveryId`, only if the reminder is `pending`.
+   * Returns whether a row changed (false: unknown id, or already fired or cancelled).
+   */
+  markFired(id: ReminderId, at: number, deliveryId: DeliveryId): Promise<boolean>
+  /**
+   * Sets `status = 'cancelled'` and `cancelledAt = at`, only if the reminder is `pending`.
+   * Returns whether a row changed (false: unknown id, or already fired or cancelled).
+   */
+  cancel(id: ReminderId, at: number): Promise<boolean>
 }
 
 // memories + memories_fts (docs/architecture/storage.md#memory-search-filter)
@@ -709,6 +836,8 @@ export interface Repositories {
   memories: MemoriesRepository
   pluginData: PluginDataRepository
   files: FilesRepository
+  /** Phase 4. */
+  reminders: RemindersRepository
 }
 
 /** An open database. Used only by bootstrap (and test helpers); everything else gets `Repositories`. */
@@ -965,6 +1094,21 @@ export interface DeliveryQueue {
   pendingFor(threadId: ThreadId): Promise<Delivery[]>
   markDelivered(ids: DeliveryId[], messageId: MessageId): Promise<void>
 }
+
+/** Phase 4: reminders (docs/architecture/core.md#reminders). */
+export interface ReminderService {
+  /**
+   * Stores a `pending` reminder. Throws a `KeithError` when the person already has
+   * `mind.reminder.maxPerPerson` pending reminders, or when `text` (trimmed) is not 1..500 characters.
+   */
+  set(r: { personId: PersonId; threadId: ThreadId | null; text: string; dueAt: number }): Promise<Reminder>
+  /** Cancels the person's own `pending` reminder. False for an unknown id, someone else's, or one not pending. */
+  cancel(a: { id: ReminderId; personId: PersonId }): Promise<boolean>
+  /** The person's `pending` reminders, soonest first. */
+  listFor(personId: PersonId): Promise<Reminder[]>
+  /** Enqueues a `reminder` delivery for every due reminder, then marks it fired. Returns how many fired. */
+  fireDue(now: number): Promise<number>
+}
 ```
 
 ### Memory (`memory/types.ts`), implemented by `memory/` (P1-M1)
@@ -980,9 +1124,58 @@ export interface MemoryService {
   /** Awareness digest, at most 5 lines. */
   digest(a: { threadId: ThreadId; viewer: Viewer }): Promise<string>
 }
+
+// Phase 4: reflection and thread summaries (ADR-0014)
+
+/** What one reflection pass over a thread did. */
+export type ReflectionResult = {
+  threadId: ThreadId
+  /** The new reflection cursor: the last message `seq` the pass read. */
+  throughSeq: number
+  /** Memories written (new, `source: 'inferred'`). */
+  written: MemoryId[]
+  /** Existing memories whose content was rewritten. */
+  merged: MemoryId[]
+  /** Persons whose relationship notes were rewritten. */
+  cardsUpdated: PersonId[]
+}
+
+export interface Reflector {
+  /**
+   * One pass over the thread's messages after its reflection cursor. Returns null when there is
+   * nothing new. Moves the cursor and emits `memory.reflected` on success.
+   */
+  reflect(a: { threadId: ThreadId; signal: AbortSignal }): Promise<ReflectionResult | null>
+}
+
+export interface ThreadSummarizer {
+  /**
+   * Folds the rows that left the recent-messages window into `threads.summary`. Returns false
+   * (and calls no model) when fewer than `memory.summary.minMessages` rows are pending. Emits
+   * `thread.summarized` when the summary changed.
+   */
+  update(a: { threadId: ThreadId; signal: AbortSignal }): Promise<boolean>
+}
+
+/** A background job with a lifecycle, started and stopped by bootstrap. */
+export interface MemoryJob {
+  /** Subscribes to its trigger event. Idempotent. */
+  start(): void
+  /** Unsubscribes, aborts running passes and resolves once they have settled. */
+  stop(): Promise<void>
+}
 ```
 
 The digest builds its activity picture from events (`thread.state_changed`, `task.*`) plus repositories. It never calls the mind, so there is no cycle.
+
+**Memory jobs (phase 4, [ADR-0014](../decisions/0014-reflection-writes-conservative-inferred-memories.md)).** Two factories, exported from `memory/index.ts`, each return the worker and a `MemoryJob` that bootstrap starts and stops:
+
+- `createReflection(deps): { reflector: Reflector; job: MemoryJob }` (`memory/reflect/`). Deps: `config` (`memory`, `mind`), `repos` (`threads`, `messages`, `memories`, `relationships`, `persons`), `memory` (the `MemoryService`), `runLoop`, `scheduler` (`run`), `events`, `clock`, `ids`, `log`. The job reacts to `scheduler.ticked`.
+- `createThreadSummaries(deps): { summarizer: ThreadSummarizer; job: MemoryJob }` (`memory/summary/`). Same deps without `memory`, and `repos` is `threads` and `messages`. The job reacts to `turn.completed`.
+
+Both call the `utility` model through `RunLoop` (no tools, one step, `persist: null`) and run in the `background` lane. See [memory.md](memory.md#reflection).
+
+> Planned (phase 4, P4-A1 / P4-B1): both factories are placeholders today: `reflect` returns null, `update` returns false, and the jobs subscribe to nothing. Bootstrap doesn't build them yet (P4-I1).
 
 ### Construction order (bootstrap)
 
@@ -1072,7 +1265,9 @@ Builds `{ system, messages, tools }` for a Viewer. The system prompt is assemble
 8. **Pending deliveries:** only in delivery turns and arrival turns, with instructions to phrase them naturally.
 9. **Skills index:** name + one-line description of every registered skill (full text loads through `skill.load`).
 
-**Messages:** the last `mind.context.recentMessages` stored rows (default 40). The window counts every row, including the tool-step assistant rows and `tool` rows that nodes don't see, so a turn with many tool steps leaves fewer visible messages in it. A running thread summary is added in phase 4.
+**Messages:** the last `mind.context.recentMessages` stored rows (default 40). The window counts every row, including the tool-step assistant rows and `tool` rows that nodes don't see, so a turn with many tool steps leaves fewer visible messages in it.
+
+> Planned (phase 4, P4-B1): **Thread summary.** A section `# Earlier in this thread` with `threads.summary` goes between section 7 (open commitments) and section 8 (pending deliveries), and is left out when the thread has no summary. With a summary, the messages are the rows with `seq > summaryThroughSeq`: at least `recentMessages` and at most `recentMessages + memory.summary.minMessages`, so no row falls between the summary and the window. Without a summary, the window is unchanged. Briefing and arrival instructions tell the model to load `morning_briefing` first when the skills index lists it.
 
 **Tools:** every tool in the registry, built-ins included, where `tool.minTier` is at or below the lowest participant tier (owner > member > guest) and `tool.requires ⊆` the focus node's capabilities.
 
@@ -1084,9 +1279,9 @@ Three lanes, each with its own concurrency limit. Separate pools make I-5 struct
 |---|---|---|
 | `foreground` | User turns | 4 (`scheduler.foreground`) |
 | `delivery` | Delivery and briefing turns | 2 (`scheduler.delivery`) |
-| `background` | Tasks, reflection (phase 4) | 2 (`scheduler.background`) |
+| `background` | Tasks, reflection and thread summaries (phase 4) | 2 (`scheduler.background`) |
 
-A **tick** fires every `scheduler.tickMs` (default 30 000) and emits `scheduler.ticked`. Plugins, commitment expiry and phase-4 reminders use it. Jobs in one lane never wait on another lane's pool. Within a lane, waiting jobs start in FIFO order. A job whose `signal` aborts while it waits leaves the queue, and `run` rejects with the signal's reason.
+A **tick** fires every `scheduler.tickMs` (default 30 000) and emits `scheduler.ticked`. Plugins, commitment expiry, due reminders (`ReminderService.fireDue`, subscribed by `scheduling.start()`) and reflection (phase 4) use it. Jobs in one lane never wait on another lane's pool. Within a lane, waiting jobs start in FIFO order. A job whose `signal` aborts while it waits leaves the queue, and `run` rejects with the signal's reason.
 
 ## Tasks
 
@@ -1118,7 +1313,7 @@ A Delivery is anything the Mind should surface in a Thread without being asked.
 |---|---|---|
 | `task_result` / `task_failed` | Commitment resolution | 1 |
 | `plugin` | `ctx.deliveries.enqueue` from a `tool` or `client-app` plugin | 1 |
-| `reminder` | `reminder.set` built-in | 4 |
+| `reminder` | `reminder.set` built-in, fired on a tick ([Reminders](#reminders)) | 4 |
 | `relay` | `relay.send` built-in (I-13) | 5 |
 | `invitation` | `thread.start_group` | 5 |
 
@@ -1132,6 +1327,18 @@ A Delivery is anything the Mind should surface in a Thread without being asked.
 
 **Flush details.** Trigger (d) runs on the next macrotask after `open` returns, so the server sends `thread.opened` before any turn frame. Items in a delivery turn are marked delivered only if the turn completed; after a failed or cancelled turn the flush waits for the next trigger (no retry loop).
 
+### Reminders
+
+A Reminder (`rem_` id, table `reminders`) is a text the Mind brings up for one person at a due time. `ReminderService` (`scheduler/reminders.ts`, exposed as `Scheduling.reminders`) stores it; the `reminder.*` built-ins call it.
+
+- **Set.** `reminder.set { text (1..500), at? | inMinutes? }`: exactly one of `at` (ISO 8601; without an offset it is a wall-clock time in `mind.timezone`) or `inMinutes`. A due time in the past or more than 366 days ahead is a tool error. At most `mind.reminder.maxPerPerson` (default 50) pending reminders per person. The reminder targets the current thread, or the person's `main` thread inside a task.
+- **Fire.** `scheduling.start()` subscribes `fireDue` to `scheduler.ticked`, so a reminder fires within one tick of its due time. For every due `pending` reminder, soonest first, `fireDue` enqueues a `reminder` Delivery (`urgency: 'high'`, `source: 'core'`, content = the text), then marks the reminder `fired` with that delivery's id. The delivery surfaces like any other (I-11); while the person is away it waits for them.
+- **At least once.** A crash between the enqueue and the mark can deliver one reminder twice after a restart; none is lost. If the enqueue fails (no `main` thread yet), the reminder stays pending and fires on a later tick.
+- `reminder.list` shows the caller's pending reminders, one `id: when (timezone) — text` per line. `reminder.cancel { id }` cancels only the caller's own pending reminder; any other id reads as "No such reminder."
+- There are no `reminder.*` events: a fired reminder is a `delivery.enqueued` with `kind: 'reminder'`.
+
+> Planned (phase 4, P4-C1): the service and the tool bodies are placeholders today (`fireDue` fires nothing, the tools answer "not implemented yet"). The tools are registered only when `registerBuiltins` gets `reminders` (P4-I1 passes it).
+
 ## Presence and arrival
 
 - A Person is **present** while at least one attended node has one of their Threads open. `persons.last_seen_at` is written when they become away, refreshed on every scheduler tick while they are present, and written for every present person on graceful shutdown. Arrival detection survives restarts and crashes, and a crash costs at most one tick of accuracy.
@@ -1144,14 +1351,14 @@ A Delivery is anything the Mind should surface in a Thread without being asked.
 
 ## Built-in tools
 
-Registered with `tools.registerBuiltin()`. Their namespaces are reserved.
+Registered with `tools.registerBuiltin()`. Their namespaces are reserved. `registerBuiltins` also registers the core's **default skills** with `skills.registerDefault()` (phase 4: `morning_briefing`, `builtins/skills/`). A plugin skill with the same name replaces a default ([plugin-api.md](../contracts/plugin-api.md#skills)).
 
 | Tool | Phase | Purpose |
 |---|---|---|
 | `task.start`, `task.status`, `task.cancel` | 1 | Background work |
 | `skill.load` | 1 | Load a skill's full instructions |
 | `memory.remember`, `memory.recall`, `memory.forget` | 1 (FTS), 4 (reflection) | Write, search and delete memories |
-| `reminder.set`, `reminder.cancel` | 4 | Time-based deliveries |
+| `reminder.set`, `reminder.list`, `reminder.cancel` | 4 | Time-based deliveries ([Reminders](#reminders)); tier `member` |
 | `relay.send` | 5 | S-5 |
 | `thread.start_group`, `thread.invite`, `thread.leave` | 5 | S-6 |
 

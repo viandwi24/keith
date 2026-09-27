@@ -66,7 +66,25 @@ The visibility filter is a single pure function (`memory/visibility.ts`) that ev
 - `recall({ text, viewer, limit? })`: FTS5 query over visible memories, ranked by BM25 then recency, limit 8 (at most 50). An empty query returns nothing. Returned memories get `lastRecalledAt`. Exposed to the model as the `memory.recall` tool, which lists `id: content` lines so `memory.forget` can name one.
 - `index(viewer)`: a short list of memory subjects that exist but aren't in `core()` (person names and topic words). It scans the 200 newest visible memories, lists up to 6 subject names (most memories first), then topic words (4+ letters, not stopwords, most frequent first), 12 entries at most. It goes into the system prompt (context section 5), so the model knows recall is worth trying.
 
-> Planned (phase 4): **Reflection.** A background job after a thread has been idle for `memory.reflect.idleMinutes` (default 20) reads the new messages and writes or updates semantic memories and relationship cards using the `utility` model. It also updates the thread summary. Semantic dedupe works by FTS match plus LLM merge. `sqlite-vec` is adopted only if FTS recall fails concrete test cases.
+## Reflection
+
+> Planned (phase 4, P4-A1): the rules below are fixed by [ADR-0014](../decisions/0014-reflection-writes-conservative-inferred-memories.md) and the interfaces by P4-K1 (`Reflector`, `MemoryJob`, `createReflection` in [core.md](core.md#internal-interfaces)). The job itself is built by P4-A1.
+
+Reflection turns what was said into semantic memories and relationship notes, without anyone asking. Config: `[memory.reflect]` ([config.md](config.md)).
+
+- **Trigger.** Per thread, when the thread has been idle (no stored message) for `memory.reflect.idleMinutes` (default 20) and has messages past its reflection cursor (`threads.reflected_through_seq`). A `scheduler.ticked` handler finds these threads (`threads.listForReflection`), and each pass runs in the `background` lane (I-5). One pass reads at most `memory.reflect.maxMessages` (default 200) messages; the rest wait for the next pass.
+- **Model.** At most two `utility` calls per pass: one to extract facts and notes, and one to merge when matches exist. Each is a single-step `RunLoop` run with no tools and `persist: null`, on behalf of that thread (I-3). The input holds only that thread's messages, its participants' cards and memories visible to all of its participants.
+- **What it writes.** New memories are `source: 'inferred'`, with no author, never pinned. Visibility is never wider than the conversation: in a direct thread, a fact about its one participant is `subject` (that person) and anything else is `thread`; in a group thread (phase 5) everything is `thread`. Reflection never writes `household` or `owner`, never pins and never deletes. Only a live turn (`memory.remember`, where the person sees it) may widen a memory's visibility.
+- **Dedupe and merge.** Each candidate fact is searched (`memories.search`) among memories **in the same scope** (same visibility, subject and thread). With matches, the utility model decides `duplicate` (drop it), `update` (rewrite one match's content) or `new`. An update never changes visibility, subject, thread, source, author or pinned. It may rewrite an `inferred` memory, and a `stated` memory only when the pass's messages include one from that memory's author. It never rewrites `relayed` or `plugin` memories. A disallowed update is written as a new memory.
+- **Relationship cards.** Only `relationships.notes` (at most `memory.reflect.cardMaxChars`, default 1 000), only for a direct thread's one participant. `tone` and `blockedRelayFrom` never change. Notes hold how to talk with the person; facts about the person go to `subject` memories. Group threads don't update cards in v1.
+- **Cursor and event.** After a successful pass the cursor moves to the last `seq` read and `memory.reflected` is emitted with the counts (also when nothing was written).
+- **Recall stays FTS5 (BM25).** `sqlite-vec` or embeddings need a new ADR, and only if P4-A1's recall corpus fails with FTS.
+
+## Thread summary
+
+> Planned (phase 4, P4-B1): fixed by [ADR-0014](../decisions/0014-reflection-writes-conservative-inferred-memories.md) and P4-K1 (`ThreadSummarizer`, `MemoryJob`, `createThreadSummaries`). Built by P4-B1.
+
+A separate job from reflection. After a turn completes (`turn.completed`), if at least `memory.summary.minMessages` (default 20) rows have left the recent-messages window since the summary cursor (`threads.summary_through_seq`), the `utility` model folds them into `threads.summary` (at most `memory.summary.maxChars`, default 2 000). The job runs in the `background` lane and emits `thread.summarized`. The summary is built only from that thread's messages, so it is exactly as visible as the thread (I-3). The context builder shows it as its own system section, and the messages window starts right after the summary cursor ([core.md](core.md#context-builder)).
 
 ## Awareness digest
 
