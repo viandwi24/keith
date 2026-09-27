@@ -59,14 +59,30 @@ export type E2eConfig = {
   graceMs?: number
   /** Plugin packages to load by name (dynamic `import()`, as `keith start` does). */
   enabled?: string[]
+  /** `mind.timezone` (IANA). Default: the schema's (the system time zone). */
+  timezone?: string
+  /** `mind.context.recentMessages`. Default: the schema's (40). */
+  recentMessages?: number
+  /** `[memory.reflect]` and `[memory.summary]`. Default: the schema's. */
+  reflect?: { enabled?: boolean; idleMinutes?: number }
+  summary?: { enabled?: boolean }
   /** Extra TOML appended to the config (e.g. `[plugins."@keith/web"]` sections). */
   extra?: string
 }
 
+function tomlTable(name: string, keys: Record<string, unknown>): string {
+  const lines = Object.entries(keys)
+    .filter(([, v]) => v !== undefined)
+    .map(([k, v]) => `${k} = ${JSON.stringify(v)}`)
+  return lines.length > 0 ? `\n[${name}]\n${lines.join('\n')}\n` : ''
+}
+
 /**
  * config.toml for e2e runs. Model roles point at the scripted provider `fake`: `foreground` (turns)
- * at model `chat`, `background` (tasks) at model `researcher`. The scheduler tick is long so that
- * `last_seen_at` only moves when a test moves it.
+ * at model `chat`, `background` (tasks) at model `researcher`, `utility` (reflection, summaries) at
+ * model `utility`. The scheduler tick is long so that `last_seen_at` only moves when a test moves
+ * it, and reflection and reminders run only on the ticks a test emits (`tick`). No test before
+ * phase 4 reaches a utility call, so their providers need no `utility` model.
  */
 export function e2eConfig(c: E2eConfig = {}): string {
   return `
@@ -76,8 +92,8 @@ port = 0
 [models]
 foreground = "fake:chat"
 background = "fake:researcher"
-utility    = "fake:chat"
-
+utility    = "fake:utility"
+${tomlTable('mind', { timezone: c.timezone })}${tomlTable('mind.context', { recentMessages: c.recentMessages })}
 [mind.arrival]
 awayAfterMinutes = ${c.awayAfterMinutes ?? 1}
 briefing = "${c.briefing ?? 'on-greeting'}"
@@ -86,7 +102,7 @@ graceMs = ${c.graceMs ?? 50}
 
 [scheduler]
 tickMs = 3600000
-
+${tomlTable('memory.reflect', { ...c.reflect })}${tomlTable('memory.summary', { ...c.summary })}
 [plugins]
 enabled  = ${JSON.stringify(c.enabled ?? [])}
 required = []
@@ -270,6 +286,11 @@ export function nextEvent<N extends EventName>(
       resolve(e.data)
     })
   })
+}
+
+/** One scheduler tick at the fake clock's time, the payload the real timer emits (`tickMs` is an hour here). */
+export function tick(keith: Keith, clock: Clock): void {
+  keith.events.emit('scheduler.ticked', { at: clock.now() })
 }
 
 /** Polls `check` until it holds. */

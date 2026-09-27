@@ -4,7 +4,7 @@ These scenarios define what Keith must *feel* like. Each one is an acceptance ta
 
 | ID | Scenario | Delivered in |
 |---|---|---|
-| S-1 | Arrival and briefing | Phase 1 (deliveries), phase 2+ (plugin briefing items such as news) |
+| S-1 | Arrival and briefing | Phase 1 (deliveries), phase 2+ (plugin briefing items such as news), phase 4 (reminders, briefing skill) |
 | S-2 | Research in the background, report when done | Phase 1 |
 | S-3 | Remembered the next day | Phase 1 (history), phase 4 (semantic memory) |
 | S-4 | Two people, two conversations, one mind | Phase 1 (concurrency), phase 5 (tiers + visibility) |
@@ -29,6 +29,8 @@ These scenarios define what Keith must *feel* like. Each one is an acceptance ta
 
 **Test (phase 1):** a Task completes while no node is attached. A node connects after the away threshold and sends "hello". The reply contains the task result, and the delivery is marked delivered. A second test sends a first input that is not a greeting: the reply answers it first, then mentions the result, and no separate delivery turn follows.
 
+**Test (phase 4, reminders):** `tests/e2e/s1-reminder.test.ts`. On day 1 Tony asks for a reminder at 09:00 the next day; the model calls `reminder.set` with an `at` without an offset, which is read in `mind.timezone`. The core restarts overnight. If Tony is attached, the first tick after 09:00 turns the reminder into a `high` delivery, and he gets it as an unsolicited message (a tick before 09:00 fires nothing). With `briefing = "auto"` and Tony arriving at 09:30, the briefing turn carries the reminder, its context offers the `morning_briefing` skill, and the delivery is marked delivered. CI runs it five times in a row.
+
 ## S-2 Research in the background, report when done
 
 *"Keith, research venue options for the Expo." "I'll get on it, sir." Tony keeps talking about something else. Later: "Sir, the venue shortlist is ready."*
@@ -48,7 +50,9 @@ Phase 1: the Thread's history and the Task result are persisted and available af
 
 **Test (phase 1):** restart the core between turns. History and task results survive, and the next turn's context includes them.
 
-**Test (phase 4, integration):** on the real core with a scripted utility model, a thread that has been idle past `memory.reflect.idleMinutes` is reflected on the next scheduler tick: the utility model gets that thread's messages, an `inferred` memory is stored and `memory.reflected` is emitted. A thread longer than `recentMessages + minMessages` gets a summary, and the next turn's system prompt holds `# Earlier in this thread`. A home the core wrote (stated and inferred memories, a pending reminder) survives `keith backup` / `keith restore` into a new home. **Test (phase 4, end to end, P4-I2):** a fact stated on day 1 is recalled on day 2 through `memory.recall` without the raw message in context.
+**Test (phase 4, integration):** on the real core with a scripted utility model, a thread that has been idle past `memory.reflect.idleMinutes` is reflected on the next scheduler tick: the utility model gets that thread's messages, an `inferred` memory is stored and `memory.reflected` is emitted. A thread longer than `recentMessages + minMessages` gets a summary, and the next turn's system prompt holds `# Earlier in this thread`. A home the core wrote (stated and inferred memories, a pending reminder) survives `keith backup` / `keith restore` into a new home.
+
+**Test (phase 4, end to end):** `tests/e2e/s3-semantic.test.ts` runs the real core with a scripted chat model, a separate scripted utility model and the fake clock, with `recentMessages = 4` and thread summaries off, so only semantic memory can carry the fact. On day 1 Tony says "my sister Maria lands in Surabaya on Friday", and three more exchanges push that message out of the window. Past `memory.reflect.idleMinutes`, a tick runs reflection: the utility model returns the fact, and a `subject`, `inferred` memory about Tony is stored and `memory.reflected` is emitted. The core restarts on the same home 20 hours later. Tony asks "When does my sister arrive?": neither the system prompt nor any message of the model's request holds the day-1 text, the model calls `memory.recall`, the result it gets back holds the reflected fact, and the answer is stored. Pepper (a member) asks the same in her own thread, and her `memory.recall` finds nothing (I-4). CI runs it five times in a row.
 
 ## S-4 Two people, two conversations, one mind
 
