@@ -1,7 +1,5 @@
 // Reflection (phase 4, ADR-0014): idle threads become inferred memories and relationship notes.
 // See docs/architecture/memory.md#reflection.
-// Placeholder (P4-K1): the reflector finds nothing and the job never subscribes. Task P4-A1
-// implements both.
 
 import type { KeithConfig } from '../../config/types.ts'
 import type { CoreEventBus } from '../../events/types.ts'
@@ -10,6 +8,8 @@ import type { Scheduler } from '../../scheduler/types.ts'
 import type { Clock, Ids, Logger } from '../../shared/types.ts'
 import type { Repositories } from '../../storage/types.ts'
 import type { MemoryJob, MemoryService, Reflector } from '../types.ts'
+import { createReflectionJob } from './job.ts'
+import { createReflector } from './reflector.ts'
 
 export type ReflectionDeps = {
   /** `memory.reflect` drives the job; `mind` gives the time zone and the Mind's name for prompts. */
@@ -31,16 +31,7 @@ export type ReflectionDeps = {
 export type Reflection = { reflector: Reflector; job: MemoryJob }
 
 /** Builds the reflector and its tick-driven job. Bootstrap starts the job (P4-I1). */
-export function createReflection(_deps: ReflectionDeps): Reflection {
-  return {
-    reflector: {
-      async reflect() {
-        return null
-      },
-    },
-    job: {
-      start() {},
-      async stop() {},
-    },
-  }
+export function createReflection(deps: ReflectionDeps): Reflection {
+  const reflector = createReflector(deps)
+  return { reflector, job: createReflectionJob({ ...deps, reflector }) }
 }

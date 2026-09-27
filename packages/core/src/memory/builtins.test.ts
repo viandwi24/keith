@@ -174,6 +174,13 @@ describe('memory.recall', () => {
     const none = await run(tool('memory.recall'), { query: 'armor' }, ctx(h.dto.happy, [h.dto.happy], null))
     expect(none.content).toBe('No matching memories.')
   })
+
+  test('its description tells the model that matching is by word, so to send keywords and synonyms', async () => {
+    const { tool } = await setup()
+    const description = tool('memory.recall').description
+    expect(description).toContain('by word')
+    expect(description).toContain('synonyms')
+  })
 })
 
 describe('memory.forget', () => {
