@@ -4,7 +4,7 @@ title: "Hardening: UI blocks on deliveries, and order by seq"
 phase: 3
 wave: 7
 lane: H
-status: review
+status: done
 owner: agent-P3-H7
 depends: [P3-H1, P3-H3]
 owns:
