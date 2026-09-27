@@ -37,9 +37,11 @@ The overview's lanes A–E map one to one. Lane S is new: two lanes (A/B and C) 
 
 ## Open decisions
 
+The owner accepted every default below on 2026-09-27.
+
 | # | Decision | Where | Default in the plan |
 |---|---|---|---|
-| D1 | Visibility, merge and card rules for reflection | [ADR-0014](../../decisions/0014-reflection-writes-conservative-inferred-memories.md), **proposed** | Never wider than the conversation. Merge only within the same scope. Notes only, never tone |
+| D1 | Visibility, merge and card rules for reflection | [ADR-0014](../../decisions/0014-reflection-writes-conservative-inferred-memories.md), accepted 2026-09-27 | Never wider than the conversation. Merge only within the same scope. Notes only, never tone |
 | D2 | Summaries independent of reflection (memory.md said reflection updates the summary) | ADR-0014 | Independent, triggered by `turn.completed` |
 | D3 | A third tool, `reminder.list` (the overview named only set/cancel) | P4-K1 | Added, or the model can't find an id to cancel |
 | D4 | Reminder tools' `minTier` | P4-K1 | `member`, like `task.*` (they cause proactive messages) |
