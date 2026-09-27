@@ -4,8 +4,8 @@ title: "Integration: wire reflection, summaries, reminders and briefing skills i
 phase: 4
 wave: 3
 lane: I
-status: todo
-owner: null
+status: in-progress
+owner: agent-P4-I1
 depends: [P4-S1, P4-A1, P4-B1, P4-C1, P4-D1, P4-E1]
 owns:
   - packages/core/**
@@ -88,7 +88,7 @@ A real `keith start` reflects on idle threads, keeps summaries, fires reminders 
 - C1: remove the shared phase-4 `> Planned` note in config.md that names P4-B1/P4-C1 (and any other P4 lane) once wired.
 - E1: add a reminder to `seed` in `cli/backup-testing.ts` and assert it survives in `restore.test.ts`; export `MIGRATIONS_FOLDER` from `storage/index.ts` and import it from there in `cli/backup.ts`.
 - K1: `reminders: { service: scheduling.reminders, config, clock }` to `registerBuiltins`.
-- A1: see its Outcome when merged.
+- A1: wire `createReflection` in bootstrap (start after startup, stop at shutdown); remove memory.md's `> Planned (phase 4, P4-I1)` line and core.md's shared P4-A1/P4-B1 Planned note ("`reflect` returns null"). Add an integration test with the real storage `listForReflection` / `range` / `setReflectedThrough` (A1 tested only against fakes).
 
 ## Outcome
 
