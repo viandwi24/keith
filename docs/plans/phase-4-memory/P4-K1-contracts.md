@@ -4,7 +4,7 @@ title: Phase-4 contract additions and core memory, summary and reminder interfac
 phase: 4
 wave: 1
 lane: K
-status: in-progress
+status: review
 owner: agent-P4-K1
 depends: [P3-I3]
 owns:
@@ -148,14 +148,14 @@ The hardening audit's lesson applies: every interface a wave-2 lane needs is fix
 
 ## Acceptance criteria
 
-- [ ] `events.test.ts` (sdk) checks the two new events against events.md. `CORE_EVENT_NAMES` includes them.
-- [ ] `ids.test.ts`: `rem` is unique and `ReminderId` parses `rem_<ULID>`.
-- [ ] Config: `config/memory.test.ts` (new). An empty file gives every default above. `KEITH__MEMORY__REFLECT__IDLEMINUTES=0.5` gives 0.5. `idleMinutes = 0` and `minMessages = 0` are `CONFIG_INVALID`.
-- [ ] `builtins/reminder.test.ts` (spec only): the three tools have the names, input schemas and `minTier` above. `reminder.set` rejects input with both `at` and `inMinutes`, and input with neither. `registerBuiltins` without `reminders` registers no `reminder.*` tool.
-- [ ] `registerBuiltins` registers the `morning_briefing` default skill.
-- [ ] `bun run core-docs` passes, and core.md blocks match the changed `types.ts` files.
-- [ ] `bun run plans --lint` is clean. Once this is `done`, `bun run plans --ready` lists P4-S1, P4-A1, P4-B1, P4-C1, P4-D1 and P4-E1.
-- [ ] `bun run check` passes.
+- [x] `events.test.ts` (sdk) checks the two new events against events.md. `CORE_EVENT_NAMES` includes them.
+- [x] `ids.test.ts`: `rem` is unique and `ReminderId` parses `rem_<ULID>`.
+- [x] Config: `config/memory.test.ts` (new). An empty file gives every default above. `KEITH__MEMORY__REFLECT__IDLEMINUTES=0.5` gives 0.5. `idleMinutes = 0` and `minMessages = 0` are `CONFIG_INVALID`.
+- [x] `builtins/reminder.test.ts` (spec only): the three tools have the names, input schemas and `minTier` above. `reminder.set` rejects input with both `at` and `inMinutes`, and input with neither. `registerBuiltins` without `reminders` registers no `reminder.*` tool.
+- [x] `registerBuiltins` registers the `morning_briefing` default skill.
+- [x] `bun run core-docs` passes, and core.md blocks match the changed `types.ts` files.
+- [x] `bun run plans --lint` is clean. Once this is `done`, `bun run plans --ready` lists P4-S1, P4-A1, P4-B1, P4-C1, P4-D1 and P4-E1.
+- [x] `bun run check` passes.
 
 ## Notes
 
@@ -166,4 +166,110 @@ The hardening audit's lesson applies: every interface a wave-2 lane needs is fix
 
 ## Outcome
 
-_Filled by the agent when finishing: what was built, decisions (ADR links), deviations, follow-ups._
+Everything is additive (contracts rule 3): no frame, event, id prefix, config key, interface member or error code changed meaning or was removed. No new ADR: every open point was settled by the plan and ADR-0014, or is recorded under Decisions.
+
+**Built**
+- **Contracts.**
+  - `events.md` + `@keith/sdk` `CoreEventMap` / `CORE_EVENT_NAMES`: `memory.reflected` `{ threadId, throughSeq, written, merged, cardsUpdated }` and `thread.summarized` `{ threadId, throughSeq }`, phase 4. A line in Conventions says there are no `reminder.*` events.
+  - `events.test.ts` now reads every row of the table (any phase), not only phase-1 rows, and checks the phase-4 rows' `data` field names against the payload types.
+  - `@keith/protocol`: `ID_PREFIXES.reminder = 'rem'`, `ReminderId`. The prefix table in conventions.md has `rem_`. Tests: `rem` is unique, `ReminderId` parses `rem_<ULID>`, and core `ids.next('rem')` yields a valid `ReminderId`.
+  - `plugin-api.md#skills`: default skills. A plugin skill with a default's name replaces it, the default comes back when that plugin is removed, and a second plugin still fails.
+- **Config** (`config/types.ts`, `schema.ts`, new `config/memory.test.ts`, config.md):
+  - `[memory.reflect]`: `enabled` true, `idleMinutes` 20 (positive, fractional), `maxMessages` 200, `cardMaxChars` 1000.
+  - `[memory.summary]`: `enabled` true, `minMessages` 20, `maxChars` 2000.
+  - `[mind.reminder]`: `maxPerPerson` 50.
+  - Every key has a default, so `KEITH__` overrides work (tested with `KEITH__MEMORY__REFLECT__IDLEMINUTES=0.5`). `idleMinutes = 0` and `minMessages = 0` are `CONFIG_INVALID`.
+- **Shared types:** `ReminderId` (re-exported), `ReminderStatus`, `Reminder`.
+- **Storage types** (`storage/types.ts`, every member with JSDoc):
+  - `ThreadRecord.summaryThroughSeq?` and `reflectedThroughSeq?`.
+  - `ThreadsRepository.setSummary`, `setReflectedThrough` and `listForReflection`.
+  - `MessagesRepository.range` and `lastSeq`.
+  - `RemindersRepository`, and `Repositories.reminders`.
+- **Storage placeholders** (throw `INTERNAL` "… not implemented yet (P4-S1)"):
+  - the new members in `threads.ts` and `messages.ts`;
+  - a new `storage/reminders.ts` (`createRemindersRepository`), wired in `db.ts`.
+  - `storage/backup.ts` declares `backupDatabase(srcPath, destPath, signal)` and throws (P4-E1). It is exported from `storage/index.ts`.
+- **Memory:**
+  - `memory/types.ts` has `ReflectionResult`, `Reflector`, `ThreadSummarizer` and `MemoryJob`.
+  - `memory/reflect/index.ts` has `createReflection(deps: ReflectionDeps): Reflection`. The placeholder `reflect` returns null.
+  - `memory/summary/index.ts` has `createThreadSummaries(deps: ThreadSummariesDeps): ThreadSummaries`. The placeholder `update` returns false.
+  - Both placeholder jobs do nothing. Everything is exported from `memory/index.ts`.
+- **Scheduler:**
+  - `ReminderService` is in `scheduler/types.ts`.
+  - `scheduler/reminders.ts` has `createReminderService(deps: ReminderServiceDeps)`. `fireDue` returns 0, and the others throw `INTERNAL` "… not implemented yet (P4-C1)".
+  - `createScheduling` builds it and exposes `Scheduling.reminders`. `SchedulingDeps.repos` gains `reminders`.
+  - `start()` calls `reminders.fireDue(event.at)` on every `scheduler.ticked`, in a `finally` after commitment expiry, so a failing expiry can't hold reminders back.
+- **Built-ins:**
+  - `builtins/reminder.ts` has the final specs of `reminder.set`, `reminder.list` and `reminder.cancel`, all with `minTier: 'member'`. It also exports the input schemas, `REMINDER_TOOL_NAMES`, `REMINDER_AT_PATTERN`, `REMINDER_TEXT_MAX_CHARS` (500), `REMINDER_MAX_AHEAD_DAYS` (366) and the tool answers (`REMINDER_MESSAGES`). The bodies return the tool error "… not implemented yet (P4-C1)."
+  - `registerBuiltins` registers the reminder tools only when `BuiltinDeps.reminders` is given.
+  - `builtins/skills/morning-briefing.ts` is the `morning_briefing` default skill: final name and description, draft instructions. `registerBuiltins` registers it through `skills.registerDefault`.
+  - `CoreSkillRegistry.registerDefault` is in `plugins/types.ts`. The placeholder in `plugins/skills.ts` registers the skill as a core skill (`pluginId` null), with the name check and `TOOL_NAME_TAKEN` on a duplicate.
+- **Tests:**
+  - `builtins/reminder.test.ts`: names, schemas, `minTier`, both/neither `at` and `inMinutes`, JSON Schema conversion, and registration with and without `reminders`.
+  - `builtins/index.test.ts`: `morning_briefing` is registered as a default.
+- **Fakes:**
+  - `memory/testing/fakes.ts`: threads cursors and `listForReflection` over a `lastSeqs` fixture map.
+  - `mind/testing/fakes.ts`: threads cursors, `listForReflection`, and `messages.range` / `lastSeq` over its stored `seq`.
+  - `scheduler/testing/fakes.ts`: a full in-memory `createFakeRemindersRepository` (`FakeRepos.reminders` / `reminderRows`) and the threads cursors.
+  - `server/test-fakes.ts`: threads cursors, and `range` / `lastSeq` by position.
+  - Every config literal gains the new keys.
+- **Docs:**
+  - core.md: the config, plugins, storage, scheduler, memory and shared blocks are generated from the `types.ts` files, and `core-docs` is ok. New prose: memory-job factories and deps; the lanes table; the tick users; a new "Reminders" subsection under Deliveries; the built-in tools row with `reminder.list` and tier `member`; default skills. The Context builder summary section and window rule are marked `> Planned (phase 4, P4-B1)`.
+  - memory.md: new "Reflection" and "Thread summary" sections with the ADR-0014 rules, replacing the old Planned paragraph, marked `(P4-A1)` / `(P4-B1)`.
+  - storage.md: the `threads` cursor columns, the full `reminders` row, and a "Reminders and thread cursors" section `(P4-S1)`. Backups are marked `(P4-E1)`.
+  - config.md: the three sections, overrides and rough utility cost.
+  - providers.md: `utility` is used by reflection and summaries.
+  - plugin-system.md: default skills, with a `(P4-D1)` Planned note.
+
+**Decisions**
+- **Reminder tool deps.** `BuiltinDeps.reminders` is a `ReminderToolsDeps` `{ service: ReminderService; config: Pick<KeithConfig, 'mind'>; clock: Clock }`, not a bare `ReminderService`. `reminder.set` needs `mind.timezone` and "now", and `reminder.list` needs the time zone, and `BuiltinDeps` has neither. One optional group keeps "no reminders, no tools" type-safe. P4-I1 passes `reminders: { service: scheduling.reminders, config, clock }`.
+- **`reminder.set` schema:**
+  - `text` is trimmed, 1..500.
+  - `at` must match `REMINDER_AT_PATTERN`: ISO 8601 date and time, minutes required, optional seconds, fraction and `Z` / `±HH:MM`. A date alone or natural language is invalid input.
+  - `inMinutes` is a positive number with no upper bound in the schema. The 366-day rule is a tool error in the body, as the task says.
+  - "Exactly one of" is a `.refine` whose message is `REMINDER_MESSAGES.bothOrNeither`. It still converts to JSON Schema, which is tested.
+- **`reminder.cancel { id }`** uses the `ReminderId` schema, like `task.cancel` uses `TaskId`. A malformed id is invalid input. A well-formed id that isn't the caller's pending reminder is "No such reminder." (P4-C1).
+- **Factory deps** (fixed here; lanes may not narrow the call site):
+  - `ReflectionDeps` takes `config` (`memory`, `mind`) and `repos` (`threads`, `messages`, `memories`, `relationships`, `persons`). It also takes `memory`, `runLoop`, `scheduler` (`run`), `events`, `clock`, `ids` and `log`.
+  - `ThreadSummariesDeps` is the same without `memory`, and its `repos` are `threads` and `messages`.
+  - `ReminderServiceDeps` takes `config` (`mind`), `repos` (`reminders`), `deliveries` (`enqueue`), `ids`, `clock` and `log`.
+- `fireDue` gets the tick's `at` (the event payload), not `clock.now()`, so a test controls it through the tick.
+- The storage placeholder for reminders is a new file, `storage/reminders.ts`, not a stub inside `db.ts`. P4-S1 owns both files and replaces the body.
+
+**Deviations**
+- The task says to check `ids.newId('reminder')`. The core API is `ids.next('rem')` (`Ids.next(prefix)`), which is what the test checks. P4-C1's text says `ids.newId('reminder')` too. Read it as `ids.next('rem')`.
+- No `owns` widening was needed. Every broken implementer was inside `owns`.
+- Behavior change within scope: with the default skill registered, every context's skills index now lists `morning_briefing`. Until P4-D1, a plugin skill named `morning_briefing` gets `TOOL_NAME_TAKEN`. No first-party plugin registers one, and all existing tests pass unchanged.
+- `events.test.ts` changed its row filter from "ends with `| 1 |`" to "any phase number", so phase-4 rows are checked too.
+
+**Notes for the lanes**
+- **P4-S1:**
+  - Implement the JSDoc in `storage/types.ts` exactly.
+  - `get`, `getBySlug` and `listForPerson` must return both cursors (null when unset). `create` stores them as given (absent = null).
+  - `range` filters by `roles` before the limit.
+  - Replace the bodies in `storage/reminders.ts`, `threads.ts` and `messages.ts`. Remove the `(P4-S1)` Planned note in storage.md.
+- **P4-A1:**
+  - `createReflection` and `ReflectionDeps` are in `memory/reflect/index.ts`. Keep the signature.
+  - `FakeThreadsRepository` (`memory/testing/fakes.ts`) has cursors and `listForReflection` over its `lastSeqs` map, because it stores no messages. Reshape it as you need (you own `memory/testing`).
+  - `memory.reflected` needs counts, so use `written.length` etc.
+  - Remove the `(P4-A1)` Planned notes in memory.md and core.md (the memory-jobs note is shared with B1).
+- **P4-B1:**
+  - `createThreadSummaries` and `ThreadSummariesDeps` are in `memory/summary/index.ts`.
+  - `mind/testing/fakes.ts` `createFakeRepos` has `range`, `lastSeq`, `setSummary`, `setReflectedThrough` and `listForReflection`, and `testConfig` has `mind.reminder`. `testConfig` returns only `mind`, so add `memory` where your `ContextBuilderDeps.config` needs it.
+  - Remove the Context-builder Planned note in core.md.
+- **P4-C1:**
+  - Replace `createReminderService` in `scheduler/reminders.ts` (same deps).
+  - `scheduling.start()` already calls `fireDue(at)` per tick. Don't wire it again.
+  - `scheduler/testing/fakes.ts` has `createFakeRemindersRepository` (the full JSDoc contract), and `createFakeRepos()` includes it.
+  - In `builtins/reminder.ts`, keep the names, schemas, `minTier` and `REMINDER_MESSAGES` wording. Use `deps.service`, `deps.config.mind.timezone` and `deps.clock`.
+  - `ReminderService.set` throws a `KeithError` at the limit. Map it to `REMINDER_MESSAGES.limit(max)`.
+  - Remove the Reminders Planned note in core.md.
+- **P4-D1:**
+  - Replace `registerDefault` in `plugins/skills.ts` with the replace and restore semantics. `RegisteredSkill.pluginId` is null for defaults, as for other core skills.
+  - `morning-briefing.ts` has the final name and description ("How to brief a person on what they missed. Load at the start of a briefing or when someone asks what they missed."). Replace the draft instructions with the `.md` file.
+  - Remove the Planned note in plugin-system.md.
+- **P4-E1:** `backupDatabase(srcPath, destPath, signal): Promise<void>` is in `storage/backup.ts` and exported from `storage/index.ts`. Replace the body, and the Backups note in storage.md.
+- **P4-I1:**
+  - Build both memory jobs in step 7 and pass `reminders: { service: scheduling.reminders, config, clock }` to `registerBuiltins`.
+  - `registerBuiltins` already registers `morning_briefing`.
+  - Remove the memory-jobs Planned note in core.md and config.md's phase-4 Planned note.

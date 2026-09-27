@@ -29,7 +29,7 @@ IDs are prefixed ULIDs: `<prefix>_<ULID>`. Generate them only through the inject
 | `thr_` | Thread | `dlv_` | Delivery |
 | `msg_` | Message | `mem_` | Memory |
 | `trn_` | Turn | `fil_` | File |
-| `win_` | Workspace window | | |
+| `win_` | Workspace window | `rem_` | Reminder (phase 4) |
 
 ## Files and modules
 

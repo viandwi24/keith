@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { ID_PREFIXES, isPrefixedId, MessageId, prefixedId, ThreadId, Ulid } from './ids.ts'
+import { ID_PREFIXES, isPrefixedId, MessageId, prefixedId, ReminderId, ThreadId, Ulid } from './ids.ts'
 
 const body = '01J8ZQ3K4M5N6P7Q8R9S0T1V31'
 
@@ -37,6 +37,13 @@ describe('prefixed ids', () => {
     expect(isPrefixedId('msg', `thr_${body}`)).toBe(false)
     expect(isPrefixedId('msg', null)).toBe(false)
     expect(MessageId.safeParse(`msg_${body}`).success).toBe(true)
+  })
+
+  test('reminder ids use the unique prefix rem (phase 4)', () => {
+    expect(ID_PREFIXES.reminder).toBe('rem')
+    expect(Object.values(ID_PREFIXES).filter((p) => p === 'rem')).toHaveLength(1)
+    expect(ReminderId.safeParse(`rem_${body}`).success).toBe(true)
+    expect(ReminderId.safeParse(`dlv_${body}`).success).toBe(false)
   })
 
   test('Ulid accepts a bare ULID', () => {

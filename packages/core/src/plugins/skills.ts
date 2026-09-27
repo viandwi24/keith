@@ -29,6 +29,22 @@ export function createSkillRegistry(): CoreSkillRegistry {
         },
       }
     },
+    // Placeholder (P4-K1): registers the default like a core-owned skill (a later plugin with the
+    // same name still gets TOOL_NAME_TAKEN). Task P4-D1 adds the replace and restore semantics.
+    registerDefault(skill) {
+      if (!SKILL_NAME_PATTERN.test(skill.name)) {
+        throw new KeithError('TOOL_NAME_INVALID', `invalid skill name '${skill.name}': use snake_case`, {
+          details: { name: skill.name, pluginId: null },
+        })
+      }
+      const existing = skills.get(skill.name)
+      if (existing) {
+        throw new KeithError('TOOL_NAME_TAKEN', `skill '${skill.name}' is already registered`, {
+          details: { name: skill.name, pluginId: null, existing: existing.pluginId },
+        })
+      }
+      skills.set(skill.name, { skill, pluginId: null })
+    },
     removeByPlugin(pluginId) {
       for (const [name, entry] of skills) if (entry.pluginId === pluginId) skills.delete(name)
     },

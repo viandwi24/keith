@@ -1,5 +1,6 @@
 // threads + thread_participants repository.
 
+import { KeithError } from '@keith/sdk'
 import { and, asc, desc, eq, isNull } from 'drizzle-orm'
 import type { Orm } from './orm.ts'
 import { threadParticipants, threads } from './schema.ts'
@@ -71,6 +72,16 @@ export function createThreadsRepository(db: Orm): ThreadsRepository {
     },
     async touch(id, updatedAt) {
       db.update(threads).set({ updatedAt }).where(eq(threads.id, id)).run()
+    },
+    // Placeholders (P4-K1): task P4-S1 adds the cursor columns and implements them.
+    async setSummary() {
+      throw new KeithError('INTERNAL', 'threads.setSummary is not implemented yet (P4-S1)')
+    },
+    async setReflectedThrough() {
+      throw new KeithError('INTERNAL', 'threads.setReflectedThrough is not implemented yet (P4-S1)')
+    },
+    async listForReflection() {
+      throw new KeithError('INTERNAL', 'threads.listForReflection is not implemented yet (P4-S1)')
     },
   }
 }

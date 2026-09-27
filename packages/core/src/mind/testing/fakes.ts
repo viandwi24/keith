@@ -76,6 +76,11 @@ export function createFakeRepos(): FakeRepos {
   const participants: ThreadParticipantRecord[] = []
   const messages: MessageRecord[] = []
   const nodes = new Map<NodeId, NodeRecord>()
+  const lastSeqOf = (threadId: ThreadId): number => {
+    let last = 0
+    for (const m of messages) if (m.threadId === threadId) last = Math.max(last, m.seq ?? 0)
+    return last
+  }
 
   return {
     all: { messages, threads },
@@ -135,6 +140,25 @@ export function createFakeRepos(): FakeRepos {
         const t = threads[i]
         if (t) threads[i] = { ...t, updatedAt }
       },
+      async setSummary(id, s) {
+        const i = threads.findIndex((t) => t.id === id)
+        const t = threads[i]
+        if (t) threads[i] = { ...t, summary: s.summary, summaryThroughSeq: s.throughSeq }
+      },
+      async setReflectedThrough(id, seq) {
+        const i = threads.findIndex((t) => t.id === id)
+        const t = threads[i]
+        if (t) threads[i] = { ...t, reflectedThroughSeq: seq }
+      },
+      async listForReflection(q) {
+        return threads
+          .map((thread) => ({ thread, lastSeq: lastSeqOf(thread.id) }))
+          .filter(
+            (r) => r.thread.updatedAt <= q.idleBefore && r.lastSeq > (r.thread.reflectedThroughSeq ?? 0),
+          )
+          .sort((a, b) => a.thread.updatedAt - b.thread.updatedAt || a.thread.id.localeCompare(b.thread.id))
+          .slice(0, q.limit)
+      },
     },
     messages: {
       // Like storage: `seq` is per thread, assigned on insert (a passed value is ignored), and
@@ -160,6 +184,20 @@ export function createFakeRepos(): FakeRepos {
         }
         const start = Math.max(0, list.length - q.limit)
         return { messages: list.slice(start), hasMore: start > 0 }
+      },
+      async range(q) {
+        return messages
+          .filter(
+            (m) =>
+              m.threadId === q.threadId &&
+              (m.seq ?? 0) > q.afterSeq &&
+              (!q.roles || q.roles.includes(m.role)),
+          )
+          .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
+          .slice(0, Math.max(0, q.limit))
+      },
+      async lastSeq(threadId) {
+        return lastSeqOf(threadId)
       },
     },
     nodes: {
@@ -492,6 +530,7 @@ export function testConfig(mind: Partial<KeithConfig['mind']> = {}): Pick<KeithC
       commitment: { ttlMs: 604_800_000 },
       arrival: { awayAfterMinutes: 30, briefing: 'on-greeting', holdMs: 120_000, graceMs: 1_500 },
       context: { recentMessages: 40 },
+      reminder: { maxPerPerson: 50 },
       ...mind,
     },
   }

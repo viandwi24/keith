@@ -11,17 +11,22 @@ import type { Repositories } from '../storage/types.ts'
 import { type CommitmentManager, createCommitmentService } from './commitments.ts'
 import { createDeliveryQueue, createDeliverySinks } from './deliveries.ts'
 import { createLaneScheduler, type LaneScheduler } from './lanes.ts'
+import { createReminderService } from './reminders.ts'
 import { createTaskService, type TaskManager } from './tasks.ts'
-import type { DeliveryQueue } from './types.ts'
+import type { DeliveryQueue, ReminderService } from './types.ts'
 
 export type { CommitmentManager } from './commitments.ts'
 export { MAIN_THREAD_SLUG } from './deliveries.ts'
 export type { LaneScheduler } from './lanes.ts'
+export { createReminderService, type ReminderServiceDeps } from './reminders.ts'
 export { TASK_SUMMARY_MAX_CHARS, type TaskManager } from './tasks.ts'
 
 export type SchedulingDeps = {
   config: Pick<KeithConfig, 'scheduler' | 'mind'>
-  repos: Pick<Repositories, 'tasks' | 'commitments' | 'deliveries' | 'threads' | 'persons' | 'relationships'>
+  repos: Pick<
+    Repositories,
+    'tasks' | 'commitments' | 'deliveries' | 'threads' | 'persons' | 'relationships' | 'reminders'
+  >
   runLoop: RunLoop
   agents: Pick<CoreAgentRegistry, 'get'>
   events: CoreEventBus
@@ -35,9 +40,14 @@ export type Scheduling = {
   tasks: TaskManager
   commitments: CommitmentManager
   deliveries: DeliveryQueue
+  /** Phase 4: handed to `registerBuiltins` for the `reminder.*` tools (bootstrap step 10). */
+  reminders: ReminderService
   /** Handed to the plugin host as `deliveries` (bootstrap step 11). */
   deliverySinks: PluginScoped<DeliverySink>
-  /** Recovers tasks left over from the last run, subscribes commitment expiry to ticks, starts the tick timer. */
+  /**
+   * Recovers tasks left over from the last run, subscribes commitment expiry and due reminders
+   * (`reminders.fireDue`) to ticks, starts the tick timer.
+   */
   start(): Promise<void>
   /** Stops the tick timer and aborts in-flight tasks, leaving them for the next boot's recovery. */
   stop(): Promise<void>
@@ -50,6 +60,7 @@ export function createScheduling(deps: SchedulingDeps): Scheduling {
   const commitments = createCommitmentService({ config, repos, events, ids, clock, log })
   const deliveries = createDeliveryQueue({ repos, events, ids, clock })
   const deliverySinks = createDeliverySinks({ queue: deliveries, repos })
+  const reminders = createReminderService({ config, repos, deliveries, ids, clock, log })
   const tasks = createTaskService({
     config,
     repos,
@@ -70,11 +81,17 @@ export function createScheduling(deps: SchedulingDeps): Scheduling {
     tasks,
     commitments,
     deliveries,
+    reminders,
     deliverySinks,
     async start() {
       await tasks.recover()
-      unsubscribe ??= events.on('scheduler.ticked', async () => {
-        await commitments.expireDue()
+      unsubscribe ??= events.on('scheduler.ticked', async ({ data }) => {
+        // A failing expiry must not hold back due reminders (the bus logs whatever throws).
+        try {
+          await commitments.expireDue()
+        } finally {
+          await reminders.fireDue(data.at)
+        }
       })
       scheduler.startTicking()
     },

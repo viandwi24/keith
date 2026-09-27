@@ -51,10 +51,22 @@ graceMs = 1500                     # auto: wait for plugin deliveries before bri
 [mind.context]
 recentMessages = 40
 
+[mind.reminder]                    # phase 4
+maxPerPerson = 50                  # pending reminders per person
+
 [memory]
 coreMaxChars = 1500
-# [memory.reflect]                 # planned (phase 4)
-# idleMinutes = 20
+
+[memory.reflect]                   # phase 4: reflection (memory.md#reflection)
+enabled = true
+idleMinutes = 20                   # fractional allowed (tests use small values); must be > 0
+maxMessages = 200                  # messages read per pass; more wait for the next pass
+cardMaxChars = 1000                # relationship notes cap
+
+[memory.summary]                   # phase 4: thread summaries (memory.md#thread-summary)
+enabled = true
+minMessages = 20                   # rows out of the window before the summary is updated; must be > 0
+maxChars = 2000
 
 [scheduler]
 foreground = 4
@@ -96,6 +108,10 @@ maxUtteranceMs = 30000             # an utterance this long goes to STT anyway
 bargeIn = true                     # speech on the focus node interrupts a reply
 bargeInMinMs = 600                 # minimum speech before it counts as a barge-in (above the VAD hangover)
 ```
+
+The phase-4 keys (`[mind.reminder]`, `[memory.reflect]`, `[memory.summary]`) all have defaults, so `KEITH__` overrides work for them, e.g. `KEITH__MEMORY__REFLECT__IDLEMINUTES=0.5`. Reflection and summaries call the `utility` model: one completion per idle thread per idle period (plus one more when a fact matches existing memories), and one per `minMessages` rows that leave the window.
+
+> Planned (phase 4, P4-A1 / P4-B1 / P4-C1 / P4-I1): the keys are parsed and validated now; the jobs and reminders that read them are built by those tasks.
 
 `[voice]` picks providers by id; each voice plugin's own section (API key, base URL, model, voice) stays under `[plugins."<id>"]`. The config schema checks only the shape. `KEITH__VOICE__…` overrides are not supported, because the section has no defaults to override.
 

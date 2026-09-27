@@ -69,9 +69,29 @@ export const configSchema = z.strictObject({
         })
         .prefault({}),
       context: z.strictObject({ recentMessages: posInt().default(40) }).prefault({}),
+      reminder: z.strictObject({ maxPerPerson: posInt().default(50) }).prefault({}),
     })
     .prefault({}),
-  memory: z.strictObject({ coreMaxChars: posInt().default(1_500) }).prefault({}),
+  memory: z
+    .strictObject({
+      coreMaxChars: posInt().default(1_500),
+      reflect: z
+        .strictObject({
+          enabled: z.boolean().default(true),
+          idleMinutes: z.number().positive().default(20),
+          maxMessages: posInt().default(200),
+          cardMaxChars: posInt().default(1_000),
+        })
+        .prefault({}),
+      summary: z
+        .strictObject({
+          enabled: z.boolean().default(true),
+          minMessages: posInt().default(20),
+          maxChars: posInt().default(2_000),
+        })
+        .prefault({}),
+    })
+    .prefault({}),
   scheduler: z
     .strictObject({
       foreground: posInt().default(4),

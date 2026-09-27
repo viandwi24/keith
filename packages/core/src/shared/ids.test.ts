@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { isPrefixedId } from '@keith/protocol'
+import { isPrefixedId, ReminderId } from '@keith/protocol'
 import { createFakeClock } from '@keith/sdk/testing'
 import { createIds } from './ids.ts'
 
@@ -9,6 +9,12 @@ describe('createIds', () => {
     const id = ids.next('thr')
     expect(isPrefixedId('thr', id)).toBe(true)
     expect(isPrefixedId('per', ids.next('per'))).toBe(true)
+  })
+
+  test('generates reminder ids (phase 4)', () => {
+    const ids = createIds({ clock: createFakeClock(1_700_000_000_000) })
+    const id = ids.next('rem')
+    expect(ReminderId.safeParse(id).success).toBe(true)
   })
 
   test('encodes the clock time in the first 10 characters', () => {

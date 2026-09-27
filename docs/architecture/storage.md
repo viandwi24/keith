@@ -19,7 +19,7 @@ One SQLite file (`~/.keith/keith.db`) plus one data folder (`~/.keith/files/`). 
 | `relationships` | person_id (PK), tone, notes, blocked_relay_from (json) | 1 |
 | `auth_tokens` | token_hash (PK), person_id, node_id (nullable; filled on `hello`), expires_at, created_at | 1 |
 | `nodes` | id, name, kind (`attended`/`headless`), capabilities (json), last_seen_at | 1 |
-| `threads` | id, kind (`direct`/`group`), slug (e.g. `main`), title, owner_person_id, summary, created_at, updated_at. Unique (owner_person_id, slug) | 1 |
+| `threads` | id, kind (`direct`/`group`), slug (e.g. `main`), title, owner_person_id, summary, created_at, updated_at, summary_through_seq (nullable, phase 4), reflected_through_seq (nullable, phase 4). Unique (owner_person_id, slug) | 1 |
 | `thread_participants` | thread_id, person_id, joined_at, left_at | 1 |
 | `messages` | id, thread_id, role (`user`/`assistant`/`tool`), author_person_id, node_id, modality, content, tool_calls (json), tool_call_id, tool_name, is_error, ui (json), meta (json), seq, created_at. Unique (thread_id, seq). See below | 1 |
 | `tasks` | id, person_id, thread_id, agent_id, goal, status, attempt, summary, detail, ui (json), visibility, created_at, started_at, finished_at | 1 |
@@ -28,7 +28,7 @@ One SQLite file (`~/.keith/keith.db`) plus one data folder (`~/.keith/files/`). 
 | `memories` (+ `memories_fts`) | see [memory.md](memory.md) | 1 |
 | `plugin_data` | plugin_id, key, value (json), updated_at. PK (plugin_id, key) | 1 |
 | `files` | id, name, path, mime, size, owner_person_id, created_at. See [Files](#files) | 2 |
-| `reminders` | id, person_id, thread_id, due_at, text, status | 4 |
+| `reminders` | id, person_id (FK persons, cascade), thread_id (FK threads, cascade, nullable), text, due_at, status (`pending`/`fired`/`cancelled`), created_at, fired_at, cancelled_at, delivery_id (FK deliveries, set null). Index (status, due_at). See [Reminders and thread cursors](#reminders-and-thread-cursors-phase-4) | 4 |
 | `workspaces` | id, person_id or thread_id, state (json), updated_at | 6 |
 
 Group-thread columns (`threads.kind`, `thread_participants`, `messages.author_person_id`) exist from phase 1 even though group threads ship in phase 5. This is deliberate, so phase 5 needs no data migration of history.
@@ -69,6 +69,16 @@ One row per message. Columns used depend on `role`:
 - `deliveries.pendingFor` orders by urgency (`critical`, `high`, `normal`, `low`), then `created_at`, then id. `markDelivered(ids, at, messageId?)` only changes `pending` rows, and stores `messageId` (the assistant message whose turn delivered them) on each, or null without one. `get` returns the `DeliveryRecord` with `messageId` (null while pending and for items delivered before the column existed); `pendingFor` returns plain `Delivery` values.
 - `pluginData.get` returns `undefined` for a missing key. `list(pluginId, prefix)` returns keys in ascending order.
 
+## Reminders and thread cursors (phase 4)
+
+> Planned (phase 4, P4-S1): the interfaces below are fixed in `storage/types.ts` (P4-K1); the columns, the `reminders` table and the repository members are built by P4-S1. Until then the new members throw `INTERNAL`.
+
+- **Thread cursors.** `threads.summary_through_seq` is the last message `seq` that `threads.summary` covers, and `threads.reflected_through_seq` the last `seq` reflection has read. Both are null until first set (null counts as 0), so existing threads need no backfill. `ThreadRecord` carries them as `summaryThroughSeq` and `reflectedThroughSeq` on every record `get`, `getBySlug` and `listForPerson` return.
+- `threads.setSummary(id, { summary, throughSeq })` and `threads.setReflectedThrough(id, seq)` write them. Neither touches `updated_at`, so the idle clock keeps running.
+- `threads.listForReflection({ idleBefore, limit })` returns the threads with `updated_at ≤ idleBefore` and a message past the reflection cursor, oldest `updated_at` first, each with its `lastSeq` (the highest message `seq`), in one query.
+- `messages.range({ threadId, afterSeq, limit, roles? })` returns the first `limit` rows with `seq > afterSeq`, ascending, built exactly like `page` (with `seq`). `roles` filters before the limit. `messages.lastSeq(threadId)` is 0 for an empty thread.
+- **Reminders** (`RemindersRepository`, `repos.reminders`): `create`, `get`, `listDue(now, limit?)` (pending, `due_at ≤ now`, soonest first), `listPending(personId)` (soonest first), `countPending(personId)`, `markFired(id, at, deliveryId)` and `cancel(id, at)`. The last two are conditional updates (`WHERE status = 'pending'`) and return whether a row changed, so a second call changes nothing and returns false.
+
 ## Memory search filter
 
 `memories.search(text, filter)` and `memories.list(filter)` take a filter computed by `memory/visibility.ts` (`toStorageFilter(viewer)`), so the SQL and the pure `isVisible` function share one source of truth:
@@ -106,4 +116,6 @@ Downloads carry the stored `mime`, `x-content-type-options: nosniff` and `conten
 
 ## Backups
 
-The whole state is `~/.keith/`. `keith backup` (planned, phase 4) runs SQLite's online backup API plus a copy of `files/`.
+The whole state is `~/.keith/`.
+
+> Planned (phase 4, P4-E1): `keith backup` writes a consistent snapshot of the live database with `backupDatabase(srcPath, destPath, signal)` (`storage/backup.ts`, exported from `storage/index.ts`; the signature is fixed, the body throws until P4-E1) plus a copy of `files/`, `plugins/`, `config.toml` and `persona.md`. `keith restore` brings a backup back into a stopped home.

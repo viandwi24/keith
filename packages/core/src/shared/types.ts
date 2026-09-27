@@ -8,6 +8,7 @@ import type {
   IdPrefix,
   MemoryId,
   PersonId,
+  ReminderId,
   TaskId,
   ThreadId,
   UiBlock,
@@ -25,6 +26,7 @@ export type {
   NodeId,
   PersonDto,
   PersonId,
+  ReminderId,
   TaskId,
   ThreadId,
   Tier,
@@ -127,6 +129,27 @@ export interface Delivery {
 /** `threadId` defaults to the person's main thread, `source` to 'core', `urgency` to 'normal'. */
 export type NewDelivery = Pick<Delivery, 'personId' | 'kind' | 'content'> &
   Partial<Pick<Delivery, 'threadId' | 'authorPersonId' | 'source' | 'urgency' | 'ui'>>
+
+// Reminders (phase 4, docs/architecture/core.md#reminders)
+
+export type ReminderStatus = 'pending' | 'fired' | 'cancelled'
+
+export interface Reminder {
+  id: ReminderId
+  personId: PersonId
+  /** Where it is delivered; null = the person's `main` thread. */
+  threadId: ThreadId | null
+  /** What to remind of, 1..500 characters. */
+  text: string
+  /** When it is due (ms, UTC). It fires on the first scheduler tick at or after this time. */
+  dueAt: number
+  status: ReminderStatus
+  createdAt: number
+  firedAt: number | null
+  cancelledAt: number | null
+  /** The `reminder` delivery it fired as; null until fired. */
+  deliveryId: DeliveryId | null
+}
 
 // Memories (docs/architecture/memory.md#memory-record)
 

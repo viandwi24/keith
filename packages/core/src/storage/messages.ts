@@ -141,5 +141,12 @@ export function createMessagesRepository(db: Orm): MessagesRepository {
       const hasMore = rows.length > limit
       return { messages: rows.slice(0, limit).reverse().map(toRecord), hasMore }
     },
+    // Placeholders (P4-K1): task P4-S1 implements them.
+    async range() {
+      throw new KeithError('INTERNAL', 'messages.range is not implemented yet (P4-S1)')
+    },
+    async lastSeq() {
+      throw new KeithError('INTERNAL', 'messages.lastSeq is not implemented yet (P4-S1)')
+    },
   }
 }

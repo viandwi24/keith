@@ -12,6 +12,7 @@ Internal event bus (in-process). Not the wire protocol. Types live in `@keith/sd
 - Core namespaces are reserved: `core`, `plugin`, `node`, `person`, `thread`, `turn`, `tool`, `task`, `commitment`, `delivery`, `memory`, `scheduler`.
 - Plugins emit only in their own namespace and should `ctx.events.define(name, schema)` their events.
 - Ids in payloads are the typed prefixed ids from `@keith/protocol` (`PersonId`, `ThreadId`, …). `error` fields carry an error message; `turn.failed.code` is a `KeithErrorCode`. `delivery.enqueued.kind` is a delivery kind from [core.md](../architecture/core.md#deliveries) (`task_result`, `task_failed`, `plugin`, `reminder`, `relay`, `invitation`).
+- Phase 4 adds `memory.reflected` and `thread.summarized` (additive). There are no `reminder.*` events: a fired reminder is a `delivery.enqueued` with `kind: 'reminder'`.
 - In code: `CoreEventMap` (types), `CORE_EVENT_NAMES` (runtime list, checked against this table by a test), `CORE_EVENT_NAMESPACES`, `EVENT_NAME_PATTERN`.
 
 ## Core events
@@ -43,6 +44,8 @@ Internal event bus (in-process). Not the wire protocol. Types live in `@keith/sd
 | `delivery.delivered` | `{ deliveryId, threadId, messageId }` | | 1 |
 | `memory.written` | `{ memoryId, visibility, subjectPersonId }` | | 1 |
 | `scheduler.ticked` | `{ at }` | Every `scheduler.tickMs` | 1 |
+| `memory.reflected` | `{ threadId, throughSeq: number, written: number, merged: number, cardsUpdated: number }` | A reflection pass over a thread finished, also when it wrote nothing. `throughSeq` is the new reflection cursor; the counts are memories written, memories merged and relationship cards updated | 4 |
+| `thread.summarized` | `{ threadId, throughSeq: number }` | `threads.summary` changed; it now covers the thread's messages up to `throughSeq` | 4 |
 
 ## Delivery semantics
 

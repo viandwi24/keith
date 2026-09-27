@@ -13,6 +13,7 @@ import { createMessagesRepository } from './messages.ts'
 import type { Orm } from './orm.ts'
 import { createPersonsRepository, createRelationshipsRepository } from './persons.ts'
 import { createPluginDataRepository } from './plugin-data.ts'
+import { createRemindersRepository } from './reminders.ts'
 import { createThreadsRepository } from './threads.ts'
 import type { Db, Repositories } from './types.ts'
 import { createCommitmentsRepository, createDeliveriesRepository, createTasksRepository } from './work.ts'
@@ -55,5 +56,6 @@ function createRepositories(db: Orm): Repositories {
     memories: createMemoriesRepository(db),
     pluginData: createPluginDataRepository(db),
     files: createFilesRepository(db),
+    reminders: createRemindersRepository(db),
   }
 }

@@ -65,7 +65,13 @@ export async function createHousehold(opts: { coreMaxChars?: number } = {}): Pro
   const memory = new MemoryStore({
     repos: { memories, persons, threads, tasks },
     events,
-    config: { memory: { coreMaxChars: opts.coreMaxChars ?? 1500 } },
+    config: {
+      memory: {
+        coreMaxChars: opts.coreMaxChars ?? 1500,
+        reflect: { enabled: true, idleMinutes: 20, maxMessages: 200, cardMaxChars: 1_000 },
+        summary: { enabled: true, minMessages: 20, maxChars: 2_000 },
+      },
+    },
     clock,
     ids: createFakeIds(),
     log,

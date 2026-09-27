@@ -13,6 +13,8 @@ export const ID_PREFIXES = {
   delivery: 'dlv',
   memory: 'mem',
   window: 'win',
+  /** Phase 4. */
+  reminder: 'rem',
 } as const
 
 export type IdKind = keyof typeof ID_PREFIXES
@@ -53,6 +55,8 @@ export const MemoryId = prefixedId('mem')
 export type MemoryId = z.infer<typeof MemoryId>
 export const WindowId = prefixedId('win')
 export type WindowId = z.infer<typeof WindowId>
+export const ReminderId = prefixedId('rem')
+export type ReminderId = z.infer<typeof ReminderId>
 
 /** Returns true when `value` is a well-formed id with the given prefix. */
 export function isPrefixedId<P extends IdPrefix>(prefix: P, value: unknown): value is `${P}_${string}` {
