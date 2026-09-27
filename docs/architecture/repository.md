@@ -57,18 +57,18 @@ The running process. Internal folders:
 
 | Folder | Owns |
 |---|---|
-| `src/cli/` | `keith start`, `keith setup`, `keith migrate` |
+| `src/cli/` | `keith start`, `keith setup`, `keith migrate`, `keith backup` (`cli/backup.ts`) and `keith restore` (`cli/restore.ts`) |
 | `src/shared/` | Logger, rotating log file, `KEITH_HOME` lock, clock and prefixed-ULID generator implementations |
 | `src/config/` | Loading and validating `~/.keith/config.toml` |
 | `src/plugins/` | Plugin host, registry implementations (services, tools, skills, agents, providers) |
 | `src/events/` | Event bus implementation |
 | `src/server/` | Bun HTTP + WS, auth, handshake, frame routing, http/ws registries |
-| `src/storage/` | Drizzle schema, migration runner, repositories. The generated SQL migrations live in `packages/core/drizzle/` (drizzle-kit, [storage.md](storage.md)) |
+| `src/storage/` | Drizzle schema, migration runner, repositories, `backupDatabase` (`storage/backup.ts`). The generated SQL migrations live in `packages/core/drizzle/` (drizzle-kit, [storage.md](storage.md)) |
 | `src/mind/` | ThreadManager, turn loop, context builder, focus, turn state |
-| `src/scheduler/` | Lanes, Tasks, Commitments, Deliveries |
-| `src/memory/` | Memory write/recall, visibility filter, awareness digest |
+| `src/scheduler/` | Lanes, Tasks, Commitments, Deliveries, Reminders (`scheduler/reminders.ts`, phase 4) |
+| `src/memory/` | Memory write/recall, visibility filter, awareness digest. Phase 4 memory jobs: `memory/reflect/` (reflection) and `memory/summary/` (thread summaries) |
 | `src/voice/` | Phase 3: the voice pipeline (VAD → STT → Mind, TTS → focus node) and `checkVoiceProviders` ([voice.md](voice.md)) |
-| `src/builtins/` | Built-in tools: `task.*`, `memory.*`, `skill.load` |
+| `src/builtins/` | Built-in tools: `task.*`, `memory.*`, `skill.load`, `reminder.*` (phase 4), and the default skills in `builtins/skills/` (`morning_briefing`) |
 | `src/bootstrap.ts` | Wires everything together. Owned by integration tasks only |
 
 Core folders talk through TypeScript interfaces declared in [core.md](core.md#internal-interfaces). This lets lanes build in parallel against the interface before the implementation exists. `bun run core-docs` (`scripts/check-core-docs.ts`, part of `bun run check`) fails when an interface block in core.md differs from its `types.ts`.

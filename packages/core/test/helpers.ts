@@ -4,8 +4,9 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Logger } from '@keith/sdk'
-import { createFakeClock, type FakeClock } from '@keith/sdk/testing'
+import type { CoreEventMap, LlmProvider, Logger } from '@keith/sdk'
+import { createFakeClock, createFakeLlm, type FakeClock, type FakeLlm } from '@keith/sdk/testing'
+import type { CoreEventBus } from '../src/events/types.ts'
 import { createIds, createLogger } from '../src/shared/index.ts'
 import type { PersonId } from '../src/shared/types.ts'
 import { openDb } from '../src/storage/index.ts'
@@ -89,4 +90,65 @@ export async function login(url: string): Promise<string> {
 
 export function wsUrl(url: string, token: string): string {
   return `${url.replace(/^http/, 'ws')}/v1/ws?token=${encodeURIComponent(token)}`
+}
+
+/**
+ * Phase 4: the chat roles (`foreground`, `background`) on `fake:chat` and `utility` on
+ * `fake:utility`, so reflection and summary calls never consume the chat script. The tick is an
+ * hour: tests emit `scheduler.ticked` themselves (`tick`). `extra` is appended as more TOML.
+ */
+export function splitModelConfig(extra = ''): string {
+  return `
+[server]
+port = 0
+
+[models]
+foreground = "fake:chat"
+background = "fake:chat"
+utility    = "fake:utility"
+
+[scheduler]
+tickMs = 3600000
+
+[plugins]
+enabled  = []
+required = []
+stopTimeoutMs = 500
+${extra}`
+}
+
+/** Two scripted fakes behind one `fake` provider, routed by model id (`chat` / `utility`). */
+export type SplitFake = LlmProvider & { chat: FakeLlm; utility: FakeLlm }
+
+export function createSplitFake(chat = createFakeLlm(), utility = createFakeLlm()): SplitFake {
+  return {
+    id: 'fake',
+    chat,
+    utility,
+    stream(req, signal) {
+      if (req.model === 'utility') return utility.stream(req, signal)
+      if (req.model === 'chat') return chat.stream(req, signal)
+      throw new Error(`no fake model ${req.model}`)
+    },
+  }
+}
+
+/** Resolves with the next event of that name whose payload matches. */
+export function nextEvent<N extends keyof CoreEventMap>(
+  events: CoreEventBus,
+  name: N,
+  match: (data: CoreEventMap[N]) => boolean = () => true,
+): Promise<CoreEventMap[N]> {
+  return new Promise((resolve) => {
+    const off = events.on(name, (e) => {
+      if (!match(e.data)) return
+      off()
+      resolve(e.data)
+    })
+  })
+}
+
+/** One scheduler tick at the clock's current time, as the real timer emits it. */
+export function tick(events: CoreEventBus, clock: FakeClock): void {
+  events.emit('scheduler.ticked', { at: clock.now() })
 }

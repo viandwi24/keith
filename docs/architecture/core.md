@@ -1175,7 +1175,7 @@ The digest builds its activity picture from events (`thread.state_changed`, `tas
 
 Both call the `utility` model through `RunLoop` (no tools, one step, `persist: null`) and run in the `background` lane. See [memory.md](memory.md#reflection).
 
-> Planned (phase 4, P4-A1): `createReflection` is a placeholder today: `reflect` returns null and its job subscribes to nothing. Bootstrap doesn't build either job yet (P4-I1).
+Bootstrap builds both in step 7 with the real `RunLoop`, `scheduling.scheduler`, repositories and `MemoryStore`, and starts both jobs in step 12 (below).
 
 ### Construction order (bootstrap)
 
@@ -1184,19 +1184,19 @@ The only order that has no cycles. `bootstrap.ts` follows it:
 0. the `KEITH_HOME` lock (`acquireHomeLock`, [config.md](config.md#logs-and-lock)). A second Keith on the same home fails here, before anything is opened (I-1).
 1. config → logger (stdout plus `logs/keith.log`), clock, ids; the home folders are created
 2. db + repositories → event bus
-3. registries: services, tools, skills, agents, providers, plugin data stores (standalone objects from `plugins/`)
+3. registries: services, tools, skills (with a logger, so a plugin replacing a default skill is logged), agents, providers, plugin data stores (standalone objects from `plugins/`)
 4. `AttachmentRegistry` + `Presence` (from `server/`)
    - **4b.** voice pipeline (phase 3), only with a `[voice]` section ([voice.md](voice.md)). It needs the `ThreadManager` and the `ThreadManager` needs its output, so it reaches the `ThreadManager` through a late binding. It also tracks each node's `hello` capabilities from `node.connected`.
 5. `RunLoop` (from `mind/`, needs providers, tools, repositories)
 6. scheduler, tasks, commitments, deliveries (needs `RunLoop`)
-7. memory (needs repositories, events, config)
+7. memory (needs repositories, events, config), then the phase-4 memory jobs: `createReflection` and `createThreadSummaries` (need memory, `RunLoop`, `scheduling.scheduler`, repositories, events, config). Built, not started.
 8. `ThreadManager` (needs everything above, and the voice output). It subscribes to `delivery.enqueued`, so nothing calls into it from below. Arrival reaches it only through `open({ arrival })`, never through the `person.arrived` event (which is for plugins).
 9. server (needs `ThreadManager`, attachments, presence, the voice input) builds its http and ws registries, **without listening yet**. It reads the plugin host's `status()` for the notices after `welcome` through a late binding (the host is built in step 11).
-10. built-in tools registered through the privileged `tools.registerBuiltin()`
+10. built-in tools registered through the privileged `tools.registerBuiltin()`, including the `reminder.*` tools (`reminders: { service: scheduling.reminders, config, clock }`), and the default skill `morning_briefing`
 11. plugin host (needs registries, server http/ws, the delivery sink, the data stores) → load → `setup` → `start`, then `checkVoiceProviders`: every `voice.vad/stt/tts` id must name a registered provider (`CONFIG_INVALID` otherwise)
-12. `scheduling.start()` (recovers tasks, starts the tick), server `listen()` → emit `core.started`
+12. `scheduling.start()` (recovers tasks, starts the tick, subscribes `fireDue`), then the reflection and summary jobs `start()`, server `listen()` → emit `core.started`
 
-Shutdown runs the other way: presence flush, server stop, `threads.stop()` then `threads.cancelAll()` (each running turn persists its partial reply), presence, scheduling, memory, plugins, event bus, database, log file, and the home lock last. A start that fails tears down what it built, lock included.
+Shutdown runs the other way: presence flush, server stop, `threads.stop()` then `threads.cancelAll()` (each running turn persists its partial reply), presence, the reflection and summary jobs (unsubscribed, running passes aborted; an aborted pass writes nothing), scheduling, memory, plugins, event bus, database, log file, and the home lock last. A start that fails tears down what it built, lock included; the memory jobs stop before scheduling there too.
 
 ## Threads and turn state
 

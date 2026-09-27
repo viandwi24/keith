@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { createFakeLlm, createFakeLlmPlugin } from '@keith/sdk/testing'
 import { KEITH_VERSION } from '../src/bootstrap.ts'
 import { type CliIo, keithHome, runCli, scriptedPrompter } from '../src/cli/index.ts'
+import { PHASE4_DEFAULTS } from '../src/cli/setup.ts'
 import { defaultPersona, parseConfig } from '../src/config/index.ts'
 import { openDb } from '../src/storage/index.ts'
 import { createTestHome, quietLogger, testClock } from './helpers.ts'
@@ -74,7 +75,20 @@ describe('keith setup', () => {
       utility: 'deepseek:deepseek-flash',
     })
     // The key stays an env: reference in the file.
-    expect(await Bun.file(join(home, 'config.toml')).text()).toContain('apiKey = "env:DEEPSEEK_API_KEY"')
+    const text = await Bun.file(join(home, 'config.toml')).text()
+    expect(text).toContain('apiKey = "env:DEEPSEEK_API_KEY"')
+    // Phase 4: the memory jobs and reminders show their defaults as comments. Uncommented, they
+    // parse to exactly the defaults the file already gets.
+    for (const section of ['[memory.reflect]', '[memory.summary]', '[mind.reminder]']) {
+      expect(text).toContain(`# ${section}`)
+    }
+    const block = PHASE4_DEFAULTS.join('\n')
+    expect(text).toContain(block)
+    const uncommented = text.replace(block, block.replace(/^# (\[|\w+ = )/gm, '$1'))
+    expect(uncommented).toContain('\n[memory.reflect]')
+    const parsed = parseConfig(Bun.TOML.parse(uncommented), { env: { DEEPSEEK_API_KEY: 'sk-test' } })
+    expect(parsed.memory).toEqual(config.memory)
+    expect(parsed.mind.reminder).toEqual(config.mind.reminder)
 
     expect(await Bun.file(join(home, 'persona.md')).text()).toBe(defaultPersona('Keith'))
     for (const dir of ['files', 'plugins', 'logs']) expect(statSync(join(home, dir)).isDirectory()).toBe(true)

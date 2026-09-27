@@ -8,8 +8,7 @@ import { KeithError } from '@keith/sdk'
 import { KEITH_VERSION } from '../bootstrap.ts'
 import type { KeithPaths } from '../config/types.ts'
 import type { Clock } from '../shared/types.ts'
-import { MIGRATIONS_FOLDER } from '../storage/db.ts'
-import { backupDatabase } from '../storage/index.ts'
+import { backupDatabase, MIGRATIONS_FOLDER } from '../storage/index.ts'
 
 /** Version of the backup folder layout. `keith restore` accepts only this one. */
 export const BACKUP_FORMAT = 1

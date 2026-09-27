@@ -56,6 +56,11 @@ describe('keith restore', () => {
       content: 'Plant the tomatoes in May.',
     })
     expect(await keith.repos.memories.get(seeded.memoryId)).toMatchObject({ content: 'Tony grows tomatoes' })
+    expect(await keith.repos.reminders.get(seeded.reminderId)).toMatchObject({
+      text: 'Water the tomatoes',
+      status: 'pending',
+      personId: owner,
+    })
   })
 
   test('over an existing home: refused without --force (nothing changes), kept aside with --force', async () => {
