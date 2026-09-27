@@ -4,7 +4,7 @@ title: "Briefing skills: a default morning_briefing skill and person.arrived exa
 phase: 4
 wave: 2
 lane: D
-status: in-progress
+status: review
 owner: agent-P4-D1
 depends: [P4-K1]
 owns:
@@ -60,19 +60,19 @@ A briefing reads like a good assistant's morning note, not a list dump. The core
 
 ## Acceptance criteria
 
-- [ ] `plugins/skills.test.ts`:
+- [x] `plugins/skills.test.ts`:
   - A default is listed and loadable.
   - A plugin replaces it, and `skill.load` returns the plugin's text.
   - A second plugin with that name gets `TOOL_NAME_TAKEN`.
   - `removeByPlugin` restores the default.
   - The name pattern still applies to defaults.
-- [ ] `builtins/skills/morning-briefing.test.ts`: the skill's name and description are as above. Its instructions load, are non-empty, mention `reminder.list`, and are under 2 000 characters (they go into context whole).
-- [ ] `plugins/tool-weather/test/weather.test.ts`:
+- [x] `builtins/skills/morning-briefing.test.ts`: the skill's name and description are as above. Its instructions load, are non-empty, mention `reminder.list`, and are under 2 000 characters (they go into context whole).
+- [x] `plugins/tool-weather/test/weather.test.ts`:
   - The first arrival of the day enqueues one `low` forecast delivery. A second arrival that day enqueues none. The next local day enqueues again.
   - `dailyForecast = false` → none.
   - No `homeCity` → none.
   - The rain alert still works alongside.
-- [ ] `bun run check` passes.
+- [x] `bun run check` passes.
 
 ## Notes
 
@@ -82,4 +82,29 @@ A briefing reads like a good assistant's morning note, not a list dump. The core
 
 ## Outcome
 
-_Filled by the agent when finishing: what was built, decisions (ADR links), deviations, follow-ups._
+**Built**
+- **Default skills** (`plugins/skills.ts`): `registerDefault` now keeps defaults in their own map, apart from the active entries.
+  - A default is listed and loadable (`pluginId` null).
+  - A plugin skill with a default's name replaces it and logs `plugin skill replaces the default` at info. A second plugin gets `TOOL_NAME_TAKEN`.
+  - `removeByPlugin` restores the default and logs `default skill restored`.
+  - A second `registerDefault` with the same name is `TOOL_NAME_TAKEN`, also while a plugin has replaced it. The name pattern applies (`TOOL_NAME_INVALID`).
+  - If a plugin took the name before the default was registered, the plugin keeps it and the default comes back on its removal. `registerBuiltins` runs before plugins load, so this is only a safe fallback.
+- **`morning_briefing`**: the instructions are now `builtins/skills/morning-briefing.md` (about 900 characters), loaded lazily with `Bun.file` through `MORNING_BRIEFING_INSTRUCTIONS_URL`. The name and description are unchanged from P4-K1.
+- **`@keith/tool-weather`**:
+  - New config key `dailyForecast` (boolean, default `true`).
+  - The forecast request adds `daily=temperature_2m_min,temperature_2m_max,weather_code&forecast_days=1`, checked live on 2026-09-27 against the Open-Meteo API. It is exposed as `Forecast.today: DailyWeather | null` (`date`, `min`, `max`, `weatherCode`, `summary`). `daily` is optional in the response schema, so older recorded fixtures still parse (`today` null).
+  - On `person.arrived` with `homeCity`: one fetch. If `dailyForecast` is on, `today` exists and `ctx.data` `forecast:<personId>` differs from `today.date`, it enqueues a `low` delivery `Today in <city>: <min>–<max>°, <condition>` and then stores the date. After that comes the unchanged rain alert (`normal` plus `weather.alert_raised`), as a separate item.
+  - New exports: `forecastDateKey`, `dailyForecastText`. The header comment is updated.
+  - Fixtures: a new `recorded-forecast-surabaya-daily.json` (real response, 2026-09-27). The synthetic rain fixture gained a `daily` block. Biome reformatted `6.0` → `6` in it, which does not change any value.
+- **Tests:** `plugins/skills.test.ts` (9 tests), `builtins/skills/morning-briefing.test.ts` (3), and 10 new weather tests. They cover the first arrival, the same day, the next day, per person, a restart (the data store is copied into a fresh context), `dailyForecast=false`, no `homeCity`, no daily data, and the rain alert alongside. The live test also checks `today.date`.
+- **Docs:** in plugin-system.md, the default-skill semantics and the `morning_briefing` summary replace the P4-D1 Planned note. A new "Example: feeding a briefing on arrival" section covers the weather plugin.
+
+**Decisions**
+- **"Local day"** is `today.date` from Open-Meteo's `daily` block, which is the date at the home city in its time zone (`timezone=auto`). No clock or `Intl` math is needed, and the stored date always matches the text that was sent.
+- **Temperatures** are rounded to whole degrees and shown as `°` without the unit letter, as the task's format asks. Example: `Today in Surabaya: 27–33°, partly cloudy`.
+- **Write order:** the date is stored after the enqueue succeeds, so a failed enqueue retries on the next arrival. Two arrivals of the same person at the same moment could both send, which is acceptable for a `low` item.
+- **Registry logging:** `createSkillRegistry(deps?: { log? })`. The argument is optional, so existing callers don't change.
+
+**Deviations / follow-ups**
+- **P4-I1:** `bootstrap.ts` (not owned here) still calls `createSkillRegistry()` with no logger, so the info line is not emitted in the running core. P4-I1 should pass `createSkillRegistry({ log: log.child({ component: 'skills' }) })`, or any child logger.
+- The context-builder line that tells the model to load `morning_briefing` stays with P4-B1, as scoped.

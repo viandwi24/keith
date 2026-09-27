@@ -100,6 +100,31 @@ ctx.events.on('person.arrived', async (e) => { ... })
 
 Rule of thumb: if the emitter needs an answer, use a service. If the emitter doesn't care who listens, use an event.
 
+### Example: feeding a briefing on arrival
+
+A plugin adds to a person's briefing by listening to `person.arrived` and enqueueing deliveries. The Mind folds them into one briefing (guided by the `morning_briefing` skill). `@keith/tool-weather` does two things when `homeCity` is set:
+
+```ts
+ctx.events.on('person.arrived', async (e) => {
+  const forecast = await weather.forecast(homeCity)
+  // 1. Today's forecast, once per person per local day (the date at the home city).
+  const key = `forecast:${e.data.personId}`                 // plain YYYY-MM-DD in ctx.data
+  if (dailyForecast && forecast.today && (await ctx.data.get(key)) !== forecast.today.date) {
+    await ctx.deliveries.enqueue({ personId: e.data.personId, text: 'Today in Surabaya: 27–33°, partly cloudy', urgency: 'low' })
+    await ctx.data.set(key, forecast.today.date)             // survives a restart
+  }
+  // 2. A rain alert, on every arrival while rain is likely in the next hours.
+  if (nextRain(forecast)) {
+    await ctx.deliveries.enqueue({ personId: e.data.personId, text: 'Rain expected in Surabaya around 16:00 (80% chance).', urgency: 'normal' })
+    ctx.events.emit('weather.alert_raised', { ... })
+  }
+})
+```
+
+- Two items, not one, so their urgency can differ.
+- The "already told today" state lives in `ctx.data`, so a second arrival that day and a restart add nothing.
+- `dailyForecast` (default `true`) turns the first item off. Without `homeCity` nothing is fetched.
+
 ## Plugin storage
 
 - `ctx.data`: scoped key-value store (`get/set/delete/list`), namespaced by plugin id and backed by the core's SQLite. For settings, caches and small state.
@@ -135,9 +160,8 @@ Registry rules:
 - **Tools:** the name must match `TOOL_NAME_PATTERN` and its first segment must be the plugin's namespace (`TOOL_NAME_INVALID`). Names are unique (`TOOL_NAME_TAKEN`). Built-ins use `registerBuiltin` and must be in a reserved namespace.
 - **`tools.invoke`** never throws. In order: unknown tool (`NOT_FOUND`), `minTier` against the lowest tier among the participants (`TIER_INSUFFICIENT`), zod input validation (`TOOL_INPUT_INVALID`), a call whose signal is already aborted (`INTERNAL`, "was cancelled"), then `run` with `timeoutMs` (`TOOL_TIMEOUT`, the tool's signal is aborted). Refusals never call `run`. A throw becomes `INTERNAL` (or the thrown `KeithError`'s code). Each failure comes back as `{ error: true, content: '<CODE>: <message>' }`. It emits exactly one `tool.called` / `tool.completed` pair per invocation, refusals included (`ok: false`); nothing else emits them ([core.md](core.md#the-turn-loop)).
 - **Skills and agents:** snake_case names, unique. There is no dedicated error code, so they reuse `TOOL_NAME_INVALID` and `TOOL_NAME_TAKEN`. No plugin agent may be called `general`.
-- **Default skills (phase 4).** The core registers default skills with `skills.registerDefault()` (owner `core`, `pluginId` null): `morning_briefing`, from `registerBuiltins`. A plugin skill with a default's name replaces it instead of failing with `TOOL_NAME_TAKEN`, and `removeByPlugin` brings the default back ([plugin-api.md](../contracts/plugin-api.md#skills)). A second plugin with that name still gets `TOOL_NAME_TAKEN`.
-
-  > Planned (phase 4, P4-D1): today `registerDefault` registers the default like any core skill, so a plugin skill with its name still gets `TOOL_NAME_TAKEN`. P4-D1 adds the replace and restore semantics.
+- **Default skills (phase 4).** The core registers default skills with `skills.registerDefault()` (owner `core`, `pluginId` null): `morning_briefing`, from `registerBuiltins`. A default is listed and loadable like any skill. A plugin skill with a default's name replaces it instead of failing with `TOOL_NAME_TAKEN` (logged at info when the registry has a logger), and `removeByPlugin` brings the default back ([plugin-api.md](../contracts/plugin-api.md#skills)). A second plugin with that name still gets `TOOL_NAME_TAKEN`, and so does registering a default twice with the same name. The name pattern applies to defaults too. If a plugin took the name before the default was registered, it keeps it and the default waits for its removal.
+  - `morning_briefing` (`builtins/skills/morning-briefing.ts`, instructions in `morning-briefing.md`, loaded with `Bun.file` on `skill.load`): greet by name in the tone of the relationship card; lead with what needs action (critical and high items, reminders due today via `reminder.list`), then finished work, then plugin items (weather, news), then anything else; about six sentences, no item dropped (I-10); no lists or markdown when the reply is heard. To change how Keith briefs, a `tool` plugin registers its own `morning_briefing` skill.
 - **Providers:** two providers with the same id throw `SERVICE_CONFLICT`. `providers.llm.resolve(role)` splits `config.models[role]` at the first `:` into provider id and model id.
 - **Events:** a plugin may `emit` and `define` only names that match `EVENT_NAME_PATTERN` and start with `<namespace>.` (`PLUGIN_NAMESPACE_INVALID`). A payload that fails its defined schema makes `emit` throw `INTERNAL`.
 - **WS frame types** registered by a plugin must start with `<namespace>.` (`PLUGIN_NAMESPACE_INVALID`).

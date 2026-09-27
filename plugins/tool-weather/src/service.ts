@@ -41,6 +41,17 @@ export interface HourlyWeather {
   rainLikely: boolean
 }
 
+/** Today's range at the place (Open-Meteo `daily`, first day). */
+export interface DailyWeather {
+  /** Local date at the place, `YYYY-MM-DD`. */
+  date: string
+  min: number
+  max: number
+  weatherCode: number
+  /** Plain-English description of `weatherCode`. */
+  summary: string
+}
+
 export interface Forecast {
   /** Resolved place name, e.g. `Surabaya`. */
   city: string
@@ -52,6 +63,8 @@ export interface Forecast {
   current: CurrentWeather
   /** The next hours, starting with the current one. */
   hourly: HourlyWeather[]
+  /** Today at the place, or null when the source sent no daily data. */
+  today: DailyWeather | null
 }
 
 export interface WeatherService {

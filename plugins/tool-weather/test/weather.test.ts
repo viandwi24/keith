@@ -2,8 +2,18 @@ import { describe, expect, test } from 'bun:test'
 import { type PersonDto, type PersonId, UiBlock, uiBlockToText } from '@keith/protocol'
 import { isKeithError, type Tool, type ToolAction, type ToolRunContext } from '@keith/sdk'
 import { type FakePluginContext, setupFakePlugin } from '@keith/sdk/testing'
-import { createWeatherPlugin, type Forecast } from '../src/index.ts'
-import { BAD_REQUEST, DRY, DRY_IMPERIAL, NO_PLACE, RAIN, type Replay, replay, SURABAYA } from './replay.ts'
+import { createWeatherPlugin, type Forecast, forecastDateKey } from '../src/index.ts'
+import {
+  BAD_REQUEST,
+  DAILY,
+  DRY,
+  DRY_IMPERIAL,
+  NO_PLACE,
+  RAIN,
+  type Replay,
+  replay,
+  SURABAYA,
+} from './replay.ts'
 
 const tony: PersonId = 'per_01J8ZQ3K4M5N6P7Q8R9S0T1V31'
 const person: PersonDto = { id: tony, name: 'Tony', tier: 'owner' }
@@ -65,7 +75,7 @@ describe('@keith/tool-weather registration', () => {
 
   test('config: units default to metric, homeCity is optional, bad units are rejected', async () => {
     const good = await setupFakePlugin(createWeatherPlugin(), { config: {} })
-    expect(good.config).toEqual({ units: 'metric' })
+    expect(good.config).toEqual({ units: 'metric', dailyForecast: true })
     const error = await rejection(setupFakePlugin(createWeatherPlugin(), { config: { units: 'kelvin' } }))
     expect(isKeithError(error, 'CONFIG_INVALID')).toBe(true)
   })
@@ -101,6 +111,8 @@ describe('weather service', () => {
     expect(forecast?.searchParams.get('wind_speed_unit')).toBe('mph')
     expect(forecast?.searchParams.get('precipitation_unit')).toBe('inch')
     expect(forecast?.searchParams.get('timezone')).toBe('auto')
+    expect(forecast?.searchParams.get('daily')).toBe('temperature_2m_min,temperature_2m_max,weather_code')
+    expect(forecast?.searchParams.get('forecast_days')).toBe('1')
     expect(f).toMatchObject({
       city: 'Surabaya',
       country: 'Indonesia',
@@ -111,6 +123,20 @@ describe('weather service', () => {
     })
     expect(f.hourly).toHaveLength(12)
     expect(f.hourly.some((h) => h.rainLikely)).toBe(false)
+    // Recorded before `daily` was requested: parses, with no daily data.
+    expect(f.today).toBeNull()
+  })
+
+  test('reads today from the daily block', async () => {
+    const { ctx } = await load(replay({ geocoding: SURABAYA, forecast: DAILY }))
+    const f = await ctx.services.get('weather').forecast('Surabaya')
+    expect(f.today).toEqual({
+      date: '2026-09-27',
+      min: 26.8,
+      max: 32.8,
+      weatherCode: 2,
+      summary: 'partly cloudy',
+    })
   })
 
   test('an unknown place is NOT_FOUND, an upstream error is PROVIDER_ERROR', async () => {
@@ -219,10 +245,11 @@ describe('arrival', () => {
   const arrive = (ctx: FakePluginContext<unknown>) =>
     ctx.fire('person.arrived', { personId: tony, awayMs: 8 * 3_600_000 })
 
-  test('rain in the next hours at homeCity: one delivery and one alert', async () => {
+  test('rain in the next hours at homeCity: the forecast and the rain alert as two items', async () => {
     const { ctx } = await load(replay({ geocoding: SURABAYA, forecast: RAIN }), { homeCity: 'Surabaya' })
     await arrive(ctx)
     expect(ctx.recorded.deliveries).toEqual([
+      { personId: tony, text: 'Today in Surabaya: 25–33°, moderate rain', urgency: 'low' },
       { personId: tony, text: 'Rain expected in Surabaya around 16:00 (80% chance).', urgency: 'normal' },
     ])
     expect(ctx.recorded.events).toEqual([
@@ -246,7 +273,7 @@ describe('arrival', () => {
     expect(ctx.recorded.events).toEqual([])
   })
 
-  test('rain only beyond the look-ahead window: no delivery', async () => {
+  test('rain only beyond the look-ahead window: no rain alert', async () => {
     const late = (await Bun.file(
       new URL('./fixtures/synthetic-forecast-surabaya-rain.json', import.meta.url),
     ).json()) as {
@@ -259,9 +286,11 @@ describe('arrival', () => {
     late.hourly.weather_code = late.hourly.weather_code.map((_, i) => (i === 9 ? 63 : 3))
     const { ctx } = await load(replay({ geocoding: SURABAYA, forecast: { body: late } }), {
       homeCity: 'Surabaya',
+      dailyForecast: false,
     })
     await arrive(ctx)
     expect(ctx.recorded.deliveries).toEqual([])
+    expect(ctx.recorded.events).toEqual([])
   })
 
   test('without homeCity nothing is fetched', async () => {
@@ -277,5 +306,106 @@ describe('arrival', () => {
     await arrive(ctx)
     expect(ctx.recorded.deliveries).toEqual([])
     expect(ctx.log.entries.some((l) => l.level === 'warn' && l.msg === 'arrival forecast failed')).toBe(true)
+  })
+})
+
+describe('daily forecast on arrival', () => {
+  const arrive = (ctx: FakePluginContext<unknown>, personId: PersonId = tony) =>
+    ctx.fire('person.arrived', { personId, awayMs: 8 * 3_600_000 })
+  const forecastItem = {
+    personId: tony,
+    text: 'Today in Surabaya: 27–33°, partly cloudy',
+    urgency: 'low' as const,
+  }
+
+  async function nextDay(): Promise<{ body: unknown }> {
+    const body = (await Bun.file(
+      new URL('./fixtures/recorded-forecast-surabaya-daily.json', import.meta.url),
+    ).json()) as { daily: { time: string[] } }
+    // Synthetic: the same response one local day later.
+    body.daily.time = ['2026-09-28']
+    return { body }
+  }
+
+  test('the first arrival of the day enqueues one low forecast; a second one that day none', async () => {
+    const { ctx } = await load(replay({ geocoding: SURABAYA, forecast: DAILY }), { homeCity: 'Surabaya' })
+    await arrive(ctx)
+    expect(ctx.recorded.deliveries).toEqual([forecastItem])
+    expect(await ctx.data.get<string>(forecastDateKey(tony))).toBe('2026-09-27')
+    await arrive(ctx)
+    expect(ctx.recorded.deliveries).toEqual([forecastItem])
+  })
+
+  test('the next local day enqueues again', async () => {
+    const r = replay({ geocoding: SURABAYA, forecast: [DAILY, DAILY, await nextDay()] })
+    const { ctx } = await load(r, { homeCity: 'Surabaya' })
+    await arrive(ctx)
+    await arrive(ctx)
+    await arrive(ctx)
+    expect(ctx.recorded.deliveries).toEqual([forecastItem, forecastItem])
+    expect(await ctx.data.get<string>(forecastDateKey(tony))).toBe('2026-09-28')
+  })
+
+  test('each person gets their own first forecast of the day', async () => {
+    const pepper: PersonId = 'per_01J8ZQ3K4M5N6P7Q8R9S0T1V32'
+    const { ctx } = await load(replay({ geocoding: SURABAYA, forecast: DAILY }), { homeCity: 'Surabaya' })
+    await arrive(ctx)
+    await arrive(ctx, pepper)
+    expect(ctx.recorded.deliveries.map((d) => d.personId)).toEqual([tony, pepper])
+  })
+
+  test('a restart does not repeat the day: the date lives in ctx.data', async () => {
+    const first = await load(replay({ geocoding: SURABAYA, forecast: DAILY }), { homeCity: 'Surabaya' })
+    await arrive(first.ctx)
+    // Restart: a new context whose data store holds what the first one persisted.
+    const second = await load(replay({ geocoding: SURABAYA, forecast: DAILY }), { homeCity: 'Surabaya' })
+    for (const key of await first.ctx.data.list()) {
+      await second.ctx.data.set(key, await first.ctx.data.get(key))
+    }
+    await arrive(second.ctx)
+    expect(second.ctx.recorded.deliveries).toEqual([])
+  })
+
+  test('dailyForecast = false: none', async () => {
+    const { ctx } = await load(replay({ geocoding: SURABAYA, forecast: DAILY }), {
+      homeCity: 'Surabaya',
+      dailyForecast: false,
+    })
+    await arrive(ctx)
+    expect(ctx.recorded.deliveries).toEqual([])
+    expect(await ctx.data.list()).toEqual([])
+  })
+
+  test('dailyForecast = false keeps the rain alert', async () => {
+    const { ctx } = await load(replay({ geocoding: SURABAYA, forecast: RAIN }), {
+      homeCity: 'Surabaya',
+      dailyForecast: false,
+    })
+    await arrive(ctx)
+    expect(ctx.recorded.deliveries.map((d) => d.urgency)).toEqual(['normal'])
+    expect(ctx.recorded.events.map((e) => e.name)).toEqual(['weather.alert_raised'])
+  })
+
+  test('no homeCity: none, and nothing is fetched', async () => {
+    const r = replay({ geocoding: SURABAYA, forecast: DAILY })
+    const { ctx } = await load(r, { dailyForecast: true })
+    await arrive(ctx)
+    expect(r.urls).toHaveLength(0)
+    expect(ctx.recorded.deliveries).toEqual([])
+  })
+
+  test('no daily data from the source: no forecast item', async () => {
+    const { ctx } = await load(replay({ geocoding: SURABAYA, forecast: DRY }), { homeCity: 'Surabaya' })
+    await arrive(ctx)
+    expect(ctx.recorded.deliveries).toEqual([])
+    expect(await ctx.data.list()).toEqual([])
+  })
+
+  test('the rain alert still comes on a later arrival the same day, without the forecast', async () => {
+    const { ctx } = await load(replay({ geocoding: SURABAYA, forecast: RAIN }), { homeCity: 'Surabaya' })
+    await arrive(ctx)
+    await arrive(ctx)
+    expect(ctx.recorded.deliveries.map((d) => d.urgency)).toEqual(['low', 'normal', 'normal'])
+    expect(ctx.recorded.events).toHaveLength(2)
   })
 })

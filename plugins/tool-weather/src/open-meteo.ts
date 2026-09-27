@@ -10,7 +10,7 @@
  */
 import { KeithError } from '@keith/sdk'
 import { z } from 'zod'
-import type { Forecast, HourlyWeather, WeatherUnitLabels, WeatherUnits } from './service.ts'
+import type { DailyWeather, Forecast, HourlyWeather, WeatherUnitLabels, WeatherUnits } from './service.ts'
 
 export const OPEN_METEO_FORECAST_URL = 'https://api.open-meteo.com/v1/forecast'
 export const OPEN_METEO_GEOCODING_URL = 'https://geocoding-api.open-meteo.com/v1/search'
@@ -104,6 +104,15 @@ const ForecastResponse = z.object({
     precipitation: z.array(z.number().nullable()),
     weather_code: z.array(z.number().nullable()),
   }),
+  /** Optional so that responses recorded before `daily` was requested still parse. */
+  daily: z
+    .object({
+      time: z.array(z.string()),
+      temperature_2m_min: z.array(z.number().nullable()),
+      temperature_2m_max: z.array(z.number().nullable()),
+      weather_code: z.array(z.number().nullable()),
+    })
+    .optional(),
 })
 
 const ErrorResponse = z.object({ reason: z.string() })
@@ -116,6 +125,16 @@ const UNIT_PARAMS: Record<WeatherUnits, Record<string, string>> = {
 const UNIT_LABELS: Record<WeatherUnits, WeatherUnitLabels> = {
   metric: { temperature: '°C', windSpeed: 'km/h', precipitation: 'mm' },
   imperial: { temperature: '°F', windSpeed: 'mph', precipitation: 'in' },
+}
+
+/** The first day of `daily`, or null when it is missing or incomplete. */
+function dailyToday(daily: z.infer<typeof ForecastResponse>['daily']): DailyWeather | null {
+  const date = daily?.time[0]
+  const min = daily?.temperature_2m_min[0]
+  const max = daily?.temperature_2m_max[0]
+  if (date === undefined || min == null || max == null) return null
+  const code = daily?.weather_code[0] ?? 0
+  return { date, min, max, weatherCode: code, summary: describeWeatherCode(code) }
 }
 
 export type OpenMeteoClient = {
@@ -170,6 +189,8 @@ export function createOpenMeteo(opts: OpenMeteoOptions = {}): OpenMeteoClient {
           'temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m',
         hourly: 'precipitation_probability,precipitation,weather_code',
         forecast_hours: String(FORECAST_HOURS),
+        daily: 'temperature_2m_min,temperature_2m_max,weather_code',
+        forecast_days: '1',
         timezone: 'auto',
         ...UNIT_PARAMS[units],
       })
@@ -188,6 +209,7 @@ export function createOpenMeteo(opts: OpenMeteoOptions = {}): OpenMeteoClient {
         }
       })
       const currentHour = `${f.current.time.slice(0, 13)}:00`
+      const today = dailyToday(f.daily)
 
       return {
         city: place.name,
@@ -206,6 +228,7 @@ export function createOpenMeteo(opts: OpenMeteoOptions = {}): OpenMeteoClient {
           summary: describeWeatherCode(f.current.weather_code),
         },
         hourly: hourly.filter((h) => h.time >= currentHour),
+        today,
       }
     },
   }
