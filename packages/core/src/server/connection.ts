@@ -91,7 +91,7 @@ const SHARED_CODES: ReadonlySet<string> = new Set<ErrorCode>([
   'RATE_LIMITED',
   'PROVIDER_ERROR',
   'INTERNAL',
-] satisfies (ErrorCode & (KeithErrorCode | 'RATE_LIMITED'))[])
+] satisfies (ErrorCode & KeithErrorCode)[])
 
 function errorCodeOf(error: unknown): ErrorCode {
   if (isKeithError(error) && SHARED_CODES.has(error.code)) return error.code as ErrorCode
