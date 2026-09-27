@@ -4,7 +4,7 @@ title: "Integration: wire voice into bootstrap, setup and config"
 phase: 3
 wave: 3
 lane: I
-status: review
+status: done
 owner: agent-P3-I1
 depends: [P3-A1, P3-A2, P3-B1, P3-D1, P3-E1]
 owns:

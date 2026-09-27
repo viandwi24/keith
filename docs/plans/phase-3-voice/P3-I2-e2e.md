@@ -4,8 +4,8 @@ title: "S-7 end to end: switch device and modality mid-conversation"
 phase: 3
 wave: 4
 lane: I
-status: todo
-owner: null
+status: in-progress
+owner: agent-P3-I2
 depends: [P3-I1]
 owns:
   - tests/e2e/**

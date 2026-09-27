@@ -104,4 +104,3 @@ How the helpers behave, beyond the contract:
 - **TTS** skips empty or whitespace-only text pieces (every vendor rejects an empty `input`). When a body read ends mid-sample, the odd byte is carried to the next chunk, so every `AudioChunk` holds whole samples; a trailing half sample at the end of a body is dropped.
 - Both omit the `authorization` header when no `apiKey` is set, and race every await (request, body read, next text piece) against the call's `signal`, so an abort ends with `ProviderError('aborted')` even if the vendor or the text source stalls. Aborting or leaving the TTS iterator early cancels the body reader and closes the request.
 
-> Planned (phase 3): `@keith/vad-energy` (P3-D1).

@@ -993,7 +993,7 @@ Rules:
 - **Input while `thinking` or `speaking`.** Text input is queued and becomes the next turn. Nothing is lost, and the model sees both messages. Spoken input can also barge in (below).
 - **`input.cancel`** aborts the running turn's `AbortSignal`. The partial assistant text is persisted with `meta.cancelled = true`.
 - **Focus** is set to the node of each new input. Audio output goes to the focus node only. Text and UI go to every node attached to the Thread (I-7).
-- Each new user input is echoed to the *other* attached nodes as `message.user`.
+- Each new user input is echoed to the *other* attached nodes as `message.user`. Two inputs are also echoed to the sending node: a `ui.action` click and a spoken input (its transcript comes from the core's STT, so the speaking node has no other copy).
 - **Queue details.** One turn runs per thread at a time. Inputs that arrive while a turn runs wait in a FIFO; when the turn ends, *all* waiting inputs become the next turn together. A queued input is echoed right away but persisted when its turn starts, so history reads `user → reply → next user` rather than two user messages before the reply.
 - **Focus fallback.** When the focus node detaches, focus is empty until the next input; a turn without focus uses the capabilities of the first attached node.
 - **Listening (phase 3).** `voiceActivity({ speaking: true })` moves an `idle` thread to `listening`. The input that follows (from the voice pipeline) starts the turn as usual (`thinking`). `speaking: false` without an input, or the speaking node detaching, returns `listening` to `idle`. Speech on any node while a turn runs doesn't change the state unless it is a barge-in.
