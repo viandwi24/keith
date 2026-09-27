@@ -4,7 +4,7 @@ title: "Core: audio frames in the server, listening state, barge-in and spokenCh
 phase: 3
 wave: 2
 lane: A
-status: review
+status: done
 owner: agent-P3-A2
 depends: [P3-K1]
 owns:
