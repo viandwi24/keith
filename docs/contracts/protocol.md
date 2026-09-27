@@ -101,7 +101,7 @@ type Frame = {
 | `welcome` | `{ nodeId, person: PersonDto \| null, protocol: 1, server: { name, version } }` | 1 |
 | `thread.opened` | `{ thread: ThreadDto, messages: MessageDto[] }` | 1 |
 | `thread.state` | `{ threadId, state: TurnState }` | 1 |
-| `message.user` | `{ message: MessageDto }` (user input from *another* node, or a relay) | 1 |
+| `message.user` | `{ message: MessageDto }` (a user input or a relay; which nodes get it: [Delivery rules](#delivery-rules)) | 1 |
 | `message.started` | `{ threadId, messageId, proactive: boolean }` | 1 |
 | `message.delta` | `{ threadId, messageId, text }` | 1 |
 | `message.completed` | `{ message: MessageDto }` | 1 |
@@ -114,6 +114,24 @@ type Frame = {
 | `audio.stop` | `{ streamId }` (barge-in or cancel: stop playback now and drop queued chunks of the stream) | 3 |
 
 **Proactive messages (I-11):** `message.started` with `proactive: true` can arrive at any time without any node input. Nodes must render it like any assistant message.
+
+## Delivery rules
+
+Additive clarifications, task P3-K2. They say which node gets which frame; no payload changes.
+
+- **`message.user` echo.** A user input is sent as `message.user` to every node attached to the thread (it has the thread open) except the node that sent it, because that node already shows what it typed. Two inputs also go to the sender, because it has no other way to show them: a **spoken** input (`modality: 'audio'`), whose transcript comes from the core's STT, and the input the core runs for a **`ui.action` click** (e.g. `(clicked: Book)`).
+- **`chat.text@1`.** Only a node that declared `chat.text@1` in `hello` may send `input.text`; any other node gets `error { FORBIDDEN }`. A node without `chat.text@1` receives no `message.user`, `message.started`, `message.delta`, `message.completed` or `tool.activity` frames. Every other frame it may receive as before (`thread.opened` and its history, `thread.state`, `notice`, `error`, `ping`; `ui.render` only with `ui.render@1`, audio only with `audio.out@1`).
+
+### Notices
+
+The core sends `notice` in exactly these cases. `text` is for people: a node shows it (e.g. as a status line) and never parses it.
+
+| When | To | Level | Text (example) |
+|---|---|---|---|
+| Right after `welcome` | A node whose `welcome.person` is an `owner`: one notice per plugin in state `failed` | `warn` | `plugin @keith/tool-weather failed: missing apiKey` |
+| Right after `welcome` (after the `warn` notices) | A node that declared `audio.in@1` while the deployment has no `[voice]` section | `info` | `voice is not configured on this Keith` |
+
+No other `notice` is sent in v1. A node must accept `notice` at any time, since later phases may add cases.
 
 ## Examples
 
@@ -194,7 +212,20 @@ A binary frame is at most 64 KiB (`AUDIO_FRAME_MAX_BYTES`), header included. Sen
 
 ## Error codes
 
-`UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `INVALID_REQUEST` (HTTP body or query failed validation), `INVALID_FRAME`, `UNKNOWN_FRAME`, `THREAD_BUSY` (reserved), `RATE_LIMITED`, `PROVIDER_ERROR`, `INTERNAL`.
+| Code | Meaning |
+|---|---|
+| `UNAUTHORIZED` | HTTP: missing, unknown or expired bearer token, or a failed login |
+| `FORBIDDEN` | The node may not do this: a frame for a thread it has not opened, a thread the person is not a participant of, `audio.start` without `audio.in@1`, `input.text` without `chat.text@1` |
+| `NOT_FOUND` | Unknown (or not visible to the caller) thread, message, block, file or route |
+| `INVALID_REQUEST` | An HTTP body or query failed validation |
+| `INVALID_FRAME` | A known frame type with an invalid payload, a frame out of order (before `hello`, a second `hello`), or a bad audio frame or stream |
+| `UNKNOWN_FRAME` | An unknown frame type |
+| `THREAD_BUSY` | Reserved. Never sent in v1 |
+| `RATE_LIMITED` | A turn failed because its model provider answered `rate_limited` ([providers.md](providers.md)) after the core's retries. Sent like `PROVIDER_ERROR` (clarified by task P3-K2) |
+| `PROVIDER_ERROR` | A turn failed because its model provider failed for any other reason (after retries, or stalled) |
+| `INTERNAL` | Anything else. The message says nothing about the cause |
+
+An error of a running turn (`RATE_LIMITED`, `PROVIDER_ERROR`, `INTERNAL`) goes to every node attached to the thread, without `re`. An error that answers one frame goes to its sender, with `re` when the frame's `id` could be read.
 
 ## Code map
 
