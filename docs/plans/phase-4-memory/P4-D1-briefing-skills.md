@@ -4,7 +4,7 @@ title: "Briefing skills: a default morning_briefing skill and person.arrived exa
 phase: 4
 wave: 2
 lane: D
-status: review
+status: done
 owner: agent-P4-D1
 depends: [P4-K1]
 owns:
