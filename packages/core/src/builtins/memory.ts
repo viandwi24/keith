@@ -121,9 +121,19 @@ export function createMemoryTools(deps: MemoryToolsDeps): Tool[] {
 
   const recall = defineTool({
     name: 'memory.recall',
-    description: 'Search remembered facts. Returns the best matches this conversation may see.',
+    description:
+      'Search remembered facts. Matching is by word, not by meaning, so send several keywords: names, ' +
+      'the key nouns, and synonyms or related words (e.g. "flight fly trip Tokyo"). Returns the best ' +
+      'matches this conversation may see.',
     minTier: 'guest',
-    input: z.object({ query: z.string().trim().min(1).max(200).describe('Words to search for.') }),
+    input: z.object({
+      query: z
+        .string()
+        .trim()
+        .min(1)
+        .max(200)
+        .describe('Several keywords and synonyms, e.g. "sister name family".'),
+    }),
     async run(input, t) {
       const found = await deps.memory.recall({ text: input.query, viewer: viewerOf(t) })
       if (found.length === 0) return { content: 'No matching memories.' }
