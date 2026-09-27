@@ -137,8 +137,12 @@ export function createFakeRepos(): FakeRepos {
       },
     },
     messages: {
+      // Like storage: `seq` is per thread, assigned on insert (a passed value is ignored), and
+      // defines order.
       async append(m) {
-        messages.push(m)
+        let last = 0
+        for (const x of messages) if (x.threadId === m.threadId) last = Math.max(last, x.seq ?? 0)
+        messages.push({ ...m, seq: last + 1 })
         const i = threads.findIndex((t) => t.id === m.threadId)
         const t = threads[i]
         if (t) threads[i] = { ...t, updatedAt: m.createdAt }
@@ -149,7 +153,7 @@ export function createFakeRepos(): FakeRepos {
       async page(q) {
         let list = messages
           .filter((m) => m.threadId === q.threadId && (!q.roles || q.roles.includes(m.role)))
-          .sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+          .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
         if (q.before) {
           const i = list.findIndex((m) => m.id === q.before)
           if (i >= 0) list = list.slice(0, i)

@@ -50,6 +50,7 @@ How the core handles it (`server/connection.ts` → `ThreadManager.action` in `m
 - Keep one visual language: in the web app, blocks render with the same shadcn/ui components and theme tokens as the rest of the UI.
 - Blocks attach to the assistant message they belong to (`messageId`), or float in the Thread if they have none.
 - Images use URLs served by the core (`/v1/files/:id`, phase 2) or `data:` URIs under 256 KB. `/v1/files/:id` needs the bearer token (see [storage.md](storage.md#files)), so a browser fetches the bytes with an `Authorization` header and shows them from an object URL; a plain `<img src>` gets `401`.
+- Delivered items carry blocks too: a plugin delivery's `ui` (`ctx.deliveries.enqueue({ ui })`) or a task result's `ui` attaches to the assistant message whose turn delivers the item, with `ui.render` and `fallbackText` exactly as for a tool's block ([core.md](core.md#deliveries)). Such a block names no tool (`toolName` is `delivery:<source>`), so a click on its buttons is the input `(clicked: <label>)`.
 - History carries blocks too: `MessageDto.ui` holds a reply's blocks in `thread.opened`, `message.completed` and `GET /v1/threads/:id/messages`, so a client renders the same blocks after a reload as it did live.
 
 ## The web app

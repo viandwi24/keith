@@ -21,6 +21,7 @@ import type {
 import type {
   CommitmentsRepository,
   DeliveriesRepository,
+  DeliveryRecord,
   PersonRecord,
   PersonsRepository,
   RelationshipRecord,
@@ -128,13 +129,13 @@ export type FakeRepos = Pick<
 > & {
   readonly taskRows: Map<string, Task>
   readonly commitmentRows: Map<string, Commitment>
-  readonly deliveryRows: Map<string, Delivery>
+  readonly deliveryRows: Map<string, DeliveryRecord>
 }
 
 export function createFakeRepos(): FakeRepos {
   const taskRows = new Map<string, Task>()
   const commitmentRows = new Map<string, Commitment>()
-  const deliveryRows = new Map<string, Delivery>()
+  const deliveryRows = new Map<string, DeliveryRecord>()
   const threadRows = new Map<string, ThreadRecord>()
   const participantRows: ThreadParticipantRecord[] = []
   const personRows = new Map<string, PersonRecord>()
@@ -193,19 +194,24 @@ export function createFakeRepos(): FakeRepos {
     async create(d) {
       deliveryRows.set(d.id, { ...d })
     },
+    // Read-back matches storage: `get` always sets `messageId`, `pendingFor` returns plain items.
     async get(id) {
       const d = deliveryRows.get(id)
-      return d ? { ...d } : null
+      return d ? { ...d, messageId: d.messageId ?? null } : null
     },
     async pendingFor(threadId) {
       return [...deliveryRows.values()]
         .filter((d) => d.threadId === threadId && d.status === 'pending')
         .sort((a, b) => URGENCY_RANK[a.urgency] - URGENCY_RANK[b.urgency] || a.createdAt - b.createdAt)
+        .map(({ messageId: _, ...d }): Delivery => d)
     },
-    async markDelivered(ids, deliveredAt) {
+    async markDelivered(ids, deliveredAt, messageId) {
       for (const id of ids) {
         const d = deliveryRows.get(id)
-        if (d) deliveryRows.set(id, { ...d, status: 'delivered', deliveredAt })
+        // Like storage: only pending rows change, and each keeps the message that delivered it.
+        if (d && d.status === 'pending') {
+          deliveryRows.set(id, { ...d, status: 'delivered', deliveredAt, messageId: messageId ?? null })
+        }
       }
     },
   }
