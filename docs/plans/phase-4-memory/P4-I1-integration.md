@@ -42,7 +42,7 @@ A real `keith start` reflects on idle threads, keeps summaries, fires reminders 
 **In:**
 - **`bootstrap.ts`**, following the core.md construction order (update it):
   - Step 7 builds `createReflection(...)` and `createThreadSummaries(...)` from memory, `runLoop`, `scheduling.scheduler`, repositories, events and config.
-  - Step 10 passes `reminders: scheduling.reminders` to `registerBuiltins`.
+  - Step 10 passes `reminders: { service: scheduling.reminders, config, clock }` (`ReminderToolsDeps`, see the P4-K1 Outcome) to `registerBuiltins`.
   - Step 12 starts both memory jobs after `scheduling.start()`.
   - Shutdown stops them (aborting running passes) before scheduling stops. A start that fails tears them down.
 - `createContextBuilder` gets the `threads` repo and `memory` config (P4-B1's new deps).

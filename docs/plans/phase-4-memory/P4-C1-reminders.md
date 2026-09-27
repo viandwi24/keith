@@ -4,8 +4,8 @@ title: "Reminders: reminder.set/list/cancel and tick-driven reminder deliveries"
 phase: 4
 wave: 2
 lane: C
-status: todo
-owner: null
+status: in-progress
+owner: agent-P4-C1
 depends: [P4-K1]
 owns:
   - packages/core/src/scheduler/reminders.ts
@@ -36,7 +36,7 @@ scenarios: [S-1]
   - `set`:
     - Checks `countPending(personId) < mind.reminder.maxPerPerson`; over the limit is a `KeithError` the tool turns into a tool error.
     - Trims the text (1..500).
-    - Stores a `pending` reminder with `ids.newId('reminder')`.
+    - Stores a `pending` reminder with `ids.next('rem')`.
   - `cancel`: only the person's own pending reminder. It returns false for an unknown id, someone else's reminder, or one already fired or cancelled.
   - `listFor`: pending only, soonest first.
   - `fireDue(now)`: for each `listDue(now)`, `deliveries.enqueue({ personId, threadId, kind: 'reminder', content: text, urgency: 'high', source: 'core' })`, then `markFired(id, now, deliveryId)`.

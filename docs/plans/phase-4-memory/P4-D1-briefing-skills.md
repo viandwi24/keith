@@ -4,8 +4,8 @@ title: "Briefing skills: a default morning_briefing skill and person.arrived exa
 phase: 4
 wave: 2
 lane: D
-status: todo
-owner: null
+status: in-progress
+owner: agent-P4-D1
 depends: [P4-K1]
 owns:
   - packages/core/src/builtins/skills/**
