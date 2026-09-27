@@ -4,7 +4,7 @@ title: "Hardening: Mind fixes (tool events, flush guards, focus, history, cancel
 phase: 3
 wave: 6
 lane: H
-status: review
+status: done
 owner: agent-P3-H1
 depends: [P3-K2]
 owns:
