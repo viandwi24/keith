@@ -6,7 +6,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { type Browser, chromium } from 'playwright'
+import { type Browser, chromium, type LaunchOptions } from 'playwright'
 
 const WEB_PACKAGE_DIR = fileURLToPath(new URL('../../plugins/web', import.meta.url))
 
@@ -35,11 +35,12 @@ export async function buildWebApp(): Promise<BuiltWebApp> {
 
 /**
  * Launches headless Chromium. Uses Playwright's own browser when it is installed (CI runs
- * `playwright install`), else the preinstalled one, else `KEITH_E2E_CHROMIUM`.
+ * `playwright install`), else the preinstalled one, else `KEITH_E2E_CHROMIUM`. `opts` are passed
+ * through (e.g. `args` for a fake microphone).
  */
-export function launchChromium(): Promise<Browser> {
+export function launchChromium(opts: LaunchOptions = {}): Promise<Browser> {
   const own = chromium.executablePath()
   const fallback = process.env.KEITH_E2E_CHROMIUM ?? PREINSTALLED_CHROMIUM
   const executablePath = existsSync(own) ? undefined : existsSync(fallback) ? fallback : undefined
-  return chromium.launch(executablePath === undefined ? {} : { executablePath })
+  return chromium.launch(executablePath === undefined ? opts : { ...opts, executablePath })
 }
