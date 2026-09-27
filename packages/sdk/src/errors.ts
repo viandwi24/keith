@@ -23,6 +23,7 @@ export const KEITH_ERROR_CODES = [
   'UNAUTHORIZED',
   'FORBIDDEN',
   'PROVIDER_ERROR',
+  'RATE_LIMITED',
   'INTERNAL',
 ] as const
 

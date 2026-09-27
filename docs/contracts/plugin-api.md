@@ -220,7 +220,7 @@ Throw `new KeithError(code, message, { cause, details })`. `details` is optional
 |---|---|
 | Plugin host | `PLUGIN_KIND_VIOLATION`, `PLUGIN_NAMESPACE_INVALID`, `SERVICE_MISSING`, `SERVICE_CONFLICT`, `CONFIG_INVALID`, `TOOL_NAME_INVALID`, `TOOL_NAME_TAKEN`, `ROUTE_CONFLICT` |
 | Tools | `TOOL_INPUT_INVALID`, `TOOL_TIMEOUT`, `TIER_INSUFFICIENT`, `TASK_LIMIT_REACHED` |
-| Core | `STORAGE_CORRUPT`, `NOT_FOUND`, `UNAUTHORIZED`, `FORBIDDEN`, `PROVIDER_ERROR`, `INTERNAL` |
+| Core | `STORAGE_CORRUPT`, `NOT_FOUND`, `UNAUTHORIZED`, `FORBIDDEN`, `PROVIDER_ERROR`, `RATE_LIMITED` (additive, P3-K2 follow-up: a turn whose provider answered `rate_limited`), `INTERNAL` |
 
 ## Testing kit (`@keith/sdk/testing`)
 
