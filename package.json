@@ -9,11 +9,12 @@
     "apps/*"
   ],
   "scripts": {
-    "check": "bun run typecheck && bun run lint && bun run deps && bun run plans --lint && bun test",
+    "check": "bun run typecheck && bun run lint && bun run deps && bun run core-docs && bun run plans --lint && bun test",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "biome check .",
     "format": "biome check --write .",
     "deps": "bun scripts/check-deps.ts",
+    "core-docs": "bun scripts/check-core-docs.ts",
     "plans": "bun scripts/plans.ts",
     "dev": "bun --watch packages/core/src/cli/main.ts start"
   },
