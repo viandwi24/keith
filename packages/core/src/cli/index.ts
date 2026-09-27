@@ -1,4 +1,4 @@
-// The `keith` command: setup, start, migrate, --version. `runCli` takes its I/O as parameters so
+// The `keith` command: setup, start, migrate, backup, restore, --version. `runCli` takes its I/O as parameters so
 // tests can run it in-process; `main.ts` is the executable.
 
 import { mkdir } from 'node:fs/promises'
@@ -11,7 +11,9 @@ import { keithPaths } from '../config/index.ts'
 import { systemClock, withHomeLock } from '../shared/index.ts'
 import type { Clock } from '../shared/types.ts'
 import { openDb } from '../storage/index.ts'
+import { runBackup } from './backup.ts'
 import { type Prompter, terminalPrompter } from './prompt.ts'
+import { runRestore } from './restore.ts'
 import { runSetup } from './setup.ts'
 
 export { type Prompter, scriptedPrompter, terminalPrompter } from './prompt.ts'
@@ -46,6 +48,11 @@ Commands:
   setup                  Create KEITH_HOME, config.toml, persona.md, the database and the owner
   start [--port N] [--host H]   Start Keith
   migrate                Apply pending database migrations
+  backup [--out DIR]     Copy the database, files, plugins, config and persona to
+                         DIR/keith-backup-<YYYYMMDD-HHMMSS>/ (default DIR: KEITH_HOME/backups);
+                         works while Keith runs
+  restore DIR [--force]  Bring a backup back into a stopped KEITH_HOME (--force moves the
+                         current state aside to <KEITH_HOME>.before-restore-<time>/ first)
   --version              Print the version
 
 KEITH_HOME defaults to ~/.keith.`
@@ -78,6 +85,10 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
         return await startCommand(rest, io)
       case 'migrate':
         return await migrateCommand(io)
+      case 'backup':
+        return await backupCommand(rest, io)
+      case 'restore':
+        return await restoreCommand(rest, io)
       default:
         io.err(`Unknown command: ${command}`)
         io.err(USAGE)
@@ -117,6 +128,44 @@ async function migrateCommand(io: CliIo): Promise<number> {
     io.out(`Database is up to date: ${paths.dbFile}`)
     return 0
   })
+}
+
+async function backupCommand(args: string[], io: CliIo): Promise<number> {
+  const { values } = parseArgs({
+    args,
+    options: { out: { type: 'string' } },
+    strict: true,
+    allowPositionals: false,
+  })
+  await runBackup({
+    paths: keithPaths(keithHome(io.env)),
+    out: values.out,
+    clock: io.clock ?? systemClock,
+    print: io.out,
+  })
+  return 0
+}
+
+async function restoreCommand(args: string[], io: CliIo): Promise<number> {
+  const { values, positionals } = parseArgs({
+    args,
+    options: { force: { type: 'boolean', default: false } },
+    strict: true,
+    allowPositionals: true,
+  })
+  const [from, ...extra] = positionals
+  if (from === undefined || extra.length > 0) {
+    io.err('Usage: keith restore <dir> [--force]')
+    return 2
+  }
+  await runRestore({
+    paths: keithPaths(keithHome(io.env)),
+    from,
+    force: values.force,
+    clock: io.clock ?? systemClock,
+    print: io.out,
+  })
+  return 0
 }
 
 async function startCommand(args: string[], io: CliIo): Promise<number> {
