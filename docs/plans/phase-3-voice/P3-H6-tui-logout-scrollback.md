@@ -4,7 +4,7 @@ title: "Hardening: TUI --logout and history scrollback"
 phase: 3
 wave: 6
 lane: H
-status: review
+status: done
 owner: agent-P3-H6
 depends: [P3-K2]
 owns:
