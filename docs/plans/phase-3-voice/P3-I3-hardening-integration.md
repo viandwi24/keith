@@ -4,7 +4,7 @@ title: "Hardening integration: wiring, e2e gaps and doc fixes"
 phase: 3
 wave: 8
 lane: I
-status: review
+status: done
 owner: agent-P3-I3
 depends: [P3-H1, P3-H2, P3-H3, P3-H4, P3-H5, P3-H6, P3-H7]
 owns:
