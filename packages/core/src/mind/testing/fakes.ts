@@ -391,9 +391,46 @@ export type FakeToolRegistry = Pick<CoreToolRegistry, 'get' | 'list' | 'invoke'>
   add(tool: Tool, pluginId?: string | null): void
 }
 
-/** Follows the CoreToolRegistry contract: `invoke` never throws for tool problems. */
-export function createFakeToolRegistry(tools: Tool[] = []): FakeToolRegistry {
+/**
+ * Follows the CoreToolRegistry contract: `invoke` never throws for tool problems, and with `events`
+ * it emits one `tool.called` / `tool.completed` pair per invocation, refused ones included.
+ */
+export function createFakeToolRegistry(
+  tools: Tool[] = [],
+  events?: Pick<FakeBus, 'emit'> | undefined,
+): FakeToolRegistry {
   const map = new Map<string, RegisteredTool>()
+  const attempt = async (
+    name: string,
+    rawArgs: unknown,
+    call: Parameters<CoreToolRegistry['invoke']>[2],
+  ): Promise<ToolResult> => {
+    const registered = map.get(name)
+    if (!registered) return { content: `Unknown tool '${name}'.`, error: true }
+    const parsed = registered.tool.input.safeParse(rawArgs)
+    if (!parsed.success) return { content: `Invalid input: ${parsed.error.message}`, error: true }
+    const lowest = Math.min(...call.participants.map((p) => TIER_RANK[p.tier]))
+    if (TIER_RANK[registered.tool.minTier] > lowest) return { content: 'Not allowed.', error: true }
+    try {
+      return await registered.tool.run(parsed.data, {
+        person: call.person,
+        participants: call.participants,
+        threadId: call.threadId,
+        taskId: call.taskId,
+        signal: call.signal,
+        log: createMemoryLogger(),
+        services: {
+          get: () => {
+            throw new KeithError('SERVICE_MISSING', 'no services in fake')
+          },
+          find: () => undefined,
+        },
+      })
+    } catch (error) {
+      const message = isKeithError(error) || error instanceof Error ? error.message : String(error)
+      return { content: `Tool ${name} failed: ${message}`, error: true }
+    }
+  }
   const reg: FakeToolRegistry = {
     add(tool, pluginId = null) {
       map.set(tool.name, { tool, pluginId })
@@ -410,31 +447,11 @@ export function createFakeToolRegistry(tools: Tool[] = []): FakeToolRegistry {
       })
     },
     async invoke(name, rawArgs, call): Promise<ToolResult> {
-      const registered = map.get(name)
-      if (!registered) return { content: `Unknown tool '${name}'.`, error: true }
-      const parsed = registered.tool.input.safeParse(rawArgs)
-      if (!parsed.success) return { content: `Invalid input: ${parsed.error.message}`, error: true }
-      const lowest = Math.min(...call.participants.map((p) => TIER_RANK[p.tier]))
-      if (TIER_RANK[registered.tool.minTier] > lowest) return { content: 'Not allowed.', error: true }
-      try {
-        return await registered.tool.run(parsed.data, {
-          person: call.person,
-          participants: call.participants,
-          threadId: call.threadId,
-          taskId: call.taskId,
-          signal: call.signal,
-          log: createMemoryLogger(),
-          services: {
-            get: () => {
-              throw new KeithError('SERVICE_MISSING', 'no services in fake')
-            },
-            find: () => undefined,
-          },
-        })
-      } catch (error) {
-        const message = isKeithError(error) || error instanceof Error ? error.message : String(error)
-        return { content: `Tool ${name} failed: ${message}`, error: true }
-      }
+      const { threadId, taskId, toolCallId } = call
+      events?.emit('tool.called', { threadId, taskId, toolCallId, name })
+      const result = await attempt(name, rawArgs, call)
+      events?.emit('tool.completed', { toolCallId, name, ok: result.error !== true, ms: 0 })
+      return result
     },
   }
   for (const t of tools) reg.add(t)

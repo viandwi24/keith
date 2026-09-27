@@ -10,6 +10,8 @@ import {
   fakeToolCall,
 } from '@keith/sdk/testing'
 import { z } from 'zod'
+import { createServiceRegistry } from '../plugins/services.ts'
+import { createToolRegistry } from '../plugins/tools.ts'
 import type { ThreadId } from '../shared/types.ts'
 import { createRunLoop } from './run-loop.ts'
 import {
@@ -53,8 +55,8 @@ async function setup(
     createdAt: 0,
   })
   const llm = createFakeLlm(script)
-  const registry = createFakeToolRegistry(tools)
   const bus = createFakeBus(clock)
+  const registry = createFakeToolRegistry(tools, bus)
   const log = createMemoryLogger()
   const runLoop = createRunLoop({
     providers: createFakeProviders(llm),
@@ -129,6 +131,57 @@ describe('run loop', () => {
       'step.completed',
       'text.delta',
       'step.completed',
+    ])
+  })
+
+  test('T3 / B1: through the real registry, each tool call emits exactly one tool.called / tool.completed', async () => {
+    const clock = createFakeClock(1_000)
+    const log = createMemoryLogger()
+    const bus = createFakeBus(clock)
+    const repos = createFakeRepos()
+    await repos.persons.create({
+      id: TONY,
+      name: 'Tony',
+      username: 'tony',
+      passwordHash: null,
+      tier: 'owner',
+      lastSeenAt: null,
+      createdAt: 0,
+    })
+    const services = createServiceRegistry({ winners: {}, log })
+    const tools = createToolRegistry({ log, clock, services, events: bus })
+    tools.registerBuiltin(defineTool({ ...echo, name: 'memory.echo' }))
+    const llm = createFakeLlm([
+      [fakeToolCall('memory.echo', { text: 'x' }, 'c1'), fakeToolCall('memory.missing', {}, 'c2')],
+      fakeText('Done'),
+    ])
+    const runLoop = createRunLoop({
+      providers: createFakeProviders(llm),
+      tools,
+      repos,
+      events: bus,
+      ids: createFakeIds(),
+      clock,
+      log,
+      stallMs: 120_000,
+    })
+    await runLoop({
+      system: 'sys',
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: ['memory.echo'],
+      modelRole: 'foreground',
+      maxSteps: 8,
+      runCtx: { personId: TONY, participants: [TONY], threadId: THREAD, taskId: null },
+      persist: { threadId: THREAD },
+      signal: new AbortController().signal,
+    })
+    await bus.idle()
+    expect(bus.named('tool.called').map((e) => e.toolCallId)).toEqual(['c1', 'c2'])
+    // Calls run in parallel, so completions may come in any order.
+    const completed = bus.named('tool.completed').map((e) => [e.toolCallId, e.ok])
+    expect(completed.sort()).toEqual([
+      ['c1', true],
+      ['c2', false],
     ])
   })
 
@@ -217,7 +270,7 @@ describe('run loop', () => {
     expect(failures).toBe(2)
   })
 
-  test('gives up after two retries with PROVIDER_ERROR', async () => {
+  test('C2: gives up after two retries; a provider rate_limited becomes RATE_LIMITED', async () => {
     const failing = () => {
       throw new ProviderError('rate_limited', '429')
     }
@@ -229,7 +282,7 @@ describe('run loop', () => {
     )
     await advance(s.clock, 100, 5)
     const error = await done
-    expect(isKeithError(error, 'PROVIDER_ERROR')).toBe(true)
+    expect(isKeithError(error, 'RATE_LIMITED')).toBe(true)
     expect(s.llm.calls).toBe(3)
   })
 

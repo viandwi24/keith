@@ -66,7 +66,7 @@ export async function createHarness(opts: HarnessOptions = {}) {
   const presence = createFakePresence()
   const scheduler = createFakeScheduler()
   const memory = createFakeMemory()
-  const tools = createFakeToolRegistry(opts.tools)
+  const tools = createFakeToolRegistry(opts.tools, bus)
   const llmOptions = {
     ...(opts.fallback ? { fallback: opts.fallback } : {}),
     ...(opts.llmSleep ? { sleep: opts.llmSleep } : {}),

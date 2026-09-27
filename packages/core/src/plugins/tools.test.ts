@@ -123,6 +123,31 @@ describe('tools.invoke', () => {
     expect(seen).toEqual(['tool.called:weather.current', 'tool.completed:true'])
   })
 
+  test('B1: emits one tool.called / tool.completed pair for refused calls too, with ok false', async () => {
+    const { tools, weather, events } = setup()
+    weather.register(counting().tool)
+    const seen: string[] = []
+    events.on('tool.called', (e) => void seen.push(`called:${e.data.name}:${e.data.toolCallId}`))
+    events.on('tool.completed', (e) => void seen.push(`completed:${e.data.name}:${e.data.ok}`))
+    const aborted = new AbortController()
+    aborted.abort()
+    await tools.invoke('weather.none', {}, call([person('owner')]))
+    await tools.invoke('weather.current', { city: 3 }, call([person('owner')]))
+    await tools.invoke('weather.current', { city: 'x' }, call([person('guest')]))
+    await tools.invoke('weather.current', { city: 'x' }, call([person('owner')], aborted.signal))
+    await events.idle()
+    expect(seen).toEqual([
+      'called:weather.none:call_1',
+      'completed:weather.none:false',
+      'called:weather.current:call_1',
+      'completed:weather.current:false',
+      'called:weather.current:call_1',
+      'completed:weather.current:false',
+      'called:weather.current:call_1',
+      'completed:weather.current:false',
+    ])
+  })
+
   test('rejects bad input without calling run', async () => {
     const { tools, weather } = setup()
     const { tool, calls } = counting()
