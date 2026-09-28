@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { NodeId } from '@keith/protocol'
-import { type FakeCoreOptions, startFakeCore } from '../test/fake-core.ts'
+import type { NodeId, ThreadDto } from '@keith/protocol'
+import { type FakeCore, type FakeCoreOptions, startFakeCore } from '../test/fake-core.ts'
 import { waitUntil } from '../test/wait.ts'
 import { backoffDelay, type ChatClient, createChatClient } from './chat.ts'
 import { login } from './http.ts'
-import type { ChatState, MessageEntry, ToolEntry } from './state.ts'
+import { authorName, type ChatState, type MessageEntry, relayFrom, type ToolEntry } from './state.ts'
 
 const cleanups: (() => Promise<void> | void)[] = []
 afterEach(async () => {
@@ -16,14 +16,18 @@ type SetupOptions = FakeCoreOptions & {
   capabilities?: string[]
   historyLimit?: number
   historyPageSize?: number
+  /** Runs on the fake core before the client connects (e.g. `addGroup`). */
+  prepare?: (core: FakeCore) => void
 }
 
 async function setup(opts: SetupOptions = {}) {
   const core = startFakeCore(opts)
   cleanups.push(() => core.stop())
+  opts.prepare?.(core)
   const { token } = await login(core.url, { username: 'tony', password: 'jarvis' })
   const states: ChatState[] = []
   const nodeIds: string[] = []
+  const threadLists: ThreadDto[][] = []
   const client = createChatClient({
     baseUrl: core.url,
     token,
@@ -31,6 +35,7 @@ async function setup(opts: SetupOptions = {}) {
     client: { name: 'keith-tui', version: '0.0.0' },
     onState: (s) => states.push(s),
     onNodeId: (id) => nodeIds.push(id),
+    onThreads: (threads) => threadLists.push(threads),
     backoff: { initialMs: 10, maxMs: 50, factor: 2 },
     capabilities: opts.capabilities,
     historyLimit: opts.historyLimit,
@@ -39,7 +44,7 @@ async function setup(opts: SetupOptions = {}) {
   cleanups.push(() => client.close())
   client.start()
   await waitUntil(() => client.state.thread !== null, 3000, 'thread.opened')
-  return { core, client, states, nodeIds, token }
+  return { core, client, states, nodeIds, token, threadLists }
 }
 
 function messages(client: ChatClient): MessageEntry[] {
@@ -333,6 +338,165 @@ describe('phase-2 client features', () => {
     expect(result).toMatchObject({ ok: false, reason: 'failed' })
     expect(client.state.history).toEqual({ hasMore: true, loading: false })
     expect(client.state.entries.at(-1)).toMatchObject({ kind: 'notice', level: 'error' })
+  })
+})
+
+describe('phase 5: thread list and switching threads', () => {
+  const pepper = { id: 'per_01J8ZQ3K4M5N6P7Q8R9S0T1V40', name: 'Pepper', tier: 'member' } as const
+  const rhodey = { id: 'per_01J8ZQ3K4M5N6P7Q8R9S0T1V41', name: 'Rhodey', tier: 'guest' } as const
+  let mission: ThreadDto
+
+  const withGroup = (opts: SetupOptions = {}) =>
+    setup({
+      ...opts,
+      prepare: (core) => {
+        mission = core.addGroup({
+          title: 'Mission',
+          purpose: 'Plan the Expo launch.',
+          others: [pepper],
+          messages: [
+            { content: 'Venue ideas?', authorPersonId: pepper.id },
+            { content: 'Three options.', authorPersonId: null },
+          ],
+        })
+      },
+    })
+
+  const threadIds = (client: ChatClient) => client.state.threads.map((t) => t.id)
+  const sentTypes = (core: FakeCore, from: number) =>
+    core.received.slice(from).flatMap((f) => (f.type === 'pong' ? [] : [f.type]))
+
+  test('loads the thread list on connect, most recent first, and reports it through onThreads', async () => {
+    const { core, client, threadLists } = await withGroup()
+    await waitUntil(() => client.state.threads.length === 2, 3000, 'thread list')
+    expect(threadIds(client)).toEqual([mission.id, core.thread.id])
+    expect(threadLists.at(-1)).toBe(client.state.threads)
+  })
+
+  test('thread.updated and thread.removed keep the list current', async () => {
+    const { core, client } = await setup()
+    await waitUntil(() => client.state.threads.length === 1, 3000, 'thread list')
+    const group = core.addGroup({ title: 'Party', others: [pepper] })
+    await waitUntil(() => client.state.threads.length === 2, 3000, 'thread.updated')
+    expect(client.state.threads[0]).toEqual(group)
+    const joined = { ...group, participants: [...group.participants, rhodey], updatedAt: group.updatedAt + 1 }
+    core.pushThreadUpdated(joined)
+    await waitUntil(() => client.state.threads[0]?.participants.length === 3, 3000, 'joined')
+    core.pushThreadRemoved(group.id)
+    await waitUntil(() => client.state.threads.length === 1, 3000, 'thread.removed')
+    expect(threadIds(client)).toEqual([core.thread.id])
+    // The open thread did not change.
+    expect(client.state.thread?.id).toBe(core.thread.id)
+  })
+
+  test('openThread sends thread.close then thread.open, and shows the group with its authors', async () => {
+    const { core, client } = await withGroup()
+    const from = core.received.length
+    expect(client.openThread(mission.id)).toEqual({ ok: true })
+    // The old conversation is gone at once; nothing can be sent until the new one is open.
+    expect(client.state.thread).toBeNull()
+    expect(client.send('too early')).toEqual({ ok: false, reason: 'offline' })
+    await waitUntil(() => client.state.thread?.id === mission.id, 3000, 'group opened')
+    expect(core.received.slice(from).filter((f) => f.type.startsWith('thread.'))).toMatchObject([
+      { type: 'thread.close', data: { threadId: core.thread.id } },
+      { type: 'thread.open', data: { threadId: mission.id } },
+    ])
+    expect(core.openThreads()).toEqual([mission.id])
+    expect(messages(client).map((m) => [authorName(client.state, m), m.text])).toEqual([
+      ['Pepper', 'Venue ideas?'],
+      [null, 'Three options.'],
+    ])
+
+    // Input goes to the group.
+    client.send('Book the second one.')
+    await waitUntil(
+      () =>
+        messages(client).length === 4 && !messages(client)[3]?.streaming && client.state.turnState === 'idle',
+      3000,
+      'group reply',
+    )
+    expect(core.received.find((f) => f.type === 'input.text')).toMatchObject({
+      data: { threadId: mission.id },
+    })
+    expect(core.messagesOf(mission.id)).toHaveLength(4)
+    expect(authorName(client.state, messages(client)[2] as MessageEntry)).toBe('Tony')
+
+    // Opening the open thread again sends nothing; a bad id is refused.
+    const count = core.received.length
+    expect(client.openThread(mission.id)).toEqual({ ok: true })
+    expect(client.openThread('nope' as ThreadDto['id'])).toEqual({ ok: false, reason: 'invalid' })
+    expect(sentTypes(core, count)).toEqual([])
+
+    // And back to main.
+    expect(client.openThread(core.thread.id)).toEqual({ ok: true })
+    await waitUntil(() => client.state.thread?.id === core.thread.id, 3000, 'main again')
+    expect(sentTypes(core, count)).toEqual(['thread.close', 'thread.open'])
+  })
+
+  test('openThread is refused while offline', async () => {
+    const { core, client } = await withGroup()
+    await core.stop()
+    await waitUntil(() => client.state.connection.kind === 'reconnecting', 3000, 'reconnecting')
+    expect(client.openThread(mission.id)).toEqual({ ok: false, reason: 'offline' })
+  })
+
+  test('a reconnect reopens the thread opened last', async () => {
+    const { core, client } = await withGroup()
+    client.openThread(mission.id)
+    await waitUntil(() => client.state.thread?.id === mission.id, 3000, 'group opened')
+    await core.stop()
+    await waitUntil(() => client.state.connection.kind === 'reconnecting', 3000, 'reconnecting')
+    await core.restart()
+    await waitUntil(() => core.hellos === 2 && client.state.thread?.id === mission.id, 5000, 'reopened')
+    const reopen = core.received.filter((f) => f.type === 'thread.open').at(-1)
+    expect(reopen).toMatchObject({ data: { threadId: mission.id } })
+    expect(messages(client).map((m) => m.text)).toEqual(['Venue ideas?', 'Three options.'])
+  })
+
+  test('thread.removed of the open thread switches to main with a notice', async () => {
+    const { core, client } = await withGroup()
+    client.openThread(mission.id)
+    await waitUntil(() => client.state.thread?.id === mission.id, 3000, 'group opened')
+    const from = core.received.length
+    core.pushThreadRemoved(mission.id)
+    await waitUntil(() => client.state.thread?.id === core.thread.id, 3000, 'back to main')
+    expect(core.received.slice(from).filter((f) => f.type.startsWith('thread.'))).toMatchObject([
+      { type: 'thread.open', data: {} },
+    ])
+    expect(core.received.at(-1)?.data).not.toHaveProperty('threadId')
+    expect(threadIds(client)).toEqual([core.thread.id])
+    await waitUntil(() => client.state.entries.some((e) => e.kind === 'notice'), 3000, 'notice')
+    expect(client.state.entries.filter((e) => e.kind === 'notice')).toMatchObject([
+      { level: 'info', text: 'You are no longer in Mission.' },
+    ])
+  })
+
+  test('a thread the core refuses to open (left while offline) falls back to main', async () => {
+    const { core, client } = await withGroup()
+    client.openThread(mission.id)
+    await waitUntil(() => client.state.thread?.id === mission.id, 3000, 'group opened')
+    await core.stop()
+    await waitUntil(() => client.state.connection.kind === 'reconnecting', 3000, 'reconnecting')
+    // Left while offline: no thread.removed reached this node.
+    core.threads.splice(core.threads.indexOf(mission), 1)
+    await core.restart()
+    await waitUntil(() => core.hellos === 2 && client.state.thread?.id === core.thread.id, 5000, 'main')
+    expect(core.received.filter((f) => f.type === 'thread.open').slice(-2)).toMatchObject([
+      { data: { threadId: mission.id } },
+      { data: {} },
+    ])
+    await waitUntil(() => client.state.threads.length === 1, 3000, 'list reloaded')
+  })
+
+  test('a relayed message carries its senders', async () => {
+    const { core, client } = await setup()
+    await core.pushProactive('Pepper says the kids are asleep.', {
+      relayFrom: [{ personId: pepper.id, name: 'Pepper' }],
+    })
+    await waitUntil(() => messages(client).some((m) => !m.streaming), 3000, 'relay')
+    const [entry] = messages(client)
+    expect(entry && relayFrom(entry)).toEqual(['Pepper'])
+    expect(entry && authorName(client.state, entry)).toBeNull()
   })
 })
 

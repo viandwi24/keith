@@ -3,11 +3,13 @@ import { type CoreFrame, type FrameData, type MessageDto, makeFrame, type Thread
 import {
   applyFrame,
   applyLocal,
+  authorName,
   type ChatState,
   initialState,
   isHiddenEntry,
   type MessageEntry,
   oldestMessageId,
+  relayFrom,
 } from './state.ts'
 
 const threadId = 'thr_01J8ZQ3K4M5N6P7Q8R9S0T1V31'
@@ -115,16 +117,6 @@ describe('state reducer', () => {
       before,
       frame('thread.state', { threadId: otherThread, state: 'thinking' }),
       frame('message.started', { threadId: otherThread, messageId, proactive: false }),
-    )
-    expect(after).toEqual(before)
-  })
-
-  test('phase-5 thread.updated and thread.removed leave the open conversation as it is', () => {
-    const before = opened()
-    const after = apply(
-      before,
-      frame('thread.updated', { thread: { ...thread, id: otherThread, kind: 'group', title: 'Mission' } }),
-      frame('thread.removed', { threadId: otherThread }),
     )
     expect(after).toEqual(before)
   })
@@ -290,5 +282,170 @@ describe('isHiddenEntry', () => {
     const ui = [{ block: { type: 'markdown', id: 'x', text: 'x' } as const, fallbackText: 'x' }]
     expect(isHiddenEntry({ ...step, ui })).toBe(false)
     expect(isHiddenEntry({ kind: 'notice', key: 'n', level: 'info', text: '' })).toBe(false)
+  })
+})
+
+describe('phase 5: thread list', () => {
+  const pepper = { id: 'per_01J8ZQ3K4M5N6P7Q8R9S0T1V40', name: 'Pepper', tier: 'member' } as const
+  const rhodey = { id: 'per_01J8ZQ3K4M5N6P7Q8R9S0T1V41', name: 'Rhodey', tier: 'guest' } as const
+  const happy = { id: 'per_01J8ZQ3K4M5N6P7Q8R9S0T1V42', name: 'Happy', tier: 'member' } as const
+  const group: ThreadDto = {
+    id: otherThread,
+    kind: 'group',
+    title: 'Mission',
+    participants: [person, pepper],
+    state: 'idle',
+    updatedAt: 5,
+    purpose: 'Plan the Expo launch.',
+  }
+  const third: ThreadDto = { ...group, id: 'thr_01J8ZQ3K4M5N6P7Q8R9S0T1V98', title: 'Party', updatedAt: 3 }
+  const ids = (state: ChatState) => state.threads.map((t) => t.id)
+
+  test('starts empty, and thread.opened adds the open thread', () => {
+    expect(initialState().threads).toEqual([])
+    expect(opened().threads).toEqual([thread])
+  })
+
+  test('the loaded list is sorted by most recent update', () => {
+    const state = applyLocal(opened(), { type: 'threads', threads: [thread, third, group] })
+    expect(ids(state)).toEqual([group.id, third.id, threadId])
+  })
+
+  test('thread.updated adds a thread, or replaces it, and keeps the order', () => {
+    const loaded = applyLocal(opened(), { type: 'threads', threads: [thread, third] })
+    const added = apply(loaded, frame('thread.updated', { thread: group }))
+    expect(ids(added)).toEqual([group.id, third.id, threadId])
+
+    const joined = { ...third, participants: [person, pepper, rhodey], updatedAt: 9 }
+    const replaced = apply(added, frame('thread.updated', { thread: joined }))
+    expect(ids(replaced)).toEqual([third.id, group.id, threadId])
+    expect(replaced.threads[0]).toEqual(joined)
+    expect(replaced.threads).toHaveLength(3)
+    // The open conversation is untouched by another thread's update.
+    expect(replaced.thread).toEqual(thread)
+    expect(replaced.entries).toBe(loaded.entries)
+  })
+
+  test('thread.updated of the open thread refreshes its participants and keeps the conversation', () => {
+    const open = apply(
+      initialState(),
+      frame('thread.opened', { thread: group, messages: [message({ threadId: otherThread })] }),
+      frame('thread.state', { threadId: otherThread, state: 'thinking' }),
+    )
+    const updated = { ...group, participants: [person, pepper, rhodey], updatedAt: 7 }
+    const state = apply(open, frame('thread.updated', { thread: updated }))
+    expect(state.thread).toEqual(updated)
+    expect(state.turnState).toBe('thinking')
+    expect(state.entries).toBe(open.entries)
+  })
+
+  test('thread.removed drops the thread from the list', () => {
+    const loaded = applyLocal(opened(), { type: 'threads', threads: [thread, group, third] })
+    const state = apply(loaded, frame('thread.removed', { threadId: otherThread }))
+    expect(ids(state)).toEqual([third.id, threadId])
+    expect(state.thread).toEqual(thread)
+    // An unknown thread changes nothing.
+    const same = apply(state, frame('thread.removed', { threadId: otherThread }))
+    expect(same).toBe(state)
+  })
+
+  test('thread.removed of the open thread closes the conversation', () => {
+    const open = apply(
+      initialState(),
+      frame('thread.opened', { thread: group, messages: [message({ threadId: otherThread })] }),
+    )
+    const state = apply(open, frame('thread.removed', { threadId: otherThread }))
+    expect(state.thread).toBeNull()
+    expect(state.entries).toEqual([])
+    expect(state.threads).toEqual([])
+    expect(state.turnState).toBe('idle')
+    // Its late frames are ignored.
+    const late = apply(
+      state,
+      frame('message.started', { threadId: otherThread, messageId, proactive: false }),
+    )
+    expect(late).toBe(state)
+  })
+
+  test('thread.closed clears the conversation but keeps the list', () => {
+    const state = applyLocal(opened([message()]), { type: 'thread.closed' })
+    expect(state.thread).toBeNull()
+    expect(state.entries).toEqual([])
+    expect(state.threads).toEqual([thread])
+  })
+
+  test('authorName: current participants, former participants, the Mind and unknown ids', () => {
+    const withFormer = { ...group, formerParticipants: [happy] }
+    const state = apply(
+      initialState(),
+      frame('thread.opened', {
+        thread: withFormer,
+        messages: [
+          message({
+            id: 'msg_01J8ZQ3K4M5N6P7Q8R9S0T1V50',
+            threadId: otherThread,
+            role: 'user',
+            authorPersonId: pepper.id,
+          }),
+          message({
+            id: 'msg_01J8ZQ3K4M5N6P7Q8R9S0T1V51',
+            threadId: otherThread,
+            role: 'user',
+            authorPersonId: happy.id,
+          }),
+          message({ id: 'msg_01J8ZQ3K4M5N6P7Q8R9S0T1V52', threadId: otherThread }),
+          message({
+            id: 'msg_01J8ZQ3K4M5N6P7Q8R9S0T1V53',
+            threadId: otherThread,
+            role: 'user',
+            authorPersonId: rhodey.id,
+          }),
+        ],
+      }),
+    )
+    const names = state.entries.map((e) => authorName(state, e as MessageEntry))
+    expect(names).toEqual(['Pepper', 'Happy', null, 'Someone'])
+    // A MessageDto works too.
+    expect(authorName(state, message({ role: 'user', authorPersonId: pepper.id }))).toBe('Pepper')
+  })
+
+  test('authorName: a local echo is the signed-in person', () => {
+    const welcomed = apply(
+      initialState(),
+      frame('welcome', {
+        nodeId: 'nod_01J8ZQ3K4M5N6P7Q8R9S0T1V2Y',
+        person,
+        protocol: 1,
+        server: { name: 'keith', version: '0' },
+      }),
+      frame('thread.opened', { thread: group, messages: [] }),
+    )
+    const state = applyLocal(welcomed, { type: 'sent', text: 'hi' })
+    const entry = state.entries[0] as MessageEntry
+    expect(entry.authorPersonId).toBe(person.id)
+    expect(authorName(state, entry)).toBe('Tony')
+    // Entries built without an author id (before phase 5).
+    const { authorPersonId: _, ...legacy } = entry
+    expect(authorName(state, legacy)).toBe('Tony')
+    expect(authorName(state, { ...legacy, role: 'assistant' })).toBeNull()
+  })
+
+  test('relayFrom: the sender names of a relayed message, from an entry or a DTO', () => {
+    const senders = [
+      { personId: pepper.id, name: 'Pepper' },
+      { personId: rhodey.id, name: 'Rhodey' },
+    ]
+    const relayed = message({ meta: { proactive: true, relayFrom: senders } })
+    const state = apply(opened(), frame('message.completed', { message: relayed }))
+    const entry = state.entries[0] as MessageEntry
+    expect(entry.relayFrom).toEqual(senders)
+    expect(entry.authorPersonId).toBeNull()
+    expect(relayFrom(entry)).toEqual(['Pepper', 'Rhodey'])
+    expect(relayFrom(relayed)).toEqual(['Pepper', 'Rhodey'])
+    expect(relayFrom(message())).toEqual([])
+    const plain = apply(opened(), frame('message.completed', { message: message() }))
+      .entries[0] as MessageEntry
+    expect(plain.relayFrom).toBeUndefined()
+    expect(relayFrom(plain)).toEqual([])
   })
 })

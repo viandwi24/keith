@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { startFakeCore } from '../test/fake-core.ts'
+import { FAKE_INVITE_CODE, startFakeCore } from '../test/fake-core.ts'
 import { ClientError } from './errors.ts'
 import { getMe } from './http.ts'
 import {
@@ -122,6 +122,37 @@ describe('createAuth', () => {
     }
     expect(error).toBeInstanceOf(ClientError)
     expect(await store.load()).toBeNull()
+  })
+
+  test('phase 5: acceptInvite saves the session like login and keeps the known nodeId', async () => {
+    const fake = core()
+    const store = memorySessionStore({ ...session, url: fake.url, expiresAt: 0 })
+    const auth = createAuth({ baseUrl: fake.url, store })
+    await auth.restore()
+    const signedUp = await auth.acceptInvite({
+      code: FAKE_INVITE_CODE,
+      username: 'pepper',
+      password: 'longenough',
+    })
+    expect(signedUp).toMatchObject({ url: fake.url, person: fake.person, nodeId: session.nodeId })
+    expect(await store.load()).toEqual(signedUp)
+    expect(auth.session).toEqual(signedUp)
+    expect(await getMe(fake.url, signedUp.token)).toEqual(fake.person)
+  })
+
+  test('phase 5: a refused invite leaves the store untouched', async () => {
+    const fake = core()
+    const store = memorySessionStore()
+    const auth = createAuth({ baseUrl: fake.url, store })
+    let error: unknown
+    try {
+      await auth.acceptInvite({ code: 'wrong', username: 'pepper', password: 'longenough' })
+    } catch (e) {
+      error = e
+    }
+    expect((error as ClientError).code).toBe('INVITE_INVALID')
+    expect(await store.load()).toBeNull()
+    expect(auth.session).toBeNull()
   })
 
   test('rememberNodeId persists; expire forgets the token but not the nodeId', async () => {

@@ -1,5 +1,6 @@
 import {
   HttpErrorBody,
+  type InviteAcceptRequest,
   type LoginRequest,
   LoginResponse,
   LogoutResponse,
@@ -72,6 +73,36 @@ export async function login(
     throw new ClientError('LOGIN_FAILED', `login failed: ${detail}`)
   }
   return parseBody(LoginResponse, json, 'login')
+}
+
+/** What a node shows when an invite link is refused. The same text for a wrong, used or expired code. */
+export const INVITE_INVALID_MESSAGE = 'This invite link is not valid any more. Ask the owner for a new one.'
+
+/**
+ * `POST /v1/auth/invite` (phase 5): accepts an invite link, sets the person's username and password,
+ * and answers a session like `login`. A wrong, used or expired code is `INVITE_INVALID`
+ * (`INVITE_INVALID_MESSAGE`). A body the core refuses, e.g. a username someone else has, is
+ * `INVALID_REQUEST` with the core's message.
+ */
+export async function acceptInvite(
+  baseUrl: string,
+  body: InviteAcceptRequest,
+  opts: HttpOptions = {},
+): Promise<LoginResponse> {
+  const res = await send(baseUrl, '/v1/auth/invite', opts, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const json = await readJson(res)
+  if (!res.ok) {
+    const parsed = HttpErrorBody.safeParse(json)
+    const detail = parsed.success ? parsed.data.error.message : `HTTP ${res.status}`
+    if (res.status === 401) throw new ClientError('INVITE_INVALID', INVITE_INVALID_MESSAGE)
+    if (res.status === 400) throw new ClientError('INVALID_REQUEST', detail)
+    throw new ClientError('HTTP_ERROR', `sign-up failed: ${detail}`)
+  }
+  return parseBody(LoginResponse, json, 'invite')
 }
 
 /** `POST /v1/auth/logout`: deletes the token on the core. */

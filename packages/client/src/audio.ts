@@ -31,8 +31,11 @@ export type AudioEvent =
   | { type: 'end'; streamId: AudioStreamId }
   /** Barge-in or cancel (`audio.stop`): stop now and drop what is queued of the stream. */
   | { type: 'stop'; streamId: AudioStreamId }
-  /** This node sent a new user input: stop all playback. */
-  | { type: 'flush'; reason: 'input' }
+  /**
+   * Stop all playback: this node sent a new user input (`input`), or the open thread changed
+   * (`thread`, phase 5: `openThread`, or the core removed the open thread).
+   */
+  | { type: 'flush'; reason: 'input' | 'thread' }
 
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
 

@@ -2,6 +2,8 @@ import {
   type CoreFrame,
   type MessageDto,
   type PersonDto,
+  type PersonId,
+  type RelaySender,
   type ThreadDto,
   type TurnState,
   type UiBlock,
@@ -9,8 +11,9 @@ import {
 } from '@keith/protocol'
 
 /**
- * A node's view of one open thread and the pure reducer that applies core frames to it. No I/O,
- * no rendering: a TUI or a browser renders `ChatState` however it likes.
+ * A node's view of one open thread, plus the person's thread list (phase 5), and the pure reducer
+ * that applies core frames to it. No I/O, no rendering: a TUI or a browser renders `ChatState`
+ * however it likes.
  */
 
 export type ConnectionStatus =
@@ -38,6 +41,13 @@ export type MessageEntry = {
   local: boolean
   /** UI blocks attached to this message, in arrival order, one per block id. */
   ui: UiBlockEntry[]
+  /**
+   * Phase 5: who wrote it (`MessageDto.authorPersonId`), null for the Mind. Resolve it to a name
+   * with `authorName`. Absent on entries built before phase 5.
+   */
+  authorPersonId?: PersonId | null
+  /** Phase 5: who the relays in this message came from (`meta.relayFrom`). Absent when none. */
+  relayFrom?: RelaySender[]
 }
 
 export type ToolEntry = {
@@ -72,6 +82,12 @@ export type ChatState = {
   connection: ConnectionStatus
   person: PersonDto | null
   thread: ThreadDto | null
+  /**
+   * Phase 5: every thread the person is a current participant of, groups included, most recently
+   * updated first. Loaded with `GET /v1/threads` on connect and kept current by `thread.updated`
+   * and `thread.removed`.
+   */
+  threads: ThreadDto[]
   turnState: TurnState
   entries: Entry[]
   history: HistoryState
@@ -84,6 +100,7 @@ export function initialState(): ChatState {
     connection: { kind: 'connecting' },
     person: null,
     thread: null,
+    threads: [],
     turnState: 'idle',
     entries: [],
     history: { hasMore: false, loading: false },
@@ -98,8 +115,15 @@ export type LocalAction =
   | { type: 'history'; history: HistoryState }
   /** An older page of history (oldest first), prepended before what is shown. */
   | { type: 'history.page'; messages: MessageDto[]; hasMore: boolean }
+  /** Phase 5: the thread list from `GET /v1/threads`. Replaces the list. */
+  | { type: 'threads'; threads: ThreadDto[] }
+  /** Phase 5: the open thread was closed (switching threads). Clears the conversation. */
+  | { type: 'thread.closed' }
 
-/** Applies one frame from the core. Frames for other threads are ignored (one thread per state). */
+/**
+ * Applies one frame from the core. Frames for other threads are ignored (one open thread per
+ * state), apart from `thread.updated` and `thread.removed`, which keep the thread list.
+ */
 export function applyFrame(state: ChatState, frame: CoreFrame): ChatState {
   switch (frame.type) {
     case 'welcome':
@@ -108,6 +132,7 @@ export function applyFrame(state: ChatState, frame: CoreFrame): ChatState {
       return {
         ...state,
         thread: frame.data.thread,
+        threads: upsertThread(state.threads, frame.data.thread),
         turnState: frame.data.thread.state,
         entries: frame.data.messages.map(messageEntry),
         // The client refines this with the history limit it asked for.
@@ -178,10 +203,21 @@ export function applyFrame(state: ChatState, frame: CoreFrame): ChatState {
     case 'audio.end':
     case 'audio.stop':
       return state
-    // Phase 5 thread-list frames. P5-F1 keeps the thread list from them; the open conversation doesn't change.
-    case 'thread.updated':
-    case 'thread.removed':
-      return state
+    case 'thread.updated': {
+      const updated = frame.data.thread
+      const threads = upsertThread(state.threads, updated)
+      // New participants of the open thread: keep the turn state and the conversation.
+      if (isCurrent(state, updated.id)) return { ...state, threads, thread: updated }
+      return { ...state, threads }
+    }
+    case 'thread.removed': {
+      const { threadId } = frame.data
+      const threads = state.threads.filter((t) => t.id !== threadId)
+      // The person left the open thread: the core sends no more of its frames. The chat client
+      // opens the main thread next.
+      if (isCurrent(state, threadId)) return { ...closeThread(state), threads }
+      return threads.length === state.threads.length ? state : { ...state, threads }
+    }
   }
 }
 
@@ -205,6 +241,7 @@ export function applyLocal(state: ChatState, action: LocalAction): ChatState {
           cancelled: false,
           local: true,
           ui: [],
+          ...(state.person ? { authorPersonId: state.person.id } : {}),
         },
       )
     }
@@ -221,6 +258,62 @@ export function applyLocal(state: ChatState, action: LocalAction): ChatState {
         history: { hasMore: action.hasMore, loading: false },
       }
     }
+    case 'threads':
+      return { ...state, threads: sortThreads(action.threads) }
+    case 'thread.closed':
+      return closeThread(state)
+  }
+}
+
+/** What an author without a known name is called (an id in neither participant list). */
+export const UNKNOWN_AUTHOR = 'Someone'
+
+/**
+ * Phase 5: the name of a message's author, resolved against the open thread's participants, then
+ * its former participants, then the signed-in person. `null` for the Mind (an assistant message,
+ * or `authorPersonId: null`). An id nobody in the thread has gives `Someone`.
+ */
+export function authorName(
+  state: ChatState,
+  message: Pick<MessageEntry, 'role' | 'authorPersonId'>,
+): string | null {
+  const id = message.authorPersonId
+  if (id === null) return null
+  // An entry without an author id: an assistant row is the Mind, a user row is this node's person.
+  if (id === undefined) return message.role === 'assistant' ? null : (state.person?.name ?? UNKNOWN_AUTHOR)
+  const thread = state.thread
+  const known =
+    thread?.participants.find((p) => p.id === id) ??
+    thread?.formerParticipants?.find((p) => p.id === id) ??
+    (state.person?.id === id ? state.person : undefined)
+  return known?.name ?? UNKNOWN_AUTHOR
+}
+
+/**
+ * Phase 5: the names of the people whose relays a message carries (`meta.relayFrom`), in delivery
+ * order. Empty when it carries none. Takes an entry or a `MessageDto`.
+ */
+export function relayFrom(message: MessageEntry | MessageDto): string[] {
+  const senders = 'kind' in message ? message.relayFrom : message.meta?.relayFrom
+  return (senders ?? []).map((s) => s.name)
+}
+
+/** Most recently updated first; ties by id, so the order is stable. */
+function sortThreads(threads: ThreadDto[]): ThreadDto[] {
+  return [...threads].sort((a, b) => b.updatedAt - a.updatedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+}
+
+function upsertThread(threads: ThreadDto[], thread: ThreadDto): ThreadDto[] {
+  return sortThreads([...threads.filter((t) => t.id !== thread.id), thread])
+}
+
+function closeThread(state: ChatState): ChatState {
+  return {
+    ...state,
+    thread: null,
+    turnState: 'idle',
+    entries: [],
+    history: { hasMore: false, loading: false },
   }
 }
 
@@ -258,6 +351,7 @@ function assistantEntry(id: string, text: string, proactive: boolean): MessageEn
     cancelled: false,
     local: false,
     ui: [],
+    authorPersonId: null,
   }
 }
 
@@ -273,6 +367,8 @@ function messageEntry(message: MessageDto): MessageEntry {
     cancelled: message.meta?.cancelled ?? false,
     local: false,
     ui: (message.ui ?? []).map((block) => ({ block, fallbackText: uiBlockToText(block) })),
+    authorPersonId: message.authorPersonId,
+    ...(message.meta?.relayFrom?.length ? { relayFrom: message.meta.relayFrom } : {}),
   }
 }
 
