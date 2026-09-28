@@ -1,4 +1,5 @@
-import type { ChatState, SendResult } from '@keith/client'
+import type { ChatState, OpenThreadResult, SendResult } from '@keith/client'
+import type { ThreadId } from '@keith/protocol'
 import {
   BoxRenderable,
   bold,
@@ -12,11 +13,21 @@ import {
   type TextChunk,
   TextRenderable,
 } from '@opentui/core'
-import { entryViews, historyLine, type Segment, statusLine } from './view.ts'
+import {
+  entryViews,
+  historyLine,
+  parseCommand,
+  type Segment,
+  statusLine,
+  threadList,
+  threadListLines,
+} from './view.ts'
 
 /**
  * The conversation screen, drawn with OpenTUI's core renderables (ADR-0010). It holds no
  * protocol logic: it renders `ChatState` through `view.ts` and forwards keys to `ChatActions`.
+ * Phase 5: `/threads` shows the numbered thread list above the input (live, it follows the
+ * state), and `/open <n>` switches to thread n.
  */
 
 export type ChatActions = {
@@ -24,6 +35,8 @@ export type ChatActions = {
   cancel(): boolean
   /** Loads the page of history before the oldest shown message (`ChatClient.loadOlder`). */
   loadOlder(): void
+  /** Phase 5: switches the open thread (`ChatClient.openThread`). */
+  openThread(threadId: ThreadId): OpenThreadResult
   quit(): void
 }
 
@@ -32,10 +45,13 @@ export type ChatScreen = {
   readonly input: TextareaRenderable
   /** The conversation log (exposed for tests: `scrollTop`, `scrollHeight`). */
   readonly log: ScrollBoxRenderable
+  /** Phase 5: the `/threads` list (exposed for tests: `visible`). */
+  readonly threads: TextRenderable
   destroy(): void
 }
 
-export const HINT = 'Enter send · Ctrl+J newline · PgUp/PgDn scroll · Esc cancel · Ctrl+C quit'
+export const HINT = 'Enter send · Ctrl+J newline · PgUp/PgDn scroll · Esc cancel · /threads · Ctrl+C quit'
+export const OPEN_USAGE = 'usage: /open <n>, with n from /threads'
 
 const COLORS = {
   user: '#8ab4f8',
@@ -45,6 +61,7 @@ const COLORS = {
   warn: '#fdd663',
   error: '#f28b82',
   info: '#81c995',
+  author: '#fcad70',
 } as const
 
 function chunk(segment: Segment): TextChunk {
@@ -57,6 +74,8 @@ function chunk(segment: Segment): TextChunk {
       return bold(fg(COLORS.proactive)(segment.text))
     case 'prefix':
       return fg(COLORS.prefix)(segment.text)
+    case 'author':
+      return bold(fg(COLORS.author)(segment.text))
     case 'tool':
     case 'muted':
       return dim(segment.text)
@@ -96,6 +115,11 @@ export function mountChat(renderer: CliRenderer, actions: ChatActions): ChatScre
       { name: 'linefeed', action: 'newline' },
     ],
     onSubmit: () => {
+      const command = parseCommand(input.plainText)
+      if (command) {
+        runCommand(command)
+        return
+      }
       const result = actions.send(input.plainText)
       if (result.ok) {
         input.setText('')
@@ -109,9 +133,46 @@ export function mountChat(renderer: CliRenderer, actions: ChatActions): ChatScre
   })
   const hint = new TextRenderable(renderer, { id: 'hint', content: HINT, height: 1, fg: COLORS.prefix })
 
+  const threads = new TextRenderable(renderer, {
+    id: 'threads',
+    content: '',
+    flexShrink: 0,
+    fg: COLORS.assistant,
+    visible: false,
+  })
+
+  const showThreads = (visible: boolean) => {
+    threads.visible = visible
+    if (visible && current) threads.content = threadListLines(current).join('\n')
+  }
+
+  const runCommand = (command: NonNullable<ReturnType<typeof parseCommand>>) => {
+    if (command.kind === 'threads') {
+      showThreads(true)
+      input.setText('')
+      hint.content = HINT
+      return
+    }
+    const item =
+      current && command.n !== null ? threadList(current).find((i) => i.n === command.n) : undefined
+    if (!item) {
+      hint.content = command.n === null ? OPEN_USAGE : `no thread ${command.n}: /threads lists them`
+      return
+    }
+    const result = actions.openThread(item.thread.id)
+    if (result.ok) {
+      input.setText('')
+      hint.content = HINT
+      showThreads(false)
+    } else {
+      hint.content = result.reason === 'offline' ? 'not connected: try again when online' : OPEN_USAGE
+    }
+  }
+
   inputBox.add(input)
   layout.add(status)
   layout.add(log)
+  layout.add(threads)
   layout.add(inputBox)
   layout.add(hint)
   renderer.root.add(layout)
@@ -207,7 +268,9 @@ export function mountChat(renderer: CliRenderer, actions: ChatActions): ChatScre
     }
     if (key.name === 'escape') {
       key.preventDefault()
-      actions.cancel()
+      // Esc hides the thread list first; with no list shown it cancels the turn.
+      if (threads.visible) showThreads(false)
+      else actions.cancel()
       return
     }
     if (key.name === 'pageup') {
@@ -227,10 +290,12 @@ export function mountChat(renderer: CliRenderer, actions: ChatActions): ChatScre
   return {
     input,
     log,
+    threads,
     update(state) {
       if (destroyed) return
       current = state
       status.content = statusLine(state)
+      if (threads.visible) showThreads(true)
       historyText.content = historyLine(state)
       renderEntries(state)
     },

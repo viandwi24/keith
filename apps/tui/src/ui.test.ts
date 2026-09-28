@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { createChatClient, login } from '@keith/client'
-import { type FakeCoreOptions, startFakeCore, waitUntil } from '@keith/client/testing'
+import { type FakeCoreOptions, fakeId, startFakeCore, waitUntil } from '@keith/client/testing'
+import type { PersonDto } from '@keith/protocol'
 import { createTestRenderer, type TestRendererSetup } from '@opentui/core/testing'
-import { promptLogin } from './login-screen.ts'
-import { mountChat } from './ui.ts'
+import { PASSWORD_TOO_SHORT, PASSWORDS_DIFFER, promptLogin } from './login-screen.ts'
+import { mountChat, OPEN_USAGE } from './ui.ts'
 
 const cleanups: (() => Promise<void> | void)[] = []
 afterEach(async () => {
@@ -39,6 +40,7 @@ async function chat(opts: FakeCoreOptions = {}, paging: { historyLimit?: number;
       loadOlderCalls += 1
       void client.loadOlder()
     },
+    openThread: (threadId) => client.openThread(threadId),
     quit: () => {
       quits += 1
     },
@@ -70,7 +72,7 @@ describe('chat screen', () => {
     const frame = await setup.waitForFrame((f) => f.includes('You said: hello keith') && !f.includes('▍'))
     expect(frame).toContain('You    hello keith')
     expect(frame).toContain('Keith  You said: hello keith')
-    expect(frame).toContain('keith · Tony · main · online')
+    expect(frame).toContain('keith · Tony · Main · online')
   })
 
   test('Ctrl+J inserts a newline instead of sending', async () => {
@@ -108,6 +110,105 @@ describe('chat screen', () => {
     await core.stop()
     const frame = await setup.waitForFrame((f) => f.includes('offline, reconnecting'))
     expect(frame).toContain('attempt 1')
+  })
+})
+
+const pepper: PersonDto = { id: fakeId('per', 901), name: 'Pepper', tier: 'member' }
+const rhodey: PersonDto = { id: fakeId('per', 902), name: 'Rhodey', tier: 'member' }
+
+async function submit(setup: TestRendererSetup, text: string) {
+  await setup.mockInput.typeText(text)
+  setup.mockInput.pressEnter()
+}
+
+describe('threads (phase 5)', () => {
+  test('/threads lists the threads numbered, /open 2 opens the group', async () => {
+    const { core, client, screen, setup } = await chat()
+    const group = core.addGroup({
+      title: 'Mission',
+      others: [pepper, rhodey],
+      messages: [{ content: 'Suits are ready.', authorPersonId: pepper.id }],
+    })
+    await waitUntil(() => client.state.threads.length === 2, 3000, 'thread list')
+    await submit(setup, '/threads')
+    const list = await setup.waitForFrame((f) => f.includes('2  Mission · Pepper, Rhodey'))
+    expect(list).toContain('• 1  Main')
+    expect(screen.threads.visible).toBe(true)
+    expect(screen.input.plainText).toBe('')
+    // A command is not a message for Keith.
+    expect(core.received.some((f) => f.type === 'input.text')).toBe(false)
+
+    await submit(setup, '/open 2')
+    await waitUntil(() => client.state.thread?.id === group.id, 3000, 'group open')
+    const frame = await setup.waitForFrame((f) => f.includes('Pepper: Suits are ready.'))
+    expect(frame).toContain('keith · Tony · Mission · Pepper, Rhodey · online')
+    expect(screen.threads.visible).toBe(false)
+    expect(core.openThreads()).toEqual([group.id])
+  })
+
+  test('/open with a bad number keeps the draft and says why', async () => {
+    const { client, screen, setup } = await chat()
+    await waitUntil(() => client.state.threads.length === 1, 3000, 'thread list')
+    await submit(setup, '/open 7')
+    await setup.waitForFrame((f) => f.includes('no thread 7'))
+    expect(screen.input.plainText).toBe('/open 7')
+    screen.input.setText('')
+    await submit(setup, '/open')
+    expect(await setup.waitForFrame((f) => f.includes(OPEN_USAGE))).toContain(OPEN_USAGE)
+  })
+
+  test('the list follows thread.updated and Esc hides it', async () => {
+    const { core, client, screen, setup } = await chat()
+    await waitUntil(() => client.state.threads.length === 1, 3000, 'thread list')
+    await submit(setup, '/threads')
+    await setup.waitForFrame((f) => f.includes('1  Main'))
+    const group = core.addGroup({ title: 'Mission', others: [pepper] })
+    await setup.waitForFrame((f) => f.includes('2  Mission · Pepper'))
+    core.pushThreadUpdated({ ...group, participants: [...group.participants, rhodey] })
+    await setup.waitForFrame((f) => f.includes('2  Mission · Pepper, Rhodey'))
+    setup.mockInput.pressEscape()
+    await waitUntil(() => !screen.threads.visible, 3000, 'list hidden')
+    // Esc hid the list: it did not cancel anything.
+    expect(core.received.some((f) => f.type === 'input.cancel')).toBe(false)
+  })
+
+  test('a pushed thread.removed of the open group returns to Main with the notice', async () => {
+    const { core, client, setup } = await chat()
+    const group = core.addGroup({ title: 'Mission', others: [pepper] })
+    await waitUntil(() => client.state.threads.length === 2, 3000, 'thread list')
+    await submit(setup, '/open 2')
+    await setup.waitForFrame((f) => f.includes('· Mission · Pepper ·'))
+    core.pushThreadRemoved(group.id)
+    const frame = await setup.waitForFrame((f) => f.includes('You are no longer in Mission.'))
+    expect(frame).toContain('keith · Tony · Main · online')
+    expect(client.state.thread?.id).toBe(core.thread.id)
+    await submit(setup, '/threads')
+    const list = await setup.waitForFrame((f) => f.includes('1  Main'))
+    expect(list).not.toContain('2  Mission')
+  })
+
+  test('group lines show their author, and relay lines show (via Tony)', async () => {
+    const { core, client, setup } = await chat()
+    core.addGroup({
+      title: 'Mission',
+      others: [pepper],
+      messages: [
+        { content: 'Who has the keys?', authorPersonId: pepper.id },
+        { content: 'I do.', authorPersonId: core.person.id },
+      ],
+    })
+    await waitUntil(() => client.state.threads.length === 2, 3000, 'thread list')
+    await submit(setup, '/open 2')
+    const frame = await setup.waitForFrame((f) => f.includes('Pepper: Who has the keys?'))
+    expect(frame).toContain('You    I do.')
+
+    await submit(setup, '/open 1')
+    await waitUntil(() => client.state.thread?.id === core.thread.id, 3000, 'main open')
+    await core.pushProactive('The meeting moved to 3pm.', {
+      relayFrom: [{ personId: fakeId('per', 903), name: 'Tony' }],
+    })
+    const relay = await setup.waitForFrame((f) => f.includes('3pm.') && !f.includes('▍'))
+    expect(relay).toContain('Keith ▸ (via Tony) The meeting moved to 3pm.')
   })
 })
 
@@ -173,6 +274,29 @@ describe('login screen', () => {
     expect(frame).not.toContain('jarvis')
     setup.mockInput.pressEnter()
     expect(await result).toEqual({ username: 'tony', password: 'jarvis' })
+  })
+
+  test('sign-up asks for the password twice and checks it', async () => {
+    const setup = await renderer()
+    const result = promptLogin(setup.renderer, { url: 'http://127.0.0.1:4824', signUp: true })
+    await setup.waitForFrame((f) => f.includes('sign up with your invite') && f.includes('repeat'))
+    await setup.mockInput.typeText('pepper')
+    setup.mockInput.pressEnter()
+    await setup.mockInput.typeText('short')
+    setup.mockInput.pressEnter()
+    await setup.waitForFrame((f) => f.includes(PASSWORD_TOO_SHORT))
+    await setup.mockInput.typeText('-enough')
+    setup.mockInput.pressEnter()
+    await setup.mockInput.typeText('something else')
+    setup.mockInput.pressEnter()
+    await setup.waitForFrame((f) => f.includes(PASSWORDS_DIFFER))
+    await setup.mockInput.typeText('potts-1234')
+    setup.mockInput.pressEnter()
+    await setup.mockInput.typeText('potts-1234')
+    const frame = await setup.waitForFrame((f) => f.includes('••••••••••▏'))
+    expect(frame).not.toContain('potts')
+    setup.mockInput.pressEnter()
+    expect(await result).toEqual({ username: 'pepper', password: 'potts-1234' })
   })
 
   test('Ctrl+C cancels', async () => {

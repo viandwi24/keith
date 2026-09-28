@@ -16,33 +16,50 @@ import { mountChat } from './ui.ts'
 
 export const CLIENT_INFO = { name: 'keith-tui', version: '0.0.0' }
 
-export const USAGE = `usage: keith-tui [--url http://127.0.0.1:${DEFAULT_PORT}] | --logout
+export const USAGE = `usage: keith-tui [--url http://127.0.0.1:${DEFAULT_PORT}] [--invite <code>] | --logout
 
-  --url <url>   core address (default: the last used one, else http://127.0.0.1:${DEFAULT_PORT})
-  --logout      sign out: revoke the stored token on its core and delete it locally
-  --help        show this help`
+  --url <url>       core address (default: the last used one, else http://127.0.0.1:${DEFAULT_PORT})
+  --invite <code>   sign up with the invite code from \`keith person add\` (choose a username and a password)
+  --logout          sign out: revoke the stored token on its core and delete it locally
+  --help            show this help
 
-export type CliArgs = { url: string | undefined; help: boolean; logout: boolean }
+In the chat: /threads lists your threads, /open <n> switches to one.`
+
+export type CliArgs = { url: string | undefined; invite: string | undefined; help: boolean; logout: boolean }
 
 export function parseArgs(argv: readonly string[]): CliArgs {
-  const args: CliArgs = { url: undefined, help: false, logout: false }
+  const args: CliArgs = { url: undefined, invite: undefined, help: false, logout: false }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] ?? ''
     if (arg === '--help' || arg === '-h') args.help = true
     else if (arg === '--logout') args.logout = true
-    else if (arg === '--url') {
+    else if (arg === '--url' || arg === '--invite') {
       const value = argv[i + 1]
-      if (value === undefined) throw new TuiError('INVALID_ARGS', '--url needs a value')
-      args.url = value
+      if (value === undefined || value.startsWith('--'))
+        throw new TuiError('INVALID_ARGS', `${arg} needs a value`)
+      if (arg === '--url') args.url = value
+      else args.invite = value
       i++
     } else if (arg.startsWith('--url=')) args.url = arg.slice('--url='.length)
-    else throw new TuiError('INVALID_ARGS', `unknown argument '${arg}'`)
+    else if (arg.startsWith('--invite=')) {
+      const value = arg.slice('--invite='.length)
+      if (value === '') throw new TuiError('INVALID_ARGS', '--invite needs a value')
+      args.invite = value
+    } else throw new TuiError('INVALID_ARGS', `unknown argument '${arg}'`)
+  }
+  if (args.invite !== undefined && args.logout) {
+    throw new TuiError('INVALID_ARGS', '--invite and --logout cannot be combined')
   }
   return args
 }
 
+export type MainDeps = {
+  /** Creates the terminal renderer. Tests pass OpenTUI's test renderer. */
+  createRenderer?: (() => Promise<CliRenderer>) | undefined
+}
+
 /** Runs the TUI. Returns the process exit code. */
-export async function main(argv: readonly string[], env: Env): Promise<number> {
+export async function main(argv: readonly string[], env: Env, deps: MainDeps = {}): Promise<number> {
   let args: CliArgs
   try {
     args = parseArgs(argv)
@@ -71,9 +88,19 @@ export async function main(argv: readonly string[], env: Env): Promise<number> {
   // The stored session is reused only for the same core and while it has not expired.
   const auth = createAuth({ baseUrl, store })
 
-  const renderer = await createCliRenderer({ exitOnCtrlC: false })
+  const renderer = await (deps.createRenderer ?? (() => createCliRenderer({ exitOnCtrlC: false })))()
+  let failure: string | undefined
   try {
-    let session = await auth.restore()
+    // `--invite`: sign up first (a stored session is replaced), then chat like after a login.
+    let session: StoredSession | null
+    try {
+      session = args.invite !== undefined ? await signUp(renderer, auth, args.invite) : await auth.restore()
+    } catch (error) {
+      if (!(error instanceof ClientError) || error.code !== 'INVITE_INVALID') throw error
+      failure = error.message
+      return 1
+    }
+    if (args.invite !== undefined && !session) return 0
     let message: string | undefined
     for (;;) {
       if (!session) {
@@ -89,6 +116,29 @@ export async function main(argv: readonly string[], env: Env): Promise<number> {
     }
   } finally {
     renderer.destroy()
+    // Printed once the terminal is restored, so it stays on screen.
+    if (failure !== undefined) console.error(failure)
+  }
+}
+
+/**
+ * Phase 5: the sign-up form for `--invite`. A refused username (or any other error but an invalid
+ * code) shows the core's message and asks again. An invalid code throws `INVITE_INVALID`, which
+ * ends the TUI with exit code 1. Null when the user quits.
+ */
+async function signUp(renderer: CliRenderer, auth: Auth, code: string): Promise<StoredSession | null> {
+  let message: string | undefined
+  let username: string | undefined
+  for (;;) {
+    const creds = await promptLogin(renderer, { url: auth.baseUrl, username, message, signUp: true })
+    if (!creds) return null
+    try {
+      return await auth.acceptInvite({ code, ...creds })
+    } catch (error) {
+      if (!(error instanceof ClientError) || error.code === 'INVITE_INVALID') throw error
+      message = error.message
+      username = creds.username
+    }
   }
 }
 
@@ -152,6 +202,7 @@ function runChat(
         // Failures become a notice in the log (`ChatClient.loadOlder`).
         void client.loadOlder()
       },
+      openThread: (threadId) => client.openThread(threadId),
       quit: () => finish('quit'),
     })
     client.start()
