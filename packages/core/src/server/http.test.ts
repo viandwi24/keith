@@ -215,6 +215,55 @@ describe('threads and messages', () => {
     await expectError(await get('/v1/threads'), 401, 'UNAUTHORIZED')
   })
 
+  test('phase 5: a group carries purpose and formerParticipants, a direct thread neither', async () => {
+    await seed()
+    const happy = personId(3)
+    const password = OWNER_PASSWORD
+    await t.repos.persons.create({
+      id: happy,
+      name: 'Happy',
+      username: 'happy',
+      passwordHash: await Bun.password.hash(password),
+      tier: 'guest',
+      lastSeenAt: null,
+      createdAt: 0,
+    })
+    await t.repos.threads.create(
+      {
+        id: threadId(4),
+        kind: 'group',
+        slug: null,
+        title: 'Expo',
+        ownerPersonId: t.owner.id,
+        summary: null,
+        purpose: 'Plan the Expo launch.',
+        createdAt: 0,
+        updatedAt: 40,
+      },
+      [t.owner.id, personId(2), happy],
+    )
+    await t.repos.threads.removeParticipant(threadId(4), happy, 41)
+    const token = await login(t)
+    const body = ThreadsResponse.parse(await (await get('/v1/threads', token)).json())
+    const byId = new Map(body.threads.map((th) => [th.id, th]))
+    const expo = byId.get(threadId(4))
+    expect(expo?.purpose).toBe('Plan the Expo launch.')
+    expect(expo?.participants.map((p) => p.name)).toEqual(['Tony', 'Pepper'])
+    expect(expo?.formerParticipants).toEqual([{ id: happy, name: 'Happy', tier: 'guest' }])
+    // A group without a purpose, and without anyone who left.
+    expect(byId.get(threadId(2))).not.toHaveProperty('purpose')
+    expect(byId.get(threadId(2))?.formerParticipants).toEqual([])
+    // A direct thread has neither field.
+    expect(byId.get(threadId(1))).not.toHaveProperty('purpose')
+    expect(byId.get(threadId(1))).not.toHaveProperty('formerParticipants')
+
+    // ADR-0017: the former participant no longer sees the group, and its history is 404.
+    const theirs = await login(t, 'happy', password)
+    const list = ThreadsResponse.parse(await (await get('/v1/threads', theirs)).json())
+    expect(list.threads.map((th) => th.id)).not.toContain(threadId(4))
+    await expectError(await get(`/v1/threads/${threadId(4)}/messages`, theirs), 404, 'NOT_FOUND')
+  })
+
   test('GET /v1/threads/:id/messages pages user and assistant messages, oldest first', async () => {
     await seed()
     const token = await login(t)

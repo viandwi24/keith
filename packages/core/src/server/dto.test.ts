@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { MessageDto } from '@keith/protocol'
-import type { AssistantMessageRecord } from '../storage/types.ts'
-import { toMessageDto } from './dto.ts'
+import { MessageDto, ThreadDto } from '@keith/protocol'
+import type { AssistantMessageRecord, ThreadRecord } from '../storage/types.ts'
+import { toMessageDto, toThreadDto } from './dto.ts'
 
 const assistant: AssistantMessageRecord = {
   id: 'msg_01J8ZQ3K4M5N6P7Q8R9S0T1V33',
@@ -30,5 +30,37 @@ describe('toMessageDto (phase 5)', () => {
 
   test('a message without relays has no relayFrom', () => {
     expect(toMessageDto({ ...assistant, meta: { proactive: true } })?.meta).toEqual({ proactive: true })
+  })
+})
+
+describe('toThreadDto (phase 5)', () => {
+  const tony = { id: 'per_01J8ZQ3K4M5N6P7Q8R9S0T1V2Z', name: 'Tony', tier: 'owner' } as const
+  const happy = { id: 'per_01J8ZQ3K4M5N6P7Q8R9S0T1V30', name: 'Happy', tier: 'guest' } as const
+  const record: ThreadRecord = {
+    id: 'thr_01J8ZQ3K4M5N6P7Q8R9S0T1V31',
+    kind: 'group',
+    slug: null,
+    title: 'Expo',
+    ownerPersonId: null,
+    summary: null,
+    purpose: 'Plan the Expo launch.',
+    createdAt: 0,
+    updatedAt: 5,
+  }
+
+  test('a group carries its purpose and former participants', () => {
+    const dto = toThreadDto(record, [tony], 'idle', [happy])
+    expect(dto).toMatchObject({ purpose: 'Plan the Expo launch.', formerParticipants: [happy] })
+    expect(ThreadDto.safeParse(dto).success).toBe(true)
+    const plain = toThreadDto({ ...record, purpose: null }, [tony], 'idle')
+    expect(plain).not.toHaveProperty('purpose')
+    expect(plain.formerParticipants).toEqual([])
+  })
+
+  test('a direct thread has neither field', () => {
+    const direct: ThreadRecord = { ...record, kind: 'direct', slug: 'main', purpose: null }
+    const dto = toThreadDto(direct, [tony], 'idle', [happy])
+    expect(dto).not.toHaveProperty('purpose')
+    expect(dto).not.toHaveProperty('formerParticipants')
   })
 })

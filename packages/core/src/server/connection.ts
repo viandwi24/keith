@@ -172,6 +172,7 @@ export function openConnection(
           sendBinary: (bytes) => socket.sendBinary(bytes),
         },
         frame.data.capabilities,
+        person.id,
       )
       nodeId = id
       capabilities = frame.data.capabilities
@@ -197,6 +198,7 @@ export function openConnection(
       socket.sendText(JSON.stringify(welcome))
       deps.presence.remember(person.id, session.person.lastSeenAt)
       phase = 'ready'
+      deps.attachments.markReady(id)
       sendNotices()
       deps.events.emit('node.connected', {
         nodeId: id,

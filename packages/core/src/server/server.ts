@@ -16,6 +16,7 @@ import { createFilesApi } from './files.ts'
 import { createHttpApi, errorResponse, sessionOf } from './http-api.ts'
 import { createPluginHttp, createPluginWs } from './plugin-routes.ts'
 import type { ServerPresence } from './presence.ts'
+import { subscribeThreadListFrames } from './thread-list.ts'
 import type { CoreServer } from './types.ts'
 
 export type CoreServerDeps = {
@@ -24,7 +25,10 @@ export type CoreServerDeps = {
   clock: Clock
   ids: Ids
   events: CoreEventBus
-  repos: Pick<Repositories, 'persons' | 'authTokens' | 'nodes' | 'threads' | 'messages' | 'files'>
+  repos: Pick<
+    Repositories,
+    'persons' | 'authTokens' | 'inviteLinks' | 'nodes' | 'threads' | 'messages' | 'files'
+  >
   threads: ThreadManager
   attachments: ServerAttachmentRegistry
   presence: ServerPresence
@@ -96,6 +100,17 @@ export function createCoreServer(deps: CoreServerDeps): CoreServer {
     server: { name: 'keith', version: deps.version },
     nextFrameId: () => `c${(++frameSeq).toString(36)}`,
   }
+  // Phase 5: membership changes keep every node's thread list live.
+  subscribeThreadListFrames({
+    log: deps.log,
+    clock: deps.clock,
+    events: deps.events,
+    repos: deps.repos,
+    threads: deps.threads,
+    attachments: deps.attachments,
+    presence: deps.presence,
+    nextFrameId: connectionDeps.nextFrameId,
+  })
   const sockets = new Set<ServerWebSocket<WsData>>()
   let server: Server<WsData> | null = null
 

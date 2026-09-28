@@ -8,8 +8,29 @@ export function toPersonDto(p: Pick<PersonRecord, 'id' | 'name' | 'tier'>): Pers
   return { id: p.id, name: p.name, tier: p.tier }
 }
 
-export function toThreadDto(t: ThreadRecord, participants: PersonDto[], state: TurnState): ThreadDto {
-  return { id: t.id, kind: t.kind, title: t.title, participants, state, updatedAt: t.updatedAt }
+/**
+ * A group thread also gets `formerParticipants` (default none) and `purpose` when it has one. A
+ * direct thread gets neither (protocol.md#dtos).
+ */
+export function toThreadDto(
+  t: ThreadRecord,
+  participants: PersonDto[],
+  state: TurnState,
+  formerParticipants: PersonDto[] = [],
+): ThreadDto {
+  const dto: ThreadDto = {
+    id: t.id,
+    kind: t.kind,
+    title: t.title,
+    participants,
+    state,
+    updatedAt: t.updatedAt,
+  }
+  if (t.kind === 'group') {
+    if (t.purpose) dto.purpose = t.purpose
+    dto.formerParticipants = formerParticipants
+  }
+  return dto
 }
 
 /** Null for `tool` messages, which never reach nodes. */

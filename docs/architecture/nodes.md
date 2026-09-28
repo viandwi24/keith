@@ -91,20 +91,23 @@ Frames from one node, text and binary, are handled in order, so a chunk never ov
 
 ## Adding people
 
-> Planned (phase 5, P5-N1): accepting a link (`POST /v1/auth/invite`, the fourth bullet). The `keith person` commands are built. Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md).
+Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md).
 
 - The owner adds a member or a guest on the host with `keith person add <name> [--tier member|guest]` ([config.md](config.md#keith-person)). It creates the person without a username or password, their relationship card and their main thread, and prints an **invite link**, `<publicUrl>/#invite=<code>`, plus `keith-tui --url <publicUrl> --invite <code>`. Only the owner makes invite links.
 - The code is 32 random bytes, base64url (43 characters). Only its SHA-256 hash is stored (`invite_links`), like auth tokens. A link works once and expires after `auth.inviteTtlHours` (default 72). A new link for a person (`keith person invite`) revokes their older unused ones; it doubles as a password reset.
 - The code sits in the URL fragment, so it never reaches a server log. The web app reads `#invite=<code>`, removes it from the address bar, and asks for a username and a password (twice). The TUI takes `--invite <code>`.
-- The node sends `POST /v1/auth/invite { code, username, password }` ([protocol.md](../contracts/protocol.md#invite-links)). The server hashes the code and checks the link: a missing, used or expired link is `401 UNAUTHORIZED`, one answer for all three, and an unknown code still runs one password hash. A username taken by someone else is `400 INVALID_REQUEST`, and the link stays unused. Otherwise it marks the link used (a conditional update, so two requests with one code can't both win), sets the username and password hash, deletes the person's existing auth tokens (old sessions end), and answers `LoginResponse` like a login.
+- The node sends `POST /v1/auth/invite { code, username, password }` ([protocol.md](../contracts/protocol.md#invite-links)). The server (`server/auth.ts`, `acceptInvite`):
+  1. hashes the password first, so an unknown code costs as long as a right one;
+  2. hashes the code (SHA-256 hex of the UTF-8 code, the same helper as auth tokens) and checks the link: a missing, used or expired link, or one whose person is gone, is `401 UNAUTHORIZED`, one answer for all of them;
+  3. trims the username (the `keith setup` rule: not empty). A username another person has is `400 INVALID_REQUEST` ("username taken"), and the link stays unused. The person's own username may be kept or changed (a password reset);
+  4. marks the link used (a conditional update, so of two requests with one code exactly one gets further; the other is `401`), sets the username and password hash, deletes the person's existing auth tokens (old sessions end), and answers `LoginResponse` like a login.
 - `keith person add`, `list`, `invite`, `tier`, `card`, `block` and `unblock` don't take the home lock, so they change the database while Keith runs; the core reads tiers and cards on the next turn. `keith person remove` needs Keith stopped ([ADR-0018](../decisions/0018-deleting-a-person.md)).
 
 ## Thread list (phase 5)
 
-> Planned (phase 5, P5-N1): the server side below.
-
 - `GET /v1/threads` lists every thread the person is a current participant of, groups included. A group's `ThreadDto` carries `purpose` and `formerParticipants`.
-- The server subscribes to `thread.participant_joined` and `thread.participant_left`. On a join it sends `thread.updated { thread }` to every connected attended node of every current participant (`AttachmentRegistry.nodesOfPerson`), whether or not the node has the thread open. On a leave it sends `thread.updated` to the remaining participants' nodes and `thread.removed { threadId }` to the leaver's nodes, and detaches the leaver's nodes from the thread, so they get no more of its frames.
+- The server subscribes to `thread.participant_joined` and `thread.participant_left` (`server/thread-list.ts`). On a join it sends `thread.updated { thread }` to every connected attended node of every current participant (`AttachmentRegistry.nodesOfPerson`), whether or not the node has the thread open. On a leave it sends `thread.updated` to the remaining participants' nodes and `thread.removed { threadId }` to the leaver's nodes, and detaches the leaver's nodes from the thread (registry and thread manager), so they get no more of its frames. A leaver's node with no other thread open counts as detached for presence, as after `thread.close`.
+- The registry learns a node's person in `connect` and lists the node in `nodesOfPerson` only once it has got `welcome`, so no thread-list frame overtakes the `welcome`. Neither frame is a chat frame: a node without `chat.text@1` gets both.
 - Access doesn't change: `thread.open` and `GET /v1/threads/:id/messages` are for current participants only. A former participant gets `FORBIDDEN` / `404` like anyone else.
 
 ## Focus and presence
