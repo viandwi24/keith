@@ -4,7 +4,7 @@ title: "Relay: relay.send with I-13 checks, relay.block and relay.unblock"
 phase: 5
 wave: 2
 lane: B
-status: review
+status: done
 owner: agent-P5-B1
 depends: [P5-K1]
 owns:
