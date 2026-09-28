@@ -4,7 +4,7 @@ title: "TUI: switch threads, show authors and relay marks, sign up with --invite
 phase: 5
 wave: 3
 lane: F
-status: review
+status: done
 owner: agent-P5-F3
 depends: [P5-F1]
 owns:
