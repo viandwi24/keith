@@ -13,6 +13,7 @@ Internal event bus (in-process). Not the wire protocol. Types live in `@keith/sd
 - Plugins emit only in their own namespace and should `ctx.events.define(name, schema)` their events.
 - Ids in payloads are the typed prefixed ids from `@keith/protocol` (`PersonId`, `ThreadId`, …). `error` fields carry an error message; `turn.failed.code` is a `KeithErrorCode`. `delivery.enqueued.kind` is a delivery kind from [core.md](../architecture/core.md#deliveries) (`task_result`, `task_failed`, `plugin`, `reminder`, `relay`, `invitation`).
 - Phase 4 adds `memory.reflected` and `thread.summarized` (additive). There are no `reminder.*` events: a fired reminder is a `delivery.enqueued` with `kind: 'reminder'`.
+- Phase 5 adds `thread.participant_joined` and `thread.participant_left` (additive, task P5-K1). There are no `relay.*` events: a relay is a `delivery.enqueued` with `kind: 'relay'`. There are no `person.*` events for people management: `keith person` runs in the CLI process, outside the bus, and the running core reads tiers and cards from the database on every turn.
 - In code: `CoreEventMap` (types), `CORE_EVENT_NAMES` (runtime list, checked against this table by a test), `CORE_EVENT_NAMESPACES`, `EVENT_NAME_PATTERN`.
 
 ## Core events
@@ -46,6 +47,8 @@ Internal event bus (in-process). Not the wire protocol. Types live in `@keith/sd
 | `scheduler.ticked` | `{ at }` | Every `scheduler.tickMs` | 1 |
 | `memory.reflected` | `{ threadId, throughSeq: number, written: number, merged: number, cardsUpdated: number }` | A reflection pass over a thread finished, also when it wrote nothing. `throughSeq` is the new reflection cursor; the counts are memories written, memories merged and relationship cards updated | 4 |
 | `thread.summarized` | `{ threadId, throughSeq: number }` | `threads.summary` changed; it now covers the thread's messages up to `throughSeq` | 4 |
+| `thread.participant_joined` | `{ threadId, personId, invitedBy: string \| null }` | A person became a current participant of a group thread: its creator at creation (`invitedBy` null), or an invitee who joined. Emitted after the storage write | 5 |
+| `thread.participant_left` | `{ threadId, personId }` | A current participant left a group thread. Emitted after the storage write. Declining an invitation emits nothing | 5 |
 
 ## Delivery semantics
 

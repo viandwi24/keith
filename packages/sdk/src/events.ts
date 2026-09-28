@@ -14,7 +14,7 @@ import type { ZodType } from 'zod'
 import type { DeliveryKind, TurnKind, Urgency, Visibility } from './common.ts'
 
 /**
- * Core events (phase 1, plus the phase-4 additions). See docs/contracts/events.md. Every event is a past-tense fact; `data`
+ * Core events (phase 1, plus the phase-4 and phase-5 additions). See docs/contracts/events.md. Every event is a past-tense fact; `data`
  * is plain JSON.
  */
 export interface CoreEventMap {
@@ -64,6 +64,13 @@ export interface CoreEventMap {
   }
   /** Phase 4: `threads.summary` changed; it now covers the thread's messages up to `throughSeq`. */
   'thread.summarized': { threadId: ThreadId; throughSeq: number }
+  /**
+   * Phase 5: a person became a current participant of a group thread. `invitedBy` is the inviter,
+   * or null for the group's creator.
+   */
+  'thread.participant_joined': { threadId: ThreadId; personId: PersonId; invitedBy: PersonId | null }
+  /** Phase 5: a current participant left a group thread. */
+  'thread.participant_left': { threadId: ThreadId; personId: PersonId }
 }
 
 /**
@@ -127,6 +134,8 @@ export const CORE_EVENT_NAMES = [
   'scheduler.ticked',
   'memory.reflected',
   'thread.summarized',
+  'thread.participant_joined',
+  'thread.participant_left',
 ] as const satisfies readonly (keyof CoreEventMap)[]
 
 // Compile-time check that CORE_EVENT_NAMES lists every key of CoreEventMap.
