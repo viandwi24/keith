@@ -69,7 +69,7 @@ export function entryViews(state: ChatState): EntryView[] {
  * author's name. Only group threads have other authors.
  */
 export function otherAuthor(state: ChatState | undefined, entry: MessageEntry): string | null {
-  if (!state || state.thread?.kind !== 'group') return null
+  if (state?.thread?.kind !== 'group') return null
   const id = entry.authorPersonId
   if (id === undefined || id === null || id === state.person?.id) return null
   return authorName(state, entry)
