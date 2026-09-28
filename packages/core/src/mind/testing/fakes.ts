@@ -53,6 +53,7 @@ import type {
   ThreadRecord,
 } from '../../storage/types.ts'
 import type { SpeechHandle, VoiceOutput } from '../../voice/types.ts'
+import type { AddressingDetector, AddressingVerdict } from '../types.ts'
 
 /** Deterministic ids: `<prefix>_000…<n>` (valid ULID bodies, increasing). */
 export function createFakeIds(): Ids {
@@ -653,4 +654,47 @@ export function createFakeVoiceOutput(): FakeVoiceOutput {
     },
   }
   return voice
+}
+
+export type AddressingCall = Parameters<AddressingDetector['decide']>[0]
+
+export type FakeAddressing = AddressingDetector & {
+  /** Every `decide` call, in order. */
+  readonly calls: AddressingCall[]
+  /** While true, each `decide` waits for `release()` (a slow `utility` classifier). Default false. */
+  gated: boolean
+  /** Releases every held `decide`. */
+  release(): void
+  /** Decisions held by `gated`. */
+  readonly waiting: number
+}
+
+/**
+ * A scripted `AddressingDetector` (P5-D1's interface). `verdictOf` answers each call; the default
+ * says addressed (`name`) when the text names Keith, else not addressed (`unsure`).
+ */
+export function createFakeAddressing(
+  verdictOf: (call: AddressingCall) => AddressingVerdict = (call) =>
+    /\bkeith\b/i.test(call.input.text) ? { addressed: true, by: 'name' } : { addressed: false, by: 'unsure' },
+): FakeAddressing {
+  const calls: AddressingCall[] = []
+  let held: (() => void)[] = []
+  const fake: FakeAddressing = {
+    calls,
+    gated: false,
+    get waiting() {
+      return held.length
+    },
+    release() {
+      const h = held
+      held = []
+      for (const r of h) r()
+    },
+    async decide(call) {
+      calls.push({ ...call, recent: [...call.recent], participantNames: [...call.participantNames] })
+      if (fake.gated) await new Promise<void>((resolve) => held.push(resolve))
+      return verdictOf(call)
+    },
+  }
+  return fake
 }

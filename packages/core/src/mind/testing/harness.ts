@@ -16,6 +16,7 @@ import type { VoiceOutput } from '../../voice/types.ts'
 import { createContextBuilder } from '../context-builder.ts'
 import { createRunLoop } from '../run-loop.ts'
 import { createThreadManager, type MindThreadManager } from '../thread-manager.ts'
+import type { AddressingDetector, RunLoopArgs } from '../types.ts'
 import {
   createFakeBus,
   createFakeCommitments,
@@ -39,6 +40,9 @@ export const PEPPER: PersonId = fixedId('per', 'PEPPER')
 export const LAPTOP: NodeId = fixedId('nod', 'A1')
 export const PHONE: NodeId = fixedId('nod', 'B2')
 export const PEPPER_PHONE: NodeId = fixedId('nod', 'C3')
+/** Phase 5: not created by default (`addPerson` in group tests). */
+export const RHODEY: PersonId = fixedId('per', 'RHODEY')
+export const RHODEY_PHONE: NodeId = fixedId('nod', 'D4')
 
 export type HarnessOptions = {
   script?: FakeLlmTurn[]
@@ -53,6 +57,8 @@ export type HarnessOptions = {
   voiceConfig?: KeithConfig['voice']
   /** Overrides the capabilities of the test nodes. */
   capabilities?: Partial<Record<NodeId, string[]>>
+  /** Phase 5: the Mind's AddressingDetector for group inputs. */
+  addressing?: AddressingDetector
 }
 
 export async function createHarness(opts: HarnessOptions = {}) {
@@ -133,6 +139,8 @@ export async function createHarness(opts: HarnessOptions = {}) {
     skills: createFakeSkills(opts.skills),
     tools,
   })
+  /** The `runCtx` of every turn the thread manager ran, in order. */
+  const runCtxs: RunLoopArgs['runCtx'][] = []
   const tm: MindThreadManager = createThreadManager({
     config,
     repos,
@@ -141,13 +149,17 @@ export async function createHarness(opts: HarnessOptions = {}) {
     scheduler,
     deliveries,
     context,
-    runLoop,
+    runLoop: (a) => {
+      runCtxs.push({ ...a.runCtx, participants: [...a.runCtx.participants] })
+      return runLoop(a)
+    },
     events: bus,
     ids,
     clock,
     log,
     tools,
     voice: opts.voice,
+    addressing: opts.addressing,
   })
 
   /** Attaches the node, marks the person present, and opens their main thread (like the server). */
@@ -173,7 +185,45 @@ export async function createHarness(opts: HarnessOptions = {}) {
     }
   }
 
+  /**
+   * Phase 5: creates a group thread (stored, like `GroupThreads.start` would) with these current
+   * participants and attaches each `[person, node]` pair (marking the person present).
+   */
+  const openGroup = async (
+    members: [PersonId, NodeId][],
+    opts: { title?: string; purpose?: string | null; owner?: PersonId } = {},
+  ) => {
+    const now = clock.now()
+    const first = members[0]
+    if (!first) throw new Error('a group needs a member')
+    const threadId = ids.next('thr')
+    await repos.threads.create(
+      {
+        id: threadId,
+        kind: 'group',
+        slug: null,
+        title: opts.title ?? 'Mission',
+        ownerPersonId: opts.owner ?? first[0],
+        summary: null,
+        purpose: opts.purpose ?? null,
+        createdAt: now,
+        updatedAt: now,
+      },
+      [...new Set(members.map(([p]) => p))],
+    )
+    let opened: Awaited<ReturnType<MindThreadManager['open']>> | null = null
+    for (const [personId, nodeId] of members) {
+      presence.set(personId, true)
+      opened = await tm.open({ personId, nodeId, threadId, arrival: null })
+      sink.attach(nodeId, threadId)
+    }
+    return { threadId, opened: opened as Awaited<ReturnType<MindThreadManager['open']>> }
+  }
+
   return {
+    addPerson,
+    openGroup,
+    runCtxs,
     clock,
     ids,
     log,
