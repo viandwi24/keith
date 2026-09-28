@@ -1,7 +1,6 @@
 // Built-in tools `relay.send`, `relay.block` and `relay.unblock` (reserved namespace `relay`,
 // phase 5). Registered through `tools.registerBuiltin()` when `BuiltinDeps.relay` is given.
-// Rules: ADR-0017; see docs/architecture/core.md#relays. The bodies are placeholders: P5-B1
-// implements them with these names, schemas, tiers and answers.
+// Rules: ADR-0017; see docs/architecture/core.md#relays.
 
 import { defineTool, type Tool, type ToolResult } from '@keith/sdk'
 import { z } from 'zod'
@@ -58,12 +57,14 @@ export const RelayUnblockInput = z.object({
   from: personName('Whose messages to accept again: their name or username.'),
 })
 
-function notImplemented(): ToolResult {
-  return { content: 'relay tools are not implemented yet (P5-B1).', error: true }
+function toolError(content: string): ToolResult {
+  return { content, error: true }
 }
 
-/** The `relay.*` built-ins, bound to a RelayService. */
-export function createRelayTools(_deps: RelayToolsDeps): Tool[] {
+/** The `relay.*` built-ins, bound to a RelayService. They act for `t.person` only. */
+export function createRelayTools(deps: RelayToolsDeps): Tool[] {
+  const { service, persons } = deps
+
   const send = defineTool({
     name: 'relay.send',
     description:
@@ -71,8 +72,20 @@ export function createRelayTools(_deps: RelayToolsDeps): Tool[] {
       'in their own conversation, and says who it is from.',
     input: RelaySendInput,
     minTier: 'guest',
-    async run() {
-      return notImplemented()
+    async run(input, t) {
+      const to = await persons.findByName(input.to)
+      if (!to) return toolError(RELAY_MESSAGES.unknown(input.to))
+      const result = await service.send({ fromPersonId: t.person.id, toPersonId: to.id, text: input.text })
+      if (result.ok) return { content: RELAY_MESSAGES.sent(to.name) }
+      switch (result.reason) {
+        case 'self':
+          return toolError(RELAY_MESSAGES.self)
+        case 'unknown_recipient':
+          return toolError(RELAY_MESSAGES.unknown(input.to))
+        case 'not_allowed':
+          // One answer for a tier refusal and a block (ADR-0017): never say which rule refused.
+          return toolError(RELAY_MESSAGES.notAllowed(to.name))
+      }
     },
   })
   const block = defineTool({
@@ -80,8 +93,14 @@ export function createRelayTools(_deps: RelayToolsDeps): Tool[] {
     description: 'Stop passing on messages from someone to the person you are talking to.',
     input: RelayBlockInput,
     minTier: 'guest',
-    async run() {
-      return notImplemented()
+    async run(input, t) {
+      const from = await persons.findByName(input.from)
+      if (!from) return toolError(RELAY_MESSAGES.unknown(input.from))
+      if (from.id === t.person.id) return toolError(RELAY_MESSAGES.blockSelf)
+      const changed = await service.block({ personId: t.person.id, from: from.id })
+      return {
+        content: changed ? RELAY_MESSAGES.blocked(from.name) : RELAY_MESSAGES.alreadyBlocked(from.name),
+      }
     },
   })
   const unblock = defineTool({
@@ -89,8 +108,12 @@ export function createRelayTools(_deps: RelayToolsDeps): Tool[] {
     description: 'Pass on messages from someone to the person you are talking to again.',
     input: RelayUnblockInput,
     minTier: 'guest',
-    async run() {
-      return notImplemented()
+    async run(input, t) {
+      const from = await persons.findByName(input.from)
+      if (!from) return toolError(RELAY_MESSAGES.unknown(input.from))
+      if (from.id === t.person.id) return { content: RELAY_MESSAGES.notBlocked(from.name) }
+      const changed = await service.unblock({ personId: t.person.id, from: from.id })
+      return { content: changed ? RELAY_MESSAGES.unblocked(from.name) : RELAY_MESSAGES.notBlocked(from.name) }
     },
   })
   return [send, block, unblock]
