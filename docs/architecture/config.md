@@ -26,6 +26,7 @@ Parsed with Bun's built-in TOML support and validated with a zod schema in `core
 [server]
 host = "127.0.0.1"
 port = 4824
+# publicUrl = "https://keith.example.net"   # phase 5, optional: the base of invite links; default http://<host>:<port>
 
 [mind]
 name = "Keith"
@@ -55,6 +56,11 @@ recentMessages = 40
 [mind.reminder]                    # phase 4
 maxPerPerson = 50                  # pending reminders per person
 
+[mind.group]                       # phase 5: group threads (ADR-0017)
+maxParticipants = 8                # current participants plus pending invitations; at least 2
+autoJoin = false                   # true: members and owners join at once; guests always accept
+addressing = "rules+utility"       # or "rules": no utility-model fallback
+
 [memory]
 coreMaxChars = 1500
 
@@ -78,10 +84,11 @@ tickMs = 30000
 [models]                           # model refs: "<providerId>:<modelId>"
 foreground = "deepseek:deepseek-flash"
 background = "deepseek:deepseek-flash"
-utility    = "deepseek:deepseek-flash"   # reflection and thread summaries (phase 4); addressing later
+utility    = "deepseek:deepseek-flash"   # reflection and thread summaries (phase 4); group addressing (phase 5)
 
 [auth]
 tokenTtlDays = 30
+inviteTtlHours = 72                # phase 5: invite links expire after this; fractional allowed, > 0
 
 [plugins]
 enabled  = ["@keith/provider-deepseek"]
@@ -120,6 +127,8 @@ At startup, after the plugins have started, the core checks that each `[voice]` 
 
 Each plugin section is validated by that plugin's own `config` schema. The core never interprets plugin sections.
 
+The phase-5 keys (`[mind.group]`, `auth.inviteTtlHours`) have defaults, so `KEITH__` overrides work for them, e.g. `KEITH__MIND__GROUP__MAXPARTICIPANTS=4`. `maxParticipants` below 2 and `inviteTtlHours` of 0 or less are `CONFIG_INVALID`. `server.publicUrl` has no default (and no `KEITH__` override): it must be an absolute `http(s)` URL, and without it invite links use `http://<server.host>:<server.port>`. Set it when people reach Keith through another address (Tailscale, a reverse proxy). With `addressing = "rules+utility"`, a group input the rule pass is unsure about costs one short `utility` call (5 s timeout).
+
 ### `keith setup`
 
 `keith setup` asks which provider to use (DeepSeek or OpenRouter), enables only that plugin (also listed in `required`), asks for a model id (it offers a default, `deepseek-flash` or `~openai/gpt-sol-latest`, labelled as possibly outdated since vendor ids change), and maps all three roles to it. The API key is written as `env:DEEPSEEK_API_KEY` / `env:OPENROUTER_API_KEY`, never literally. Users split roles across models later by editing the file. The file also shows `[memory.reflect]`, `[memory.summary]` and `[mind.reminder]` with their defaults as comments (no question: they are on by default), with a pointer to the utility cost above. It then asks whether to enable the optional `@keith/web` (the browser app) and `@keith/tool-weather` plugins (default yes). They go into `enabled` but not `required`, each with a commented `[plugins."<id>"]` section. On an existing config it only prints how to add a missing one.
@@ -133,6 +142,24 @@ Running it again is safe: an existing `config.toml` or `persona.md` is kept as i
 Answers are read from the terminal (raw mode, so the password is not echoed) or one per line from piped stdin. Code and tests drive it through a `Prompter` (`scriptedPrompter(answers)` in tests).
 
 The first-party plugins are dependencies of `@keith/core`, so the plugin host's `import()` of a name in `plugins.enabled` resolves them: the providers (`@keith/provider-deepseek`, `@keith/provider-openrouter`), the optional `@keith/web` and `@keith/tool-weather`, and the voice plugins (`@keith/vad-energy`, `@keith/voice-groq`, `@keith/voice-openai`, `@keith/voice-speaches`). Third-party plugins must be installed where the core can resolve them.
+
+### `keith person`
+
+> Planned (phase 5, P5-A1): the commands below are a placeholder that prints "not implemented yet" and exits 1. `keith person` without a subcommand prints the usage.
+
+The owner brings people into Keith from the host. Every subcommand works on `KEITH_HOME` directly, so it runs while Keith runs (the running core reads tiers and cards on every turn), except `remove`, which takes the home lock. Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md), [ADR-0018](../decisions/0018-deleting-a-person.md).
+
+| Command | What it does |
+|---|---|
+| `keith person add <name> [--tier member\|guest]` | Creates the person (default `member`), their relationship card and main thread, and prints an invite link. Names are unique case-insensitively |
+| `keith person list` | Name, tier, username, whether they can sign in, last seen |
+| `keith person invite <name>` | A new invite link; revokes their older unused ones. Also a password reset. Not for the owner (use `keith setup`) |
+| `keith person tier <name> <member\|guest>` | Changes the tier. Never makes or changes the owner (exactly one owner) |
+| `keith person card <name> [--tone <text>] [--notes <text>]` | Shows or edits the relationship card |
+| `keith person block <name> --from <other>` / `unblock` | Edits `<name>`'s relay block list |
+| `keith person remove <name> [--yes]` | Deletes the person and their data (ADR-0018). Needs Keith stopped; suggests `keith backup` first |
+
+An **invite link** is `<publicUrl>/#invite=<code>`: 32 random bytes (base64url), single use, valid for `auth.inviteTtlHours` (default 72), stored only as a SHA-256 hash. The code is a URL fragment, so it never reaches a server log. The command also prints `keith-tui --url <publicUrl> --invite <code>` for the terminal. See [nodes.md](nodes.md#adding-people).
 
 ### `keith backup` and `keith restore`
 

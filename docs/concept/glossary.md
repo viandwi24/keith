@@ -34,6 +34,8 @@ One word, one meaning. Use these exact terms in code identifiers, docs and commi
 | **Reminder** | A time-based Delivery the person asked for (phase 4) | alarm, timer |
 | **Delivery** | A pending item to surface in a Thread (task result, relay, plugin item, invitation) | notification (reserved for OS notifications) |
 | **Relay** | A Delivery that carries one Person's message into another Person's Thread | forward, DM |
+| **Invitation** | A Delivery that invites a Person to a group thread; they join by accepting (phase 5) | invite link (that is the sign-up link) |
+| **Invite link** | A single-use link that lets a new Person set their username and password (phase 5) | signup token, invitation (that is the group-thread Delivery) |
 | **Presence** | Whether a Person has an attended Node open (`present`) or not (`away`) | online status |
 | **Arrival** | A Person becoming present after being away longer than the threshold | login, reconnect |
 | **Briefing** | A proactive turn on arrival that summarizes pending Deliveries | digest (reserved), summary |

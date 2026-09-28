@@ -19,7 +19,7 @@ One SQLite file (`~/.keith/keith.db`) plus one data folder (`~/.keith/files/`). 
 | `relationships` | person_id (PK), tone, notes, blocked_relay_from (json) | 1 |
 | `auth_tokens` | token_hash (PK), person_id, node_id (nullable; filled on `hello`), expires_at, created_at | 1 |
 | `nodes` | id, name, kind (`attended`/`headless`), capabilities (json), last_seen_at | 1 |
-| `threads` | id, kind (`direct`/`group`), slug (e.g. `main`), title, owner_person_id, summary, created_at, updated_at, summary_through_seq (nullable, phase 4), reflected_through_seq (nullable, phase 4). Unique (owner_person_id, slug) | 1 |
+| `threads` | id, kind (`direct`/`group`), slug (e.g. `main`), title, owner_person_id, summary, created_at, updated_at, summary_through_seq (nullable, phase 4), reflected_through_seq (nullable, phase 4), purpose (nullable, phase 5). Unique (owner_person_id, slug) | 1 |
 | `thread_participants` | thread_id, person_id, joined_at, left_at | 1 |
 | `messages` | id, thread_id, role (`user`/`assistant`/`tool`), author_person_id, node_id, modality, content, tool_calls (json), tool_call_id, tool_name, is_error, ui (json), meta (json), seq, created_at. Unique (thread_id, seq). See below | 1 |
 | `tasks` | id, person_id, thread_id, agent_id, goal, status, attempt, summary, detail, ui (json), visibility, created_at, started_at, finished_at | 1 |
@@ -29,6 +29,8 @@ One SQLite file (`~/.keith/keith.db`) plus one data folder (`~/.keith/files/`). 
 | `plugin_data` | plugin_id, key, value (json), updated_at. PK (plugin_id, key) | 1 |
 | `files` | id, name, path, mime, size, owner_person_id, created_at. See [Files](#files) | 2 |
 | `reminders` | id, person_id (FK persons, cascade), thread_id (FK threads, cascade, nullable), text, due_at, status (`pending`/`fired`/`cancelled`), created_at, fired_at, cancelled_at, delivery_id (FK deliveries, set null). Index (status, due_at). See [Reminders and thread cursors](#reminders-and-thread-cursors-phase-4) | 4 |
+| `invite_links` | code_hash (PK, SHA-256 hex), person_id (FK persons, cascade), created_at, expires_at, used_at (nullable). Index (person_id). See [Invite links and group invitations](#invite-links-and-group-invitations-phase-5) | 5 |
+| `thread_invitations` | thread_id (FK threads, cascade), person_id (FK persons, cascade), invited_by (FK persons, cascade), status (`pending`/`accepted`/`declined`), delivery_id (FK deliveries, set null), created_at, resolved_at (nullable). PK (thread_id, person_id). Index (person_id, status) | 5 |
 | `workspaces` | id, person_id or thread_id, state (json), updated_at | 6 |
 
 Group-thread columns (`threads.kind`, `thread_participants`, `messages.author_person_id`) exist from phase 1 even though group threads ship in phase 5. This is deliberate, so phase 5 needs no data migration of history.
@@ -78,6 +80,16 @@ The columns and the `reminders` table come from the migration `reminders-thread-
 - `threads.listForReflection({ idleBefore, limit })` returns the threads with `updated_at ≤ idleBefore` and a message past the reflection cursor, oldest `updated_at` first (ties by id), at most `limit`, each with its `lastSeq` (the highest message `seq`), in one query: `lastSeq` is a correlated `max(seq)` subquery per thread, served by the (thread_id, seq) index. A thread whose cursor equals its `lastSeq` is not returned. `threads.create` stores the cursors as given (absent = null).
 - `messages.range({ threadId, afterSeq, limit, roles? })` returns the first `limit` rows with `seq > afterSeq`, ascending, built exactly like `page` (with `seq`). `roles` filters before the limit. `messages.lastSeq(threadId)` is 0 for an empty thread.
 - **Reminders** (`RemindersRepository`, `repos.reminders`): `create`, `get`, `listDue(now, limit?)` (pending, `due_at ≤ now`, soonest first, ties by id), `listPending(personId)` (soonest first, ties by id), `countPending(personId)`, `markFired(id, at, deliveryId)` and `cancel(id, at)`. The last two are conditional updates (`WHERE status = 'pending'`) and return whether a row changed, so a second call changes nothing and returns false. Deleting a person or a reminder's thread deletes the reminder; deleting its delivery sets `delivery_id` to null.
+
+## Invite links and group invitations (phase 5)
+
+> Planned (phase 5, P5-S1): the tables, the `threads.purpose` column and these semantics. The repositories are placeholders that throw `INTERNAL` "not implemented yet".
+
+- **Persons.** `persons.findByName(name)` trims the name and matches it against `name` case-insensitively, then against `username` case-insensitively; null when nothing matches. Names are unique case-insensitively (enforced by `keith person add`, or by an index on `lower(name)`). `setTier(id, tier)` and `setCredentials(id, { username, passwordHash })` update one row.
+- **Participants.** `threads.addParticipant(threadId, personId, at)` inserts a row, or clears `left_at` and sets `joined_at` on a former participant's row; false when the person is already a current participant. `removeParticipant(threadId, personId, at)` sets `left_at` and returns whether a current participant left. `formerParticipants(threadId)` lists the rows with `left_at` set, most recent first. `threads.purpose` is null for direct threads; `ThreadRecord.purpose` carries it on every record `get`, `getBySlug` and `listForPerson` return.
+- **Invite links** (`InviteLinksRepository`, `repos.inviteLinks`): `create`, `get(codeHash)`, `markUsed(codeHash, at)` (a conditional update on an unused row; returns whether it changed), `revokeFor(personId)` (deletes the person's unused links). Only the hash is stored (R-14).
+- **Group invitations** (`ThreadInvitationsRepository`, `repos.threadInvitations`): `create(inv)` stores a `pending` row, or replaces a `declined` one (a re-invitation), and returns false while a `pending` or `accepted` row exists. `get`, `pendingForThread`, `pendingForPerson`. `resolve(threadId, personId, status, at)` changes only a `pending` row and returns whether it did.
+- **Deleting a person** (`persons.remove(id)`, [ADR-0018](../decisions/0018-deleting-a-person.md)) runs one transaction and returns a `PersonRemoval`: a count per kind of deleted row, a count per kind of row kept with the reference cleared, and the file paths (relative to `files/`) for the command to delete after the commit. It refuses the owner (`FORBIDDEN`) and an unknown id (`NOT_FOUND`). Several foreign keys (`threads.owner_person_id`, `messages.author_person_id`, `tasks`, `commitments`, `deliveries`, `memories`, `files`) have no `on delete` action, so it runs explicit statements in a fixed order. `messages.author_person_id = null` means the Mind (I-2), so a person's own messages are deleted, never re-attributed.
 
 ## Memory search filter
 

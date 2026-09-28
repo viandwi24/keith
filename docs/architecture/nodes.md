@@ -34,13 +34,14 @@ Tool routing: a tool with `requires: ['fs@1']` executes on a Node that has `fs@1
 ## Connection lifecycle
 
 ```
-HTTP  POST /v1/auth/login  ──►  { token, person }
+HTTP  POST /v1/auth/login  ──►  { token, person }      (or POST /v1/auth/invite with an invite code, phase 5)
 WS    GET  /v1/ws?token=…  ──►  upgrade
 node  → hello { client, capabilities, nodeId? }
 core  → welcome { nodeId, person, protocol, server }
 node  → thread.open { threadId? }        (omit → the person's main thread)
 core  → thread.opened { thread, messages }
       … input.text / message.* / thread.state / ui.render …
+core  → thread.updated { thread } | thread.removed { threadId }   (phase 5, any time: the thread list changed)
 node  → thread.close | socket closes     → detach, presence update
 ```
 
@@ -86,7 +87,25 @@ Frames from one node, text and binary, are handled in order, so a chunk never ov
 - `GET /v1/threads/:id/messages` answers `404 NOT_FOUND` for a thread the caller is not a participant of (the same as a missing one).
 - The server binds to `127.0.0.1` by default. Remote access (Tailscale, reverse proxy) is the operator's job. Keith doesn't terminate TLS in phase 1.
 
-> Planned (phase 5): adding members and guests (`keith person add`, invite links). Planned (phase 7): node pairing for headless nodes (6-digit code shown in an attended node, exchanged for a node token).
+> Planned (phase 7): node pairing for headless nodes (6-digit code shown in an attended node, exchanged for a node token).
+
+## Adding people
+
+> Planned (phase 5, P5-A1, P5-N1): the whole section. Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md).
+
+- The owner adds a member or a guest on the host with `keith person add <name> [--tier member|guest]` ([config.md](config.md#keith-person)). It creates the person without a username or password, their relationship card and their main thread, and prints an **invite link**, `<publicUrl>/#invite=<code>`, plus `keith-tui --url <publicUrl> --invite <code>`. Only the owner makes invite links.
+- The code is 32 random bytes, base64url (43 characters). Only its SHA-256 hash is stored (`invite_links`), like auth tokens. A link works once and expires after `auth.inviteTtlHours` (default 72). A new link for a person (`keith person invite`) revokes their older unused ones; it doubles as a password reset.
+- The code sits in the URL fragment, so it never reaches a server log. The web app reads `#invite=<code>`, removes it from the address bar, and asks for a username and a password (twice). The TUI takes `--invite <code>`.
+- The node sends `POST /v1/auth/invite { code, username, password }` ([protocol.md](../contracts/protocol.md#invite-links)). The server hashes the code and checks the link: a missing, used or expired link is `401 UNAUTHORIZED`, one answer for all three, and an unknown code still runs one password hash. A username taken by someone else is `400 INVALID_REQUEST`, and the link stays unused. Otherwise it marks the link used (a conditional update, so two requests with one code can't both win), sets the username and password hash, deletes the person's existing auth tokens (old sessions end), and answers `LoginResponse` like a login.
+- `keith person tier`, `card`, `block` and `unblock` change the database while Keith runs; the core reads them on the next turn. `keith person remove` needs Keith stopped ([ADR-0018](../decisions/0018-deleting-a-person.md)).
+
+## Thread list (phase 5)
+
+> Planned (phase 5, P5-N1): the server side below.
+
+- `GET /v1/threads` lists every thread the person is a current participant of, groups included. A group's `ThreadDto` carries `purpose` and `formerParticipants`.
+- The server subscribes to `thread.participant_joined` and `thread.participant_left`. On a join it sends `thread.updated { thread }` to every connected attended node of every current participant (`AttachmentRegistry.nodesOfPerson`), whether or not the node has the thread open. On a leave it sends `thread.updated` to the remaining participants' nodes and `thread.removed { threadId }` to the leaver's nodes, and detaches the leaver's nodes from the thread, so they get no more of its frames.
+- Access doesn't change: `thread.open` and `GET /v1/threads/:id/messages` are for current participants only. A former participant gets `FORBIDDEN` / `404` like anyone else.
 
 ## Focus and presence
 

@@ -147,6 +147,24 @@ export interface Reminder {
   deliveryId: DeliveryId | null
 }
 
+// Group invitations (phase 5, docs/architecture/core.md#group-threads)
+
+export type ThreadInvitationStatus = 'pending' | 'accepted' | 'declined'
+
+/** An invitation of a person to a group thread. One row per (thread, person). */
+export interface ThreadInvitation {
+  threadId: ThreadId
+  personId: PersonId
+  /** The current participant who invited them. */
+  invitedBy: PersonId
+  status: ThreadInvitationStatus
+  /** The `invitation` delivery in the invitee's main thread; null when it is gone or not made yet. */
+  deliveryId: DeliveryId | null
+  createdAt: number
+  /** When it became `accepted` or `declined`; null while `pending`. */
+  resolvedAt: number | null
+}
+
 // Memories (docs/architecture/memory.md#memory-record)
 
 export type MemorySource = 'stated' | 'inferred' | 'relayed' | 'plugin'
@@ -185,12 +203,20 @@ export type ModelRef = `${string}:${string}`
 
 export type BriefingMode = 'auto' | 'on-greeting' | 'off'
 
+/** Phase 5: how the Mind decides whether a group input is addressed to it. */
+export type GroupAddressingMode = 'rules+utility' | 'rules'
+
 export interface KeithConfig {
   server: {
     /** Default '127.0.0.1' (R-14). */
     host: string
     /** Default 4824. */
     port: number
+    /**
+     * Phase 5: the base URL people use to reach this Keith, e.g. 'https://keith.example.net'. Invite
+     * links are `<publicUrl>/#invite=<code>`. Optional: absent means `http://<host>:<port>`.
+     */
+    publicUrl?: string | undefined
   }
   mind: {
     name: string
@@ -211,6 +237,15 @@ export interface KeithConfig {
     reminder: {
       /** Pending reminders per person. Default 50. */
       maxPerPerson: number
+    }
+    /** Phase 5: `[mind.group]`, group threads (ADR-0017). */
+    group: {
+      /** Current participants plus pending invitations. Default 8, at least 2. */
+      maxParticipants: number
+      /** Invitees with tier `member` or higher join at once. Guests always accept. Default false. */
+      autoJoin: boolean
+      /** 'rules+utility' (default): the rule pass, then the `utility` model for unsure inputs. 'rules': no model. */
+      addressing: GroupAddressingMode
     }
   }
   memory: {
@@ -238,7 +273,11 @@ export interface KeithConfig {
   }
   scheduler: { foreground: number; delivery: number; background: number; tickMs: number }
   models: Record<ModelRole, ModelRef>
-  auth: { tokenTtlDays: number }
+  auth: {
+    tokenTtlDays: number
+    /** Phase 5: invite links expire after this many hours. Fractional allowed. Default 72. */
+    inviteTtlHours: number
+  }
   plugins: {
     /** Package names, loaded in this order. */
     enabled: string[]
@@ -493,6 +532,69 @@ export interface PersonsRepository {
   list(): Promise<PersonRecord[]>
   setPasswordHash(id: PersonId, passwordHash: string): Promise<void>
   setLastSeenAt(ids: PersonId[], at: number): Promise<void>
+  /**
+   * Phase 5: the person called `name`. Trims `name`, then matches it against `name`
+   * case-insensitively, then against `username` case-insensitively. Null when nothing matches or
+   * `name` is empty after trimming. Names are unique case-insensitively (`keith person add`
+   * enforces it), so a name matches at most one person; a name match wins over a username match.
+   */
+  findByName(name: string): Promise<PersonRecord | null>
+  /** Phase 5: sets the tier. An unknown id is a no-op. The callers keep exactly one owner (ADR-0017). */
+  setTier(id: PersonId, tier: Tier): Promise<void>
+  /**
+   * Phase 5: sets the username and the password hash together (accepting an invite link). The
+   * caller checks that no other person has `username` (`getByUsername`); storing a username that
+   * another person has throws. An unknown id is a no-op.
+   */
+  setCredentials(id: PersonId, c: { username: string; passwordHash: string }): Promise<void>
+  /**
+   * Phase 5: deletes the person in one transaction, exactly as ADR-0018 lists
+   * (docs/decisions/0018-deleting-a-person.md), and returns what it did. Throws
+   * `KeithError('FORBIDDEN')` for the owner and `KeithError('NOT_FOUND')` for an unknown id; then
+   * nothing changes. The stored file bytes are not touched: the caller deletes `filePaths` after
+   * the commit.
+   */
+  remove(id: PersonId): Promise<PersonRemoval>
+}
+
+/** Phase 5: what `PersonsRepository.remove` did. Every count is a number of rows. */
+export interface PersonRemoval {
+  deleted: {
+    /** Their direct threads (`kind = 'direct'`, owned by them). */
+    directThreads: number
+    /** Messages in their direct threads. */
+    directMessages: number
+    /** Their own messages in group threads. */
+    groupMessages: number
+    /** Their participant rows in group threads (they leave every group). */
+    groupMemberships: number
+    /** Memories about them (any visibility) and `thread` memories of their direct threads. */
+    memories: number
+    tasks: number
+    commitments: number
+    /** Deliveries addressed to them, in their direct threads, and their pending relays. */
+    deliveries: number
+    reminders: number
+    authTokens: number
+    inviteLinks: number
+    /** Group invitations to or from them. */
+    threadInvitations: number
+    /** File rows they uploaded. */
+    files: number
+  }
+  /** Rows kept, with the reference to the person cleared. */
+  cleared: {
+    /** Memories they authored about someone else or nobody (`author_person_id` → null). */
+    memories: number
+    /** Delivered relays they sent (`author_person_id` → null). */
+    relays: number
+    /** Group threads they created (`owner_person_id` → null). */
+    groupThreads: number
+    /** Other people's relationship cards whose `blockedRelayFrom` named them. */
+    blockLists: number
+  }
+  /** The deleted files' paths, relative to `KEITH_HOME/files/`, for the caller to delete. */
+  filePaths: string[]
 }
 
 export interface RelationshipRecord {
@@ -568,6 +670,12 @@ export interface ThreadRecord {
    * as `summaryThroughSeq`.
    */
   reflectedThroughSeq?: number | null | undefined
+  /**
+   * Phase 5: what a group thread is for; null for direct threads and groups without one. Set on
+   * every record `get`, `getBySlug` and `listForPerson` return. Optional only so existing record
+   * literals compile without it; `create` stores it as given (absent = null).
+   */
+  purpose?: string | null | undefined
 }
 
 export interface ThreadParticipantRecord {
@@ -598,6 +706,19 @@ export interface ThreadsRepository {
    */
   setReflectedThrough(id: ThreadId, seq: number): Promise<void>
   /**
+   * Phase 5: makes the person a current participant. Inserts a row (`joinedAt = at`), or, for a
+   * former participant, clears `leftAt` and sets `joinedAt = at` on their row. Returns false (and
+   * changes nothing) when the person is already a current participant.
+   */
+  addParticipant(threadId: ThreadId, personId: PersonId, at: number): Promise<boolean>
+  /**
+   * Phase 5: sets `leftAt = at` on the person's row if they are a current participant. Returns
+   * whether a current participant left (false: not a participant, or already left).
+   */
+  removeParticipant(threadId: ThreadId, personId: PersonId, at: number): Promise<boolean>
+  /** Phase 5: participant rows with `leftAt` set, most recent `leftAt` first (ties by person id). */
+  formerParticipants(threadId: ThreadId): Promise<ThreadParticipantRecord[]>
+  /**
    * Phase 4: threads that are due for reflection: `updated_at ≤ idleBefore` and at least one
    * message whose `seq` is greater than the reflection cursor (null counts as 0). Oldest
    * `updated_at` first (ties by id), at most `limit`. `lastSeq` is the thread's highest message
@@ -616,6 +737,12 @@ export type MessageMeta = {
   proactive?: boolean | undefined
   /** Phase 3: a spoken reply cut by barge-in; `content` holds only this many characters. */
   spokenChars?: number | undefined
+  /**
+   * Phase 5: on an assistant message whose delivery turn carried relays, one entry per sender, in
+   * delivery order (I-13). `name` is the name the recipient saw, kept when the sender is renamed
+   * or deleted.
+   */
+  relayFrom?: { personId: PersonId; name: string }[] | undefined
 }
 
 /** A UI block on an assistant message, with the tool that produced it (for `ui.action`). */
@@ -762,6 +889,57 @@ export interface RemindersRepository {
   cancel(id: ReminderId, at: number): Promise<boolean>
 }
 
+// thread_invitations (phase 5)
+
+export interface ThreadInvitationsRepository {
+  /**
+   * Stores `inv` (normally `pending`, with null `resolvedAt`). When a `declined` row exists for the
+   * same thread and person, it is replaced (a re-invitation). Returns false, and changes nothing,
+   * when a `pending` or `accepted` row exists.
+   */
+  create(inv: ThreadInvitation): Promise<boolean>
+  get(threadId: ThreadId, personId: PersonId): Promise<ThreadInvitation | null>
+  /** The thread's `pending` invitations, oldest first (ties by person id). */
+  pendingForThread(threadId: ThreadId): Promise<ThreadInvitation[]>
+  /** The person's `pending` invitations, oldest first (ties by thread id). */
+  pendingForPerson(personId: PersonId): Promise<ThreadInvitation[]>
+  /**
+   * Sets `status` and `resolvedAt = at`, only on a `pending` row. Returns whether a row changed
+   * (false: no invitation, or already accepted or declined).
+   */
+  resolve(
+    threadId: ThreadId,
+    personId: PersonId,
+    status: Exclude<ThreadInvitationStatus, 'pending'>,
+    at: number,
+  ): Promise<boolean>
+}
+
+// invite_links (phase 5)
+
+export interface InviteLinkRecord {
+  /** SHA-256 of the code's UTF-8 bytes, hex. The code itself is never stored (R-14). */
+  codeHash: string
+  personId: PersonId
+  createdAt: number
+  expiresAt: number
+  /** When the link was accepted; null while unused. */
+  usedAt: number | null
+}
+
+export interface InviteLinksRepository {
+  create(l: InviteLinkRecord): Promise<void>
+  /** The link, used or not, expired or not; null for an unknown hash. */
+  get(codeHash: string): Promise<InviteLinkRecord | null>
+  /**
+   * Sets `usedAt = at`, only on an unused row. Returns whether a row changed (false: unknown hash,
+   * or already used), so two requests with one code can't both win.
+   */
+  markUsed(codeHash: string, at: number): Promise<boolean>
+  /** Deletes the person's unused links (used ones stay). Returns the number of deleted rows. */
+  revokeFor(personId: PersonId): Promise<number>
+}
+
 // memories + memories_fts (docs/architecture/storage.md#memory-search-filter)
 
 /** Computed by `memory/visibility.ts` (`toStorageFilter(viewer)`); storage applies it as SQL. */
@@ -838,6 +1016,10 @@ export interface Repositories {
   files: FilesRepository
   /** Phase 4. */
   reminders: RemindersRepository
+  /** Phase 5. */
+  threadInvitations: ThreadInvitationsRepository
+  /** Phase 5. */
+  inviteLinks: InviteLinksRepository
 }
 
 /** An open database. Used only by bootstrap (and test helpers); everything else gets `Repositories`. */
@@ -857,6 +1039,11 @@ export interface AttachmentRegistry {
   /** Without `threadId`: detach the node from every thread. */
   detach(nodeId: NodeId, threadId?: ThreadId | undefined): void
   attachedTo(threadId: ThreadId): NodeId[]
+  /**
+   * Phase 5: the person's connected attended nodes, in connect order, whether or not they have a
+   * thread open (for `thread.updated` / `thread.removed`).
+   */
+  nodesOfPerson(personId: PersonId): NodeId[]
   /** No-op if the node is gone. */
   send(nodeId: NodeId, frame: CoreFrame): void
   /** Phase 3: a binary frame (`encodeAudioFrame` output) to one node. No-op if the node is gone. */
@@ -991,9 +1178,82 @@ export interface ContextBuilder {
     deliveries: Delivery[]
   }): Promise<BuiltContext>
 }
+
+// Group threads (phase 5, docs/architecture/core.md#group-threads)
+
+export type AddressingVerdict = {
+  addressed: boolean
+  /** Which rule decided. 'unsure' means not addressed (the Mind doesn't interrupt humans). */
+  by: 'single_human' | 'name' | 'reply' | 'question' | 'other_human' | 'classifier' | 'unsure' | 'default'
+}
+
+export interface AddressingDetector {
+  /** Whether the Mind should take a turn for this input in a group thread. Never throws. */
+  decide(a: {
+    threadId: ThreadId
+    input: { authorPersonId: PersonId; text: string }
+    /** Visible messages before the input, oldest first (at most 10). */
+    recent: MessageRecord[]
+    /** Current participants' names. */
+    participantNames: string[]
+    signal: AbortSignal
+  }): Promise<AddressingVerdict>
+}
+
+/**
+ * `details.reason` of the `KeithError('FORBIDDEN')` that `GroupThreads` throws when a rule refuses
+ * (ADR-0017). The `thread.*` tools turn each into a tool error.
+ * - `tier`: the creator or inviter is below `member`.
+ * - `not_participant`: the inviter is not a current participant of the thread.
+ * - `not_group`: the thread is not a group thread (invite, or leave a direct thread).
+ * - `limit`: current participants plus pending invitations would exceed `mind.group.maxParticipants`.
+ * - `no_invitees`: the invitee list is empty.
+ * - `self`: the invitee list names the caller.
+ * - `unknown_person`: an invitee id is not a person.
+ */
+export type GroupRefusalReason =
+  | 'tier'
+  | 'not_participant'
+  | 'not_group'
+  | 'limit'
+  | 'no_invitees'
+  | 'self'
+  | 'unknown_person'
+
+/**
+ * Starting, joining and leaving group threads (ADR-0017). Emits `thread.participant_joined` and
+ * `thread.participant_left` after the storage write. A refusal by rule throws
+ * `KeithError('FORBIDDEN')` with `details.reason: GroupRefusalReason`; an unknown thread throws
+ * `KeithError('NOT_FOUND')`.
+ */
+export interface GroupThreads {
+  start(a: {
+    creatorId: PersonId
+    inviteeIds: PersonId[]
+    title: string
+    purpose: string | null
+  }): Promise<{ thread: ThreadRecord; invited: PersonId[]; joined: PersonId[] }>
+  invite(a: {
+    threadId: ThreadId
+    inviterId: PersonId
+    inviteeIds: PersonId[]
+  }): Promise<{ invited: PersonId[]; joined: PersonId[]; skipped: PersonId[] }>
+  /** Accepts a pending invitation. False without one. */
+  join(a: { threadId: ThreadId; personId: PersonId }): Promise<boolean>
+  /** Leaves a group, or declines a pending invitation. False when neither applies. */
+  leave(a: { threadId: ThreadId; personId: PersonId }): Promise<boolean>
+}
 ```
 
 The ThreadManager maps `RunLoopEvent`s to `message.delta`, `tool.activity` and `ui.render` frames. The scheduler ignores most of them for tasks (it keeps `ui` for the task result).
+
+**Group-thread factories (phase 5, [Group threads](#group-threads)).** Two factories, exported from `mind/index.ts`, with their deps fixed by P5-K1:
+
+- `createAddressing(deps: AddressingDeps): AddressingDetector` (`mind/addressing/`). Deps: `config` (`mind`), `runLoop`, `scheduler` (`run`), `log`.
+- `createGroupThreads(deps: GroupThreadsDeps): GroupThreads` (`mind/groups.ts`). Deps: `config` (`mind`), `repos` (`persons`, `threads`, `threadInvitations`), `deliveries` (`enqueue`), `events` (`emit`), `ids`, `clock`, `log`.
+- `ThreadManagerDeps.addressing?: AddressingDetector`. Without it every group input is addressed (the phase-4 behavior).
+
+> Planned (phase 5, P5-D1, P5-C1): `createAddressing` is a placeholder whose `decide` answers `{ addressed: true, by: 'default' }`, and every `createGroupThreads` method throws `INTERNAL`. Bootstrap doesn't build either yet (P5-I1).
 
 ### Voice (`voice/types.ts`), implemented by `voice/` (P3-A1)
 
@@ -1109,7 +1369,25 @@ export interface ReminderService {
   /** Enqueues a `reminder` delivery for every due reminder, then marks it fired. Returns how many fired. */
   fireDue(now: number): Promise<number>
 }
+
+/** Phase 5: why `RelayService.send` refused. The tool answers `not_allowed` generically (ADR-0017). */
+export type RelayResult =
+  | { ok: true; delivery: Delivery }
+  | { ok: false; reason: 'unknown_recipient' | 'self' | 'not_allowed' }
+
+/** Phase 5: relays between people (I-13, docs/architecture/core.md#relays). */
+export interface RelayService {
+  /** I-13 per ADR-0017. Enqueues a `relay` delivery authored by the sender into the recipient's main thread. */
+  send(a: { fromPersonId: PersonId; toPersonId: PersonId; text: string }): Promise<RelayResult>
+  /** Adds or removes `from` in `personId`'s `blockedRelayFrom`. Returns whether the list changed. */
+  block(a: { personId: PersonId; from: PersonId }): Promise<boolean>
+  unblock(a: { personId: PersonId; from: PersonId }): Promise<boolean>
+}
 ```
+
+`createScheduling` builds the relay service with `createRelayService(deps: RelayServiceDeps)` (`scheduler/relay.ts`; deps `repos` (`persons`, `relationships`, `threads`), `deliveries` (`enqueue`), `log`) and exposes it as `Scheduling.relay`. See [Relays](#relays).
+
+> Planned (phase 5, P5-B1): every `RelayService` method throws `INTERNAL` "not implemented yet".
 
 ### Memory (`memory/types.ts`), implemented by `memory/` (P1-M1)
 
@@ -1188,13 +1466,15 @@ The only order that has no cycles. `bootstrap.ts` follows it:
 4. `AttachmentRegistry` + `Presence` (from `server/`)
    - **4b.** voice pipeline (phase 3), only with a `[voice]` section ([voice.md](voice.md)). It needs the `ThreadManager` and the `ThreadManager` needs its output, so it reaches the `ThreadManager` through a late binding. It also tracks each node's `hello` capabilities from `node.connected`.
 5. `RunLoop` (from `mind/`, needs providers, tools, repositories)
-6. scheduler, tasks, commitments, deliveries (needs `RunLoop`)
+6. scheduler, tasks, commitments, deliveries, reminders and the relay service (needs `RunLoop`)
 7. memory (needs repositories, events, config), then the phase-4 memory jobs: `createReflection` and `createThreadSummaries` (need memory, `RunLoop`, `scheduling.scheduler`, repositories, events, config). Built, not started.
 8. `ThreadManager` (needs everything above, and the voice output). It subscribes to `delivery.enqueued`, so nothing calls into it from below. Arrival reaches it only through `open({ arrival })`, never through the `person.arrived` event (which is for plugins).
 9. server (needs `ThreadManager`, attachments, presence, the voice input) builds its http and ws registries, **without listening yet**. It reads the plugin host's `status()` for the notices after `welcome` through a late binding (the host is built in step 11).
 10. built-in tools registered through the privileged `tools.registerBuiltin()`, including the `reminder.*` tools (`reminders: { service: scheduling.reminders, config, clock }`), and the default skill `morning_briefing`
 11. plugin host (needs registries, server http/ws, the delivery sink, the data stores) → load → `setup` → `start`, then `checkVoiceProviders`: every `voice.vad/stt/tts` id must name a registered provider (`CONFIG_INVALID` otherwise)
 12. `scheduling.start()` (recovers tasks, starts the tick, subscribes `fireDue`), then the reflection and summary jobs `start()`, server `listen()` → emit `core.started`
+
+> Planned (phase 5, P5-I1): step 8 also builds `createAddressing(...)` and `createGroupThreads(...)` and passes `addressing` to the ThreadManager; step 10 passes `relay: { service: scheduling.relay, persons }` and `groups: { service: groups, persons, config }` to `registerBuiltins`, which registers the `relay.*` and `thread.*` tools only when they are given.
 
 Shutdown runs the other way: presence flush, server stop, `threads.stop()` then `threads.cancelAll()` (each running turn persists its partial reply), presence, the reflection and summary jobs (unsubscribed, running passes aborted; an aborted pass writes nothing), scheduling, memory, plugins, event bus, database, log file, and the home lock last. A start that fails tears down what it built, lock included; the memory jobs stop before scheduling there too.
 
@@ -1272,6 +1552,8 @@ Builds `{ system, messages, tools }` for a Viewer. The system prompt is assemble
 
 **Tools:** every tool in the registry, built-ins included, where `tool.minTier` is at or below the lowest participant tier (owner > member > guest) and `tool.requires ⊆` the focus node's capabilities.
 
+> Planned (phase 5, P5-C3): **group threads and relays in the context.** In a group thread, each `user` message gets `LlmMessage.name` = its author's name **and** a `<name>: ` content prefix (not every provider honours `name`). Section 3 holds every current participant's card, the thread's title and `purpose`, whose message the turn answers, and the tone rule from S-6 ("use the most formal tone among the participants unless you are answering one person directly"). In section 8, a `relay` item reads "(relay from <sender name>) <text>" and an `invitation` item reads "(invitation from <inviter name>) <content>", each with an instruction. Direct threads are unchanged.
+
 ## Scheduler
 
 Three lanes, each with its own concurrency limit. Separate pools make I-5 structural rather than a matter of priority tuning. A **job** is any unit of work the scheduler runs: a turn or a task step.
@@ -1340,6 +1622,21 @@ A Reminder (`rem_` id, table `reminders`) is a text the Mind brings up for one p
 
 The tools are registered only when `registerBuiltins` gets `reminders` (`{ service, config, clock }`).
 
+### Relays
+
+> Planned (phase 5, P5-B1, P5-C2, P5-C3): the whole subsection. Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md).
+
+A relay passes one person's words to another through Keith (I-13, S-5). `RelayService` (`scheduler/relay.ts`, exposed as `Scheduling.relay`) decides and enqueues; the `relay.*` built-ins call it.
+
+- **Checks** (`RelayService.send`, in order): the sender and the recipient are the same person → `self`; the recipient doesn't exist or has no `main` thread → `unknown_recipient`; the sender is a guest and the recipient is not the owner, or the recipient's `relationships.blockedRelayFrom` names the sender → `not_allowed`. A block wins over every tier, the owner's included.
+- **Delivery.** Otherwise it enqueues `{ personId: to, threadId: <their main>, kind: 'relay', authorPersonId: from, source: 'core', urgency: 'normal', content: <the text, verbatim> }`. The relay flushes like any delivery (I-11): now if the recipient is present and the thread idle, else on their next arrival. v1 relays go only to the recipient's main thread, never into a group.
+- **Attribution.** Section 8 labels the item with the sender's name (P5-C3). The delivery turn's assistant message stores `meta.relayFrom` (`{ personId, name }` per sender, in delivery order), so `message.completed` and history carry it and a node can show "via Tony" even if the model paraphrases (P5-C2).
+- **Answers** (`RELAY_MESSAGES`): "I'll pass that on to <name>.", "I don't know anyone called <name>.", and one generic refusal for a tier rule and a block alike: "I can't pass messages from you to <name>." Relaying to yourself answers "You can't relay to yourself."
+- **Blocks.** `relay.block { from }` / `relay.unblock { from }` change only the caller's own `blockedRelayFrom` (`RelayService.block` / `unblock`, keeping `tone` and `notes`). The owner can change anyone's list with `keith person block` / `unblock`.
+- A relay writes no memory. It reaches later contexts only through the recipient's thread history. There are no `relay.*` events: a relay is a `delivery.enqueued` with `kind: 'relay'`.
+
+The tools are registered only when `registerBuiltins` gets `relay` (`{ service, persons }`); names resolve through `persons.findByName` (a name or username, case-insensitive).
+
 ## Presence and arrival
 
 - A Person is **present** while at least one attended node has one of their Threads open. `persons.last_seen_at` is written when they become away, refreshed on every scheduler tick while they are present, and written for every present person on graceful shutdown. Arrival detection survives restarts and crashes, and a crash costs at most one tick of accuracy.
@@ -1360,7 +1657,36 @@ Registered with `tools.registerBuiltin()`. Their namespaces are reserved. `regis
 | `skill.load` | 1 | Load a skill's full instructions |
 | `memory.remember`, `memory.recall`, `memory.forget` | 1 (FTS), 4 (reflection) | Write, search and delete memories |
 | `reminder.set`, `reminder.list`, `reminder.cancel` | 4 | Time-based deliveries ([Reminders](#reminders)); tier `member` |
-| `relay.send` | 5 | S-5 |
-| `thread.start_group`, `thread.invite`, `thread.leave` | 5 | S-6 |
+| `relay.send`, `relay.block`, `relay.unblock` | 5 | Pass messages between people, and refuse them ([Relays](#relays)); tier `guest` |
+| `thread.start_group`, `thread.invite` | 5 | Start a group thread, invite more people ([Group threads](#group-threads)); tier `member` |
+| `thread.join`, `thread.leave` | 5 | Accept an invitation; leave a group or decline an invitation; tier `guest` |
 
-> Planned (phase 5): **Group threads.** Participants are stored from phase 1 (`thread_participants`), and messages carry `authorPersonId` from phase 1. Phase 5 adds the addressing detector (a rule-based pass, then a `utility`-model fallback), a turn for human-to-human messages that only fans out (no LLM), `thread` visibility for memories written in the group, and invitation deliveries. See [scenarios.md S-6](../concept/scenarios.md#s-6-collaboration-a-group-thread-with-shared-state).
+The tiers come from [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md). `builtins/relay.ts` and `builtins/thread.ts` also export the input schemas, the tool names and the answers (`RELAY_MESSAGES`, `THREAD_MESSAGES`).
+
+> Planned (phase 5, P5-B1, P5-C1): the `relay.*` and `thread.*` tool bodies answer a tool error "not implemented yet", and bootstrap doesn't pass `relay` or `groups` to `registerBuiltins` yet (P5-I1), so none of the seven is registered.
+
+## Group threads
+
+> Planned (phase 5, P5-C1, P5-C2, P5-D1): the whole section. Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md). Scenario: [S-6](../concept/scenarios.md#s-6-collaboration-a-group-thread-with-shared-state).
+
+A group thread (`kind: 'group'`, `slug` null) has several human participants (`thread_participants`), a `title` and an optional `purpose`. Participants and message authors are stored from phase 1.
+
+**Membership** (`GroupThreads`, `mind/groups.ts`, P5-C1):
+
+- `start` (`thread.start_group`): the creator must be `member` or higher. It creates the group with the creator as its only participant (`thread.participant_joined { invitedBy: null }`), then invites the others as `invite` does.
+- `invite` (`thread.invite`): only a current participant with tier `member` or higher, only in a group, only while current participants plus pending invitations stay within `mind.group.maxParticipants` (default 8). The creator has no special rights after creation. People already in the group or invited are `skipped`. Each new invitee gets a `pending` `thread_invitations` row and an `invitation` delivery in their main thread (authored by the inviter), whose content names the inviter, the title, the purpose and the thread id, with a card with **Join** and **Decline** buttons (a click becomes `(clicked: Join)` input, and the invitee's model calls `thread.join`). With `mind.group.autoJoin = true`, an invitee with tier `member` or higher joins at once and the delivery is a notice without buttons. Guests always accept.
+- `join` (`thread.join`): needs a `pending` invitation; it becomes `accepted`, the person a participant, and `thread.participant_joined { invitedBy }` is emitted.
+- `leave` (`thread.leave`): a current participant leaves (`left_at` set, `thread.participant_left`). On a pending invitation it declines it (no event). Leaving a direct thread is refused. Nobody can remove another participant in v1.
+- A refusal by rule throws `KeithError('FORBIDDEN')` with `details.reason` (`GroupRefusalReason`), which the tools turn into tool errors (`THREAD_MESSAGES.refused`).
+- **After leaving**, the leaver has no access to the group: it leaves their thread list (`thread.removed`), and `thread.open` and history answer as for any thread they are not part of. The group keeps its whole history.
+
+**Turns** (thread manager, P5-C2):
+
+- The thread manager caches each loaded thread's participants and follows `thread.participant_joined` / `thread.participant_left`.
+- A group input is echoed at once to the other attached nodes (`message.user`, as today). When the thread is idle, the thread manager asks `AddressingDetector.decide`. Not addressed: the message is stored and fans out, with no turn, no `thread.state` change and no LLM call. Addressed: the turn runs as today. Inputs that arrive during a turn are decided in order when it ends; if any is addressed, they all become the next turn.
+- With fewer than two current human participants every input is addressed (`single_human`).
+- A group turn's `runCtx.personId` is the author of its latest input, and `participants` are the current participants (tools filter by the lowest tier, memory reads admit only what every participant may see, I-4).
+
+**Addressing** (`AddressingDetector`, `mind/addressing/`, P5-D1): a cheap rule pass first (single human, the Mind's name, a reply to the Mind's question, an open question after the Mind spoke, another human named first), then, for unsure inputs and only with `mind.group.addressing = "rules+utility"`, the `utility` model in the `foreground` lane (5 s timeout, addressed only at confidence ≥ 0.7). Still unsure means not addressed: the Mind doesn't interrupt humans. The verdict's `by` names the rule that decided.
+
+**Frames.** Membership changes reach nodes as `thread.updated` / `thread.removed` ([protocol.md](../contracts/protocol.md#delivery-rules)); the server sends them on the participant events (P5-N1).

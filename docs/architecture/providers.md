@@ -28,7 +28,7 @@ Core code never names a model. It asks for a **role**, and config maps roles to 
 |---|---|---|
 | `foreground` | User turns, delivery and briefing turns | Quality + low latency |
 | `background` | Tasks | Quality + low cost; latency matters less |
-| `utility` | Reflection and thread summaries (phase 4, [memory.md](memory.md#reflection)), classification (addressing, phase 5) | Cheapest acceptable |
+| `utility` | Reflection and thread summaries (phase 4, [memory.md](memory.md#reflection)), and the group-thread addressing classifier (phase 5, [core.md](core.md#group-threads): one short call, in the `foreground` lane, only for inputs the rule pass is unsure about) | Cheapest acceptable |
 
 ```toml
 [models]
