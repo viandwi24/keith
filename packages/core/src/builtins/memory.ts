@@ -98,6 +98,11 @@ export function createMemoryTools(deps: MemoryToolsDeps): Tool[] {
       if (visibility === 'subject' && subjectPersonId === null) {
         return fail("Visibility 'subject' needs a subject person.")
       }
+      // In a group, a private memory about someone else would be hidden from everyone who heard it
+      // (and put words in that person's private scope). Only the speaker's own facts may be 'subject'.
+      if (visibility === 'subject' && isGroup(t) && subjectPersonId !== t.person.id) {
+        return fail("In a group thread, a 'subject' memory can only be about the speaker.")
+      }
       if (visibility === 'thread' && t.threadId === null) return fail("Visibility 'thread' needs a thread.")
       if (visibility === 'household' && t.person.tier === 'guest') {
         return fail("Guests can't write household memories.")

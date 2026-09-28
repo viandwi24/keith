@@ -276,7 +276,7 @@ describe('digest', () => {
     await h.addTask({ n: 2, personId: TONY, threadId: MISSION, goal: 'Map the route', visibility: 'thread' })
     const d = await h.memory.digest({ threadId: MISSION, viewer: v(TONY, PEPPER) })
     expect(d).not.toContain('Secret suit')
-    expect(d).toContain('- Working on a background task for Tony: Map the route')
+    expect(d).toContain('- Working on a background task for the group "Mission": Map the route')
     expect(d).toContain('- Busy with 1 private background task for someone else.')
   })
 

@@ -11,10 +11,12 @@ import {
   type ToolRunContext,
 } from '@keith/sdk'
 import { z } from 'zod'
+import type { TaskManager } from '../scheduler/index.ts'
 import type { TaskService } from '../scheduler/types.ts'
-import type { Task } from '../shared/types.ts'
+import type { Task, Viewer } from '../shared/types.ts'
 
-export type TaskToolsDeps = { tasks: TaskService }
+/** `visibleTo` is the TaskManager's I-4 check (`scheduling.tasks` has it). */
+export type TaskToolsDeps = { tasks: TaskService & Pick<TaskManager, 'visibleTo'> }
 
 const StartInput = z.object({
   agent: z.string().min(1).optional().describe(`Agent id. Default '${GENERAL_AGENT_ID}'.`),
@@ -35,10 +37,10 @@ const StatusInput = z.object({
 
 const CancelInput = z.object({ id: TaskId })
 
-/** Who may see or cancel a task: its person, or anyone in the group thread it was started in. */
-function canAccess(task: Task, t: ToolRunContext): boolean {
-  if (task.personId === t.person.id) return true
-  return task.visibility === 'thread' && task.threadId !== null && task.threadId === t.threadId
+/** The viewer of a tool call: everyone the context was built for (I-3). */
+function viewerOf(t: ToolRunContext): Viewer {
+  const ids = t.participants.map((p) => p.id)
+  return { participants: ids.length > 0 ? ids : [t.person.id] }
 }
 
 function describeTask(task: Task, withDetail: boolean): string {
@@ -55,6 +57,13 @@ function toolError(content: string): ToolResult {
 /** The `task.*` built-ins, bound to a TaskService. */
 export function createTaskTools(deps: TaskToolsDeps): Tool[] {
   const { tasks } = deps
+
+  const findVisible = async (id: Task['id'], t: ToolRunContext): Promise<Task | null> => {
+    const task = await tasks.get(id)
+    if (!task) return null
+    const [visible] = await tasks.visibleTo([task], viewerOf(t))
+    return visible ?? null
+  }
 
   const start = defineTool({
     name: 'task.start',
@@ -90,16 +99,18 @@ export function createTaskTools(deps: TaskToolsDeps): Tool[] {
 
   const status = defineTool({
     name: 'task.status',
-    description: 'Show one task with its result, or list the active tasks of the person you are talking to.',
+    description:
+      'Show one task with its result, or list the active tasks this conversation may see (yours, and those of groups you are in).',
     input: StatusInput,
     minTier: 'member',
     async run(input, t) {
+      // I-4: a task the viewer may not see reads as not found, so its existence never leaks.
       if (input.id !== undefined) {
-        const task = await tasks.get(input.id)
-        if (!task || !canAccess(task, t)) return toolError(`No task ${input.id} found.`)
+        const task = await findVisible(input.id, t)
+        if (!task) return toolError(`No task ${input.id} found.`)
         return { content: describeTask(task, true) }
       }
-      const mine = (await tasks.active()).filter((task) => canAccess(task, t))
+      const mine = await tasks.visibleTo(await tasks.active(), viewerOf(t))
       if (mine.length === 0) return { content: 'No active tasks.' }
       return { content: mine.map((task) => describeTask(task, false)).join('\n') }
     },
@@ -111,8 +122,8 @@ export function createTaskTools(deps: TaskToolsDeps): Tool[] {
     input: CancelInput,
     minTier: 'member',
     async run(input, t) {
-      const task = await tasks.get(input.id)
-      if (!task || !canAccess(task, t)) return toolError(`No task ${input.id} found.`)
+      const task = await findVisible(input.id, t)
+      if (!task) return toolError(`No task ${input.id} found.`)
       if (task.status !== 'queued' && task.status !== 'running') {
         return toolError(`Task ${task.id} is already ${task.status}.`)
       }

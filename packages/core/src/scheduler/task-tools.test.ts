@@ -5,7 +5,7 @@ import type { Tool, ToolRunContext } from '@keith/sdk'
 import { createMemoryLogger } from '@keith/sdk/testing'
 import { createTaskTools } from '../builtins/task.ts'
 import type { PersonDto, TaskId, ThreadId } from '../shared/types.ts'
-import { createTestConfig, seedPerson, waitFor } from './testing/fakes.ts'
+import { createTestConfig, seedGroup, seedPerson, waitFor } from './testing/fakes.ts'
 import { createHarness, type Harness } from './testing/harness.ts'
 
 function toolsOf(h: Harness): Record<'start' | 'status' | 'cancel', Tool> {
@@ -14,10 +14,15 @@ function toolsOf(h: Harness): Record<'start' | 'status' | 'cancel', Tool> {
   return { start, status, cancel }
 }
 
-function ctx(person: PersonDto, threadId: ThreadId | null, taskId: TaskId | null = null): ToolRunContext {
+function ctx(
+  person: PersonDto,
+  threadId: ThreadId | null,
+  taskId: TaskId | null = null,
+  participants: PersonDto[] = [person],
+): ToolRunContext {
   return {
     person,
-    participants: [person],
+    participants,
     threadId,
     taskId,
     signal: new AbortController().signal,
@@ -145,5 +150,44 @@ describe('task.* built-in tools', () => {
     expect((await h.tasks.get(task?.id ?? 'tsk_x'))?.status).toBe('cancelled')
     expect(h.repos.deliveryRows.size).toBe(0)
     expect((await call(cancel, { id: task?.id }, asTony)).content).toContain('already cancelled')
+  })
+
+  test('I-4: in a group, task.status and task.cancel see the group task and never a private one', async () => {
+    const h = createHarness()
+    const tony = await seedPerson(h.repos, h.ids, { name: 'Tony' })
+    const pepper = await seedPerson(h.repos, h.ids, { name: 'Pepper', tier: 'member' })
+    const rhodey = await seedPerson(h.repos, h.ids, { name: 'Rhodey', tier: 'member' })
+    const group = await seedGroup(h.repos, h.ids, {
+      title: 'Expo',
+      participants: [tony.personId, pepper.personId],
+    })
+    const tonyDto: PersonDto = { id: tony.personId, name: 'Tony', tier: 'owner' }
+    const pepperDto: PersonDto = { id: pepper.personId, name: 'Pepper', tier: 'member' }
+    const inGroup = (p: PersonDto) => ctx(p, group, null, [tonyDto, pepperDto])
+    const { start, status, cancel } = toolsOf(h)
+
+    await call(start, { goal: 'PRIVATE suit upgrade', notify: 'silent' }, ctx(tonyDto, tony.threadId))
+    await call(start, { goal: 'group venue search', notify: 'silent' }, inGroup(pepperDto))
+    const privateTask = (await h.tasks.active()).find((t) => t.goal.startsWith('PRIVATE'))
+    const groupTask = (await h.tasks.active()).find((t) => t.goal === 'group venue search')
+
+    // In the group, Tony sees the group task but not his own private one.
+    const list = await call(status, {}, inGroup(tonyDto))
+    expect(list.content).toContain('group venue search')
+    expect(list.content).not.toContain('PRIVATE')
+    expect((await call(status, { id: privateTask?.id }, inGroup(tonyDto))).error).toBe(true)
+    expect((await call(cancel, { id: privateTask?.id }, inGroup(tonyDto))).error).toBe(true)
+    // In his direct thread, Tony sees both (he is in the group).
+    const direct = await call(status, {}, ctx(tonyDto, tony.threadId))
+    expect(direct.content).toContain('PRIVATE')
+    expect(direct.content).toContain('group venue search')
+    // Rhodey is not in the group.
+    const asRhodey = ctx({ id: rhodey.personId, name: 'Rhodey', tier: 'member' }, rhodey.threadId)
+    expect((await call(status, { id: groupTask?.id }, asRhodey)).error).toBe(true)
+
+    // Anyone in the group may cancel the group task, not only the one who started it.
+    const ok = await call(cancel, { id: groupTask?.id }, inGroup(tonyDto))
+    expect(ok.error).toBeUndefined()
+    expect((await h.tasks.get(groupTask?.id ?? 'tsk_x'))?.status).toBe('cancelled')
   })
 })

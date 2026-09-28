@@ -10,6 +10,7 @@ export {
   isVisible,
   loadVisibilityFacts,
   type PersonFacts,
+  taskTarget,
   toStorageFilter,
   type VisibilityFacts,
   type VisibilityTarget,
