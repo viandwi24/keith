@@ -2,22 +2,41 @@
 
 import type { MessageDto } from '@keith/protocol'
 import type { LlmMessage } from '@keith/sdk'
-import type { Tier } from '../shared/types.ts'
+import type { PersonId, Tier } from '../shared/types.ts'
 import type { AssistantMessageRecord, MessageRecord } from '../storage/types.ts'
+
+/** The name used for an author the builder couldn't resolve. */
+export const UNKNOWN_AUTHOR = 'Someone'
+
+export type LlmReplayOptions = {
+  /**
+   * A group thread (phase 5, D7): each `user` message gets `name` = its author's name and a
+   * `<name>: ` content prefix, because not every provider honours `name`. Default false.
+   */
+  group?: boolean
+  /** Author names by person id. An id missing here (or a null author) reads as `Someone`. */
+  names?: ReadonlyMap<PersonId, string>
+}
 
 /**
  * Replays stored messages as `LlmMessage[]`. A window cut can leave tool rows without their
  * assistant call, or an assistant call without all of its results (a crash mid-step). Providers
  * reject both, so orphan tool rows are dropped and incomplete calls lose their `toolCalls`.
+ * In a group thread (`opts.group`), user messages carry their author's name.
  */
-export function toLlmMessages(records: MessageRecord[]): LlmMessage[] {
+export function toLlmMessages(records: MessageRecord[], opts: LlmReplayOptions = {}): LlmMessage[] {
   const out: LlmMessage[] = []
   for (let i = 0; i < records.length; i++) {
     const r = records[i]
     // Tool rows of complete call groups are emitted with their assistant row below.
     if (r === undefined || r.role === 'tool') continue
     if (r.role === 'user') {
-      out.push({ role: 'user', content: r.content })
+      if (opts.group) {
+        const name = authorName(r.authorPersonId, opts.names)
+        out.push({ role: 'user', name, content: `${name}: ${r.content}` })
+      } else {
+        out.push({ role: 'user', content: r.content })
+      }
     } else if (r.toolCalls && r.toolCalls.length > 0) {
       const results = collectResults(records, i + 1, r)
       if (results) {
@@ -31,6 +50,11 @@ export function toLlmMessages(records: MessageRecord[]): LlmMessage[] {
     }
   }
   return out
+}
+
+/** `names.get(id)`, or `Someone` for a null or unknown author. */
+export function authorName(id: PersonId | null, names?: ReadonlyMap<PersonId, string>): string {
+  return (id !== null ? names?.get(id) : undefined) ?? UNKNOWN_AUTHOR
 }
 
 function collectResults(

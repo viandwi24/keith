@@ -2,8 +2,10 @@ import { describe, expect, test } from 'bun:test'
 import { defineTool } from '@keith/sdk'
 import { createFakeClock } from '@keith/sdk/testing'
 import { z } from 'zod'
-import type { MessageRecord } from '../storage/types.ts'
+import type { Delivery, PersonId } from '../shared/types.ts'
+import type { MessageRecord, ThreadRecord } from '../storage/types.ts'
 import { createContextBuilder } from './context-builder.ts'
+import { GROUP_ADDRESS_RULE, GROUP_TONE_RULE } from './context-sections.ts'
 import { lowestTier, toLlmMessages, toMessageDto } from './messages.ts'
 import {
   createFakeCommitments,
@@ -16,6 +18,9 @@ import {
 import { PEPPER, TONY } from './testing/harness.ts'
 
 const THREAD = 'thr_00000000000000000000000001' as const
+const RHODEY: PersonId = 'per_000000000000000000000RH0DE'
+/** A person who was deleted (ADR-0018) or never existed: `persons.get` answers null. */
+const GONE: PersonId = 'per_0000000000000000000000G0NE'
 
 function tool(name: string, minTier: 'owner' | 'member' | 'guest', requires?: string[]) {
   return defineTool({
@@ -42,7 +47,7 @@ function msg(role: 'user' | 'assistant', content: string, over: Partial<MessageR
     createdAt: seq,
   }
   return role === 'user'
-    ? { ...base, role: 'user' }
+    ? ({ ...base, role: 'user', ...over } as MessageRecord)
     : ({ ...base, role: 'assistant', toolCalls: null, ui: null, ...over } as MessageRecord)
 }
 
@@ -321,5 +326,191 @@ describe('message conversions', () => {
     expect(lowestTier(['owner', 'guest', 'member'])).toBe('guest')
     expect(lowestTier(['owner'])).toBe('owner')
     expect(lowestTier([])).toBe('guest')
+  })
+})
+
+function delivery(over: Partial<Delivery>): Delivery {
+  return {
+    id: 'dlv_00000000000000000000000001',
+    threadId: THREAD,
+    personId: TONY,
+    kind: 'task_result',
+    authorPersonId: null,
+    source: 'core',
+    urgency: 'normal',
+    content: 'Shortlist ready',
+    ui: null,
+    status: 'pending',
+    createdAt: 0,
+    deliveredAt: null,
+    ...over,
+  }
+}
+
+function threadRecord(kind: 'direct' | 'group', over: Partial<ThreadRecord> = {}): ThreadRecord {
+  return {
+    id: THREAD,
+    kind,
+    slug: kind === 'direct' ? 'main' : null,
+    title: kind === 'direct' ? 'Main' : 'Mission',
+    ownerPersonId: TONY,
+    summary: null,
+    createdAt: 0,
+    updatedAt: 0,
+    ...over,
+  }
+}
+
+describe('context builder: direct threads are unchanged (phase 5)', () => {
+  test('a direct build is byte-for-byte what it was before group support', async () => {
+    const { repos, builder } = await setup()
+    await repos.threads.create(threadRecord('direct'), [TONY])
+    for (const m of [
+      msg('user', 'hello'),
+      msg('assistant', 'Good morning, sir.'),
+      msg('user', 'what did I miss?'),
+    ])
+      await repos.messages.append(m)
+    const built = await builder.build({
+      threadId: THREAD,
+      viewer: { participants: [TONY] },
+      kind: 'user',
+      focusCapabilities: ['chat.text@1'],
+      deliveries: [
+        delivery({}),
+        delivery({
+          id: 'dlv_00000000000000000000000002',
+          kind: 'plugin',
+          authorPersonId: PEPPER,
+          source: '@keith/tool-lab',
+          urgency: 'high',
+          content: 'Reactor warm',
+        }),
+      ],
+    })
+    // Captured from the phase-4 builder with the same fixture.
+    expect(built).toEqual({
+      system:
+        "You are Keith.\n\n# Now\nIt is Thursday, January 1, 1970 at 12:00 AM (UTC).\nThe person's current device supports: chat.text@1.\nIt cannot show visual UI; answer in plain text.\n\n# Who you are talking to\n- Tony (tier: owner)\n  Tone: dry wit\n\n# What you know\n- Tony builds suits.\n\n# Memory index\nYou also have memories about these subjects. Use memory.recall when one is relevant:\nExpo\n\n# Meanwhile\nRunning one background task.\n\n# Open promises in this conversation\n- Report the shortlist (task tsk_00000000000000000000000001)\n\n# Things to tell them\nThey just arrived. If their message is a greeting or asks what they missed, lead with these items. Otherwise answer first, then mention them briefly.\n- [normal] (task_result) Shortlist ready\n- [high] (plugin from @keith/tool-lab) Reactor warm\n\n# Skills\nCall skill.load with a name to read its full instructions before using it:\n- expo: Plan an expo",
+      messages: [
+        { role: 'user', content: 'hello' },
+        { role: 'assistant', content: 'Good morning, sir.' },
+        { role: 'user', content: 'what did I miss?' },
+      ],
+      tools: ['skill.load', 'lab.deploy', 'lab.status'],
+    })
+  })
+
+  test('a relay in a direct delivery turn is labelled with its sender', async () => {
+    const { repos, builder } = await setup()
+    await repos.threads.create(threadRecord('direct'), [TONY])
+    const built = await builder.build({
+      threadId: THREAD,
+      viewer: { participants: [TONY] },
+      kind: 'delivery',
+      focusCapabilities: [],
+      deliveries: [
+        delivery({ kind: 'relay', authorPersonId: PEPPER, content: 'The kids are asleep.' }),
+        delivery({
+          id: 'dlv_00000000000000000000000002',
+          kind: 'relay',
+          authorPersonId: GONE,
+          content: 'Old news.',
+        }),
+      ],
+    })
+    expect(built.system).toContain('- [normal] (relay from Pepper) The kids are asleep.')
+    expect(built.system).toContain('- [normal] (relay from Someone) Old news.')
+    expect(built.system).toContain('say who it is from')
+  })
+})
+
+describe('context builder: group threads (phase 5)', () => {
+  async function group(purpose: string | null = 'Get the suit to Rome') {
+    const s = await setup()
+    await s.repos.persons.create({
+      id: RHODEY,
+      name: 'Rhodey',
+      username: null,
+      passwordHash: null,
+      tier: 'guest',
+      lastSeenAt: null,
+      createdAt: 0,
+    })
+    await s.repos.relationships.upsert({
+      personId: RHODEY,
+      tone: 'formal',
+      notes: 'colonel',
+      blockedRelayFrom: [],
+    })
+    await s.repos.threads.create(threadRecord('group', { purpose }), [TONY, PEPPER, RHODEY])
+    return s
+  }
+
+  const turn = {
+    threadId: THREAD,
+    viewer: { participants: [TONY, PEPPER, RHODEY] },
+    focusCapabilities: [],
+    deliveries: [],
+  }
+
+  test('user messages carry their author names, and the Mind stays unnamed', async () => {
+    const { repos, builder } = await group()
+    for (const m of [
+      msg('user', 'Keith, status?'),
+      msg('assistant', 'All green, sir.'),
+      msg('user', 'Keith, and the jet?', { authorPersonId: PEPPER }),
+      msg('user', 'I left the group.', { authorPersonId: GONE }),
+      msg('user', 'Keith, what about me?', { authorPersonId: RHODEY }),
+    ])
+      await repos.messages.append(m)
+    const built = await builder.build({ ...turn, kind: 'user' })
+    expect(built.messages).toEqual([
+      { role: 'user', name: 'Tony', content: 'Tony: Keith, status?' },
+      { role: 'assistant', content: 'All green, sir.' },
+      { role: 'user', name: 'Pepper', content: 'Pepper: Keith, and the jet?' },
+      { role: 'user', name: 'Someone', content: 'Someone: I left the group.' },
+      { role: 'user', name: 'Rhodey', content: 'Rhodey: Keith, what about me?' },
+    ])
+  })
+
+  test('a former participant who still exists keeps their name', async () => {
+    const { repos, builder } = await group()
+    await repos.messages.append(msg('user', 'Keith, hi.', { authorPersonId: PEPPER }))
+    const built = await builder.build({ ...turn, viewer: { participants: [TONY, RHODEY] }, kind: 'user' })
+    expect(built.messages).toEqual([{ role: 'user', name: 'Pepper', content: 'Pepper: Keith, hi.' }])
+    expect(built.system).not.toContain('- Pepper (tier')
+  })
+
+  test('section 3 shows every card, the title, the purpose, whose message it answers and the rules', async () => {
+    const { repos, builder } = await group()
+    await repos.messages.append(msg('user', 'Keith, and the jet?', { authorPersonId: PEPPER }))
+    const built = await builder.build({ ...turn, kind: 'user' })
+    expect(built.system).toContain(
+      [
+        '# Participants',
+        'This is the group thread "Mission".',
+        'Its purpose: Get the suit to Rome',
+        '- Tony (tier: owner)',
+        '  Tone: dry wit',
+        '- Pepper (tier: member)',
+        '- Rhodey (tier: guest)',
+        '  Tone: formal',
+        '  Notes: colonel',
+        "You are answering Pepper's message.",
+        GROUP_TONE_RULE,
+        GROUP_ADDRESS_RULE,
+      ].join('\n'),
+    )
+    // A guest in the group limits everyone's tools.
+    expect(built.tools).toEqual(['skill.load'])
+  })
+
+  test('a delivery turn in a group answers nobody', async () => {
+    const { builder } = await group(null)
+    const built = await builder.build({ ...turn, kind: 'delivery', deliveries: [delivery({})] })
+    expect(built.system).toContain('This is the group thread "Mission".')
+    expect(built.system).not.toContain('Its purpose')
+    expect(built.system).not.toContain('You are answering')
   })
 })
