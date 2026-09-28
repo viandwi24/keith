@@ -4,7 +4,7 @@ title: "Visibility everywhere: group viewers across recall, core, digest, reflec
 phase: 5
 wave: 2
 lane: E
-status: review
+status: done
 owner: agent-P5-E1
 depends: [P5-K1]
 owns:
