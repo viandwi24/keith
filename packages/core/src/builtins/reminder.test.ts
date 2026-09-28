@@ -50,6 +50,7 @@ const reminderDeps: ReminderToolsDeps = {
       arrival: { awayAfterMinutes: 30, briefing: 'on-greeting', holdMs: 120_000, graceMs: 1_500 },
       context: { recentMessages: 40 },
       reminder: { maxPerPerson: 50 },
+      group: { maxParticipants: 8, autoJoin: false, addressing: 'rules+utility' },
     },
   },
   clock: createFakeClock(1_700_000_000_000),

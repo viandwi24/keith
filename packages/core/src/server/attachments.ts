@@ -73,6 +73,10 @@ export function createAttachmentRegistry(deps: AttachmentRegistryDeps): ServerAt
     attachedTo(threadId) {
       return [...(byThread.get(threadId) ?? [])]
     },
+    // Placeholder (phase 5): P5-N1 records each node's person in `connect` and answers from it.
+    nodesOfPerson() {
+      return []
+    },
     send(nodeId, frame) {
       const outlet = outlets.get(nodeId)
       if (!outlet) return

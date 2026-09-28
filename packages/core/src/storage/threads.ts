@@ -1,5 +1,6 @@
 // threads + thread_participants repository.
 
+import { KeithError } from '@keith/sdk'
 import { and, asc, desc, eq, gt, isNull, lte, type SQL, sql } from 'drizzle-orm'
 import type { Orm } from './orm.ts'
 import { messages, threadParticipants, threads } from './schema.ts'
@@ -34,8 +35,22 @@ function qualified(table: string, column: { name: string }): SQL {
  */
 const lastSeqOfThread: SQL<number> = sql<number>`(select coalesce(max(${qualified('messages', messages.seq)}), 0) from ${messages} where ${qualified('messages', messages.threadId)} = ${qualified('threads', threads.id)})`
 
+function notImplemented(what: string): KeithError {
+  return new KeithError('INTERNAL', `${what} not implemented yet (P5-S1)`)
+}
+
 export function createThreadsRepository(db: Orm): ThreadsRepository {
   return {
+    // Phase 5 placeholders: P5-S1 implements them (JSDoc in types.ts) and adds `purpose`.
+    async addParticipant() {
+      throw notImplemented('threads.addParticipant')
+    },
+    async removeParticipant() {
+      throw notImplemented('threads.removeParticipant')
+    },
+    async formerParticipants() {
+      throw notImplemented('threads.formerParticipants')
+    },
     async create(t, participants) {
       db.transaction((tx) => {
         tx.insert(threads)

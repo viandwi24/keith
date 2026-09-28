@@ -17,6 +17,7 @@ import type {
   UiBlock,
   Viewer,
 } from '../shared/types.ts'
+import type { MessageRecord, ThreadRecord } from '../storage/types.ts'
 
 /** `awayMs` is null on a first-ever attach. */
 export type Arrival = { awayMs: number | null }
@@ -119,4 +120,69 @@ export interface ContextBuilder {
     /** Section 8. Only for delivery and briefing turns, and the first turn after an arrival. */
     deliveries: Delivery[]
   }): Promise<BuiltContext>
+}
+
+// Group threads (phase 5, docs/architecture/core.md#group-threads)
+
+export type AddressingVerdict = {
+  addressed: boolean
+  /** Which rule decided. 'unsure' means not addressed (the Mind doesn't interrupt humans). */
+  by: 'single_human' | 'name' | 'reply' | 'question' | 'other_human' | 'classifier' | 'unsure' | 'default'
+}
+
+export interface AddressingDetector {
+  /** Whether the Mind should take a turn for this input in a group thread. Never throws. */
+  decide(a: {
+    threadId: ThreadId
+    input: { authorPersonId: PersonId; text: string }
+    /** Visible messages before the input, oldest first (at most 10). */
+    recent: MessageRecord[]
+    /** Current participants' names. */
+    participantNames: string[]
+    signal: AbortSignal
+  }): Promise<AddressingVerdict>
+}
+
+/**
+ * `details.reason` of the `KeithError('FORBIDDEN')` that `GroupThreads` throws when a rule refuses
+ * (ADR-0017). The `thread.*` tools turn each into a tool error.
+ * - `tier`: the creator or inviter is below `member`.
+ * - `not_participant`: the inviter is not a current participant of the thread.
+ * - `not_group`: the thread is not a group thread (invite, or leave a direct thread).
+ * - `limit`: current participants plus pending invitations would exceed `mind.group.maxParticipants`.
+ * - `no_invitees`: the invitee list is empty.
+ * - `self`: the invitee list names the caller.
+ * - `unknown_person`: an invitee id is not a person.
+ */
+export type GroupRefusalReason =
+  | 'tier'
+  | 'not_participant'
+  | 'not_group'
+  | 'limit'
+  | 'no_invitees'
+  | 'self'
+  | 'unknown_person'
+
+/**
+ * Starting, joining and leaving group threads (ADR-0017). Emits `thread.participant_joined` and
+ * `thread.participant_left` after the storage write. A refusal by rule throws
+ * `KeithError('FORBIDDEN')` with `details.reason: GroupRefusalReason`; an unknown thread throws
+ * `KeithError('NOT_FOUND')`.
+ */
+export interface GroupThreads {
+  start(a: {
+    creatorId: PersonId
+    inviteeIds: PersonId[]
+    title: string
+    purpose: string | null
+  }): Promise<{ thread: ThreadRecord; invited: PersonId[]; joined: PersonId[] }>
+  invite(a: {
+    threadId: ThreadId
+    inviterId: PersonId
+    inviteeIds: PersonId[]
+  }): Promise<{ invited: PersonId[]; joined: PersonId[]; skipped: PersonId[] }>
+  /** Accepts a pending invitation. False without one. */
+  join(a: { threadId: ThreadId; personId: PersonId }): Promise<boolean>
+  /** Leaves a group, or declines a pending invitation. False when neither applies. */
+  leave(a: { threadId: ThreadId; personId: PersonId }): Promise<boolean>
 }

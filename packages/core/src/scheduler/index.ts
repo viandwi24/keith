@@ -11,13 +11,15 @@ import type { Repositories } from '../storage/types.ts'
 import { type CommitmentManager, createCommitmentService } from './commitments.ts'
 import { createDeliveryQueue, createDeliverySinks } from './deliveries.ts'
 import { createLaneScheduler, type LaneScheduler } from './lanes.ts'
+import { createRelayService } from './relay.ts'
 import { createReminderService } from './reminders.ts'
 import { createTaskService, type TaskManager } from './tasks.ts'
-import type { DeliveryQueue, ReminderService } from './types.ts'
+import type { DeliveryQueue, RelayService, ReminderService } from './types.ts'
 
 export type { CommitmentManager } from './commitments.ts'
 export { MAIN_THREAD_SLUG } from './deliveries.ts'
 export type { LaneScheduler } from './lanes.ts'
+export { createRelayService, type RelayServiceDeps } from './relay.ts'
 export { createReminderService, type ReminderServiceDeps } from './reminders.ts'
 export { TASK_SUMMARY_MAX_CHARS, type TaskManager } from './tasks.ts'
 
@@ -42,6 +44,8 @@ export type Scheduling = {
   deliveries: DeliveryQueue
   /** Phase 4: handed to `registerBuiltins` for the `reminder.*` tools (bootstrap step 10). */
   reminders: ReminderService
+  /** Phase 5: handed to `registerBuiltins` for the `relay.*` tools (bootstrap step 10). */
+  relay: RelayService
   /** Handed to the plugin host as `deliveries` (bootstrap step 11). */
   deliverySinks: PluginScoped<DeliverySink>
   /**
@@ -61,6 +65,7 @@ export function createScheduling(deps: SchedulingDeps): Scheduling {
   const deliveries = createDeliveryQueue({ repos, events, ids, clock })
   const deliverySinks = createDeliverySinks({ queue: deliveries, repos })
   const reminders = createReminderService({ config, repos, deliveries, ids, clock, log })
+  const relay = createRelayService({ repos, deliveries, log })
   const tasks = createTaskService({
     config,
     repos,
@@ -82,6 +87,7 @@ export function createScheduling(deps: SchedulingDeps): Scheduling {
     commitments,
     deliveries,
     reminders,
+    relay,
     deliverySinks,
     async start() {
       await tasks.recover()

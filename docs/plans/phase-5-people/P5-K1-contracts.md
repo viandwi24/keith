@@ -4,12 +4,13 @@ title: Phase-5 contract additions and core interfaces for people, relays and gro
 phase: 5
 wave: 1
 lane: K
-status: in-progress
+status: review
 owner: agent-P5-K1
 depends: [P4-I2]
 owns:
   - docs/contracts/**
   - packages/protocol/src/**
+  - packages/protocol/test/doc-examples.test.ts
   - packages/sdk/src/events.ts
   - packages/sdk/src/events.test.ts
   - packages/core/src/config/**
@@ -209,15 +210,15 @@ The hardening audit's lesson applies: every interface a wave-2 lane needs is fix
 
 ## Acceptance criteria
 
-- [ ] `frames.test.ts` / `dto.test.ts`: the new frames and fields parse, the protocol.md examples parse, and a phase-4 `ThreadDto` (without the new fields) still parses.
-- [ ] `events.test.ts` (sdk) checks the two new events against events.md, and `CORE_EVENT_NAMES` includes them.
-- [ ] Config: `config/group.test.ts` (new). An empty file gives every default above. `KEITH__MIND__GROUP__MAXPARTICIPANTS=4` gives 4. `maxParticipants = 1` and `inviteTtlHours = 0` are `CONFIG_INVALID`, and so is a `publicUrl` that is not an `http(s)` URL.
-- [ ] `builtins/relay.test.ts` and `builtins/thread.test.ts` (spec only): names, input schemas and `minTier` as above. `registerBuiltins` without `relay` / `groups` registers none of them.
-- [ ] `cli.test.ts`-style unit test in `cli/`: `keith person` without a subcommand prints the usage, and each subcommand reaches the placeholder.
-- [ ] Existing tests pass unchanged. `createAddressing`'s placeholder answers `addressed: true`.
-- [ ] `bun run core-docs` passes.
-- [ ] `bun run plans --lint` is clean. Once this is `done`, `bun run plans --ready` lists P5-S1, P5-A1, P5-N1, P5-B1, P5-C1, P5-C2, P5-C3, P5-D1, P5-E1 and P5-F1.
-- [ ] `bun run check` passes.
+- [x] `frames.test.ts` / `dto.test.ts`: the new frames and fields parse, the protocol.md examples parse, and a phase-4 `ThreadDto` (without the new fields) still parses.
+- [x] `events.test.ts` (sdk) checks the two new events against events.md, and `CORE_EVENT_NAMES` includes them.
+- [x] Config: `config/group.test.ts` (new). An empty file gives every default above. `KEITH__MIND__GROUP__MAXPARTICIPANTS=4` gives 4. `maxParticipants = 1` and `inviteTtlHours = 0` are `CONFIG_INVALID`, and so is a `publicUrl` that is not an `http(s)` URL.
+- [x] `builtins/relay.test.ts` and `builtins/thread.test.ts` (spec only): names, input schemas and `minTier` as above. `registerBuiltins` without `relay` / `groups` registers none of them.
+- [x] `cli.test.ts`-style unit test in `cli/`: `keith person` without a subcommand prints the usage, and each subcommand reaches the placeholder.
+- [x] Existing tests pass unchanged. `createAddressing`'s placeholder answers `addressed: true`.
+- [x] `bun run core-docs` passes.
+- [x] `bun run plans --lint` is clean. Once this is `done`, `bun run plans --ready` lists P5-S1, P5-A1, P5-N1, P5-B1, P5-C1, P5-C2, P5-C3, P5-D1, P5-E1 and P5-F1.
+- [x] `bun run check` passes.
 
 ## Notes
 
@@ -229,4 +230,64 @@ The hardening audit's lesson applies: every interface a wave-2 lane needs is fix
 
 ## Outcome
 
-_Filled by the agent when finishing: what was built, decisions (ADR links), deviations, follow-ups._
+Everything is additive (contracts rule 3): no frame, DTO field, event, config key, interface member or error code changed meaning or was removed. No new ADR: every point was settled by the plan, ADR-0017 and ADR-0018, or is recorded under Decisions. Bootstrap is unchanged, and no `relay.*` or `thread.*` tool is registered, so behavior doesn't change.
+
+**Built**
+- **Protocol** (`@keith/protocol`, protocol.md, tests):
+  - `ThreadDto.purpose?` and `formerParticipants?`; `MessageDto.meta.relayFrom?` (`RelaySender { personId, name }[]`).
+  - Core → node `thread.updated { thread }` and `thread.removed { threadId }` (`ThreadUpdatedFrame`, `ThreadRemovedFrame`), phase 5, in `CoreFrame` and `CORE_FRAME_SCHEMAS`. Delivery rules: neither is a chat frame, so a node without `chat.text@1` gets them.
+  - `POST /v1/auth/invite`: `InviteAcceptRequest { code, username, password }` → `LoginResponse`, `INVITE_CODE_LENGTH` (43), `PASSWORD_MIN_CHARS` (8). New "Invite links" section. `UNAUTHORIZED` row mentions invite codes.
+  - The `message.user` row no longer says "or a relay" (D4).
+  - Three new ` ```json frame` examples (`thread.updated`, `thread.removed`, `message.completed` with `relayFrom`). `frames.test.ts` has samples for both frames, phase-4 `ThreadDto` compatibility, direction checks and `relayFrom` round-trip; `dto.test.ts` covers the new fields and the invite body.
+- **Events** (events.md, `CoreEventMap`, `CORE_EVENT_NAMES`): `thread.participant_joined { threadId, personId, invitedBy: PersonId | null }` and `thread.participant_left { threadId, personId }`, phase 5. A conventions line says there are no `relay.*` or `person.*` events. `events.test.ts` checks the phase-5 rows' fields against the payload types.
+- **Config** (`config/types.ts`, `schema.ts`, new `config/group.test.ts`, config.md): `server.publicUrl?` (absolute `http(s)` URL, no default), `auth.inviteTtlHours` (72, positive, fractional), `[mind.group]` `maxParticipants` (8, integer ≥ 2), `autoJoin` (false), `addressing` (`'rules+utility'` | `'rules'`, type `GroupAddressingMode`).
+- **Shared types:** `ThreadInvitationStatus`, `ThreadInvitation`.
+- **Storage types** (every member with JSDoc): `PersonsRepository.findByName`, `setTier`, `setCredentials`, `remove(id): Promise<PersonRemoval>`; `PersonRemoval { deleted: {…13 counts}, cleared: { memories, relays, groupThreads, blockLists }, filePaths }`; `ThreadRecord.purpose?`; `ThreadsRepository.addParticipant`, `removeParticipant`, `formerParticipants`; `ThreadInvitationsRepository` (`repos.threadInvitations`); `InviteLinkRecord` and `InviteLinksRepository` (`repos.inviteLinks`); `MessageMeta.relayFrom?`.
+- **Storage placeholders** (throw `INTERNAL` "… not implemented yet (P5-S1)"): the new members in `persons.ts` and `threads.ts`; new `storage/invite-links.ts` and `storage/thread-invitations.ts`, wired in `db.ts`. `storage/testing.ts` has the real test-only helper `markParticipantLeft(db, threadId, personId, at): boolean` (own `bun:sqlite` connection on `db.path`, conditional update), tested in `storage/testing.test.ts`.
+- **Mind** (`mind/types.ts`): `AddressingVerdict`, `AddressingDetector`, `GroupRefusalReason`, `GroupThreads`, exactly as the task specifies. `createAddressing(deps: AddressingDeps)` in `mind/addressing/index.ts` (answers `{ addressed: true, by: 'default' }`, tested) and `createGroupThreads(deps: GroupThreadsDeps)` in `mind/groups.ts` (every method throws `INTERNAL` "groups.<method> not implemented yet (P5-C1)"), both exported from `mind/index.ts`. `ThreadManagerDeps.addressing?`.
+- **Scheduler** (`scheduler/types.ts`): `RelayResult`, `RelayService`. `scheduler/relay.ts` has `createRelayService(deps: RelayServiceDeps)` (throws "relay.<method> not implemented yet (P5-B1)"). `createScheduling` builds it and exposes `Scheduling.relay`. `SchedulingDeps.repos` already had `persons`, `relationships` and `threads`, so it didn't change.
+- **Built-ins:**
+  - `builtins/relay.ts`: `relay.send { to (1..80), text (1..2000) }`, `relay.block { from }`, `relay.unblock { from }`, all `guest`. Exports `RelayToolsDeps`, `RELAY_TOOL_NAMES`, `PERSON_NAME_MAX_CHARS`, `RELAY_TEXT_MAX_CHARS`, the three input schemas and `RELAY_MESSAGES` (ADR-0017's texts: `sent`, `unknown`, the generic `notAllowed`, `self`, plus block/unblock answers).
+  - `builtins/thread.ts`: `thread.start_group { participants (1..7), title (1..80), purpose? (..500) }` and `thread.invite { participants (1..7) }` (`member`); `thread.join { threadId }` and `thread.leave { threadId? }` (`guest`). Exports `ThreadToolsDeps`, `THREAD_TOOL_NAMES`, `GROUP_INVITEES_MAX`, `GROUP_TITLE_MAX_CHARS`, `GROUP_PURPOSE_MAX_CHARS`, the input schemas and `THREAD_MESSAGES` (with `refused`, one answer per `GroupRefusalReason`).
+  - Bodies answer a tool error "relay tools are not implemented yet (P5-B1)." / "thread tools are not implemented yet (P5-C1)."
+  - `BuiltinDeps.relay?: RelayToolsDeps` and `groups?: ThreadToolsDeps`; `registerBuiltins` registers the tools only when given. `builtins/relay.test.ts` and `builtins/thread.test.ts` check names, schemas, `minTier`, JSON Schema conversion and registration with and without the deps.
+- **Server:** `AttachmentRegistry.nodesOfPerson(personId): NodeId[]`; the placeholder in `attachments.ts` returns `[]` (the only implementer). `server/dto.ts` and `mind/messages.ts` copy `meta.relayFrom` into `MessageDto.meta` (tested in new `server/dto.test.ts`).
+- **CLI:** `cli/person.ts` with `runPersonCommand(args, io: PersonCommandIo)`, `PERSON_SUBCOMMANDS` and `PERSON_USAGE`. No subcommand or `--help` prints the usage (exit 0), an unknown one is a usage error (exit 2), and each known one prints "keith person <sub> is not implemented yet (P5-A1)" and exits 1. `cli/index.ts` dispatches `person` and lists it in the usage. Tested in `cli/person.test.ts`.
+- **Fakes:** `memory/testing/fakes.ts` (+ config literal in `reflect.ts`), `mind/testing/fakes.ts` (+ `testConfig`), `scheduler/testing/fakes.ts`, `server/test-fakes.ts`: working in-memory `findByName`, `setTier`, `setCredentials`, `addParticipant`, `removeParticipant`, `formerParticipants`; `remove` throws "not modeled". `listForPerson` in the mind and scheduler fakes now skips rows with `left_at` set (the real contract). Every config literal gains the new keys (`builtins/reminder.test.ts` too).
+- **Client:** `state.ts` ignores `thread.updated` / `thread.removed` (a test checks the state is unchanged).
+- **Docs:**
+  - core.md: the config, shared, storage, server, mind and scheduler blocks match the `types.ts` files (`core-docs` ok). New prose, marked Planned: group-thread factories and deps, `Scheduling.relay`, the construction-order note (P5-I1), the context-builder note (P5-C3), a "Relays" subsection under Deliveries (P5-B1, C2, C3), the built-in tools table with all seven tools and their tiers, and a "Group threads" section (membership P5-C1, turns P5-C2, addressing P5-D1, frames). The old group-threads Planned note is gone.
+  - memory.md: a "Deleting a person" section with ADR-0018's list, marked `(P5-S1, P5-A1)`.
+  - storage.md: `threads.purpose`, `invite_links`, `thread_invitations` rows, and an "Invite links and group invitations (phase 5)" section with the repository semantics and person removal, marked `(P5-S1)`.
+  - nodes.md: the lifecycle diagram shows `POST /v1/auth/invite` and the two frames; new "Adding people" `(P5-A1, P5-N1)` and "Thread list (phase 5)" `(P5-N1)` sections replace the phase-5 Planned note.
+  - config.md: the new keys, their rules and a `keith person` section `(P5-A1)`.
+  - providers.md: `utility` runs the addressing classifier.
+  - glossary.md: **Invite link**, and **Invitation** (the group-thread Delivery), each naming the other under "Don't say".
+
+**Decisions**
+- **`InviteAcceptRequest.code` is any 1..200-character string**, not a 43-character base64url schema. A malformed code must answer `401` like a wrong one (ADR-0017: one answer for wrong, used and expired), not `400`. `INVITE_CODE_LENGTH` documents the real length.
+- **`GroupRefusalReason`** (the `details.reason` values): `tier`, `not_participant`, `not_group`, `limit`, `no_invitees`, `self`, `unknown_person`. An unknown thread is `KeithError('NOT_FOUND')`, not a refusal. Leaving a direct thread is `not_group`.
+- **`PersonRemoval` shape:** `deleted` has `directThreads`, `directMessages`, `groupMessages`, `groupMemberships`, `memories`, `tasks`, `commitments`, `deliveries`, `reminders`, `authTokens`, `inviteLinks`, `threadInvitations`, `files`; `cleared` has `memories`, `relays`, `groupThreads`, `blockLists`; plus `filePaths`. P5-S1 fills it and P5-A1 prints it.
+- `InviteLinksRepository.revokeFor` returns the number of deleted rows (`Promise<number>`), so the CLI can say how many links it revoked.
+- `ThreadInvitationsRepository.pendingForThread` / `pendingForPerson` are oldest first (ties by the other id).
+- `ThreadToolsDeps` / `RelayToolsDeps` are the names of the `groups` / `relay` groups in `BuiltinDeps`. `ThreadToolsDeps.config` is `Pick<KeithConfig, 'mind'>`, as the task says.
+- The storage `MessageMetaSchema` (`storage/messages.ts`) parses `relayFrom`, otherwise the JSON column would drop it on read. Tested in `messages.test.ts`. No lane owns `storage/messages.ts` in wave 2, so it had to be here.
+- `RELAY_MESSAGES` and `THREAD_MESSAGES` include answers beyond ADR-0017's four relay texts (block/unblock results, join/leave/started/invited, one refusal per reason). The lanes use them as they are.
+
+**Deviations**
+- `owns` widened by one file, `packages/protocol/test/doc-examples.test.ts` (the P3-K1 precedent): its frame-table check only read phase 1–3 rows, so the phase-5 frames would have failed it. It now reads phase 5 too.
+- `docs/rules/conventions.md` is in `updates` but needed no change: there is no new id prefix, and the tool and event names follow the existing patterns.
+- No other implementer outside `owns` broke: `apps/tui` and `plugins/web/app` have no exhaustive `CoreFrame` switch; the only one was `packages/client/src/state.ts`.
+
+**Notes for the lanes**
+- **P5-S1:** implement the JSDoc in `storage/types.ts` exactly. `get`, `getBySlug`, `listForPerson` must return `purpose` (null when unset), and `create` stores it (absent = null); `threads.create` currently spreads the record into the insert, so add the column to the schema. Replace the placeholders in `persons.ts`, `threads.ts`, `invite-links.ts`, `thread-invitations.ts` (already wired in `db.ts`). `setCredentials` with a username another person has should throw (the unique index does that). Remove the `(P5-S1)` markers in storage.md and memory.md.
+- **P5-A1:** replace `runPersonCommand` in `cli/person.ts`, keeping its signature, `PERSON_SUBCOMMANDS` and `PERSON_USAGE` (edit the text if you need to, `cli/person.test.ts` is yours). `cli/index.ts` already dispatches `person` with the full `CliIo`. Invite codes: SHA-256 hex of the UTF-8 code. Remove the `(P5-A1)` markers in config.md, nodes.md and memory.md.
+- **P5-N1:** implement `nodesOfPerson` in `server/attachments.ts` (`connect` has no person yet; extend `ServerAttachmentRegistry.connect`, which is server-private). Use `InviteAcceptRequest`, `PASSWORD_MIN_CHARS`, `ThreadUpdatedFrame` / `ThreadRemovedFrame`. `toThreadDto` needs `purpose` and `formerParticipants`. `server/dto.ts` already copies `relayFrom`. Remove the `(P5-N1)` markers in nodes.md.
+- **P5-B1:** replace `createRelayService` (same `RelayServiceDeps`) and the bodies in `builtins/relay.ts`; `builtins/relay.test.ts` is yours. Remove the Relays / tools Planned markers in core.md for your part.
+- **P5-C1:** replace `createGroupThreads` (same `GroupThreadsDeps`) and the bodies in `builtins/thread.ts`. Throw `KeithError('FORBIDDEN', …, { details: { reason } })` with a `GroupRefusalReason`, and map it with `THREAD_MESSAGES.refused` (`limit` is a function of `config.mind.group.maxParticipants`).
+- **P5-C2:** `ThreadManagerDeps.addressing` is optional; `mind/testing/fakes.ts` threads fake now has `addParticipant` / `removeParticipant` / `formerParticipants` and `listForPerson` honours `left_at`. `mind/messages.ts` `toMessageDto` already copies `relayFrom`, and storage round-trips it.
+- **P5-C3:** `mind/messages.ts` is yours; keep the `relayFrom` copy in `stripUndefined`.
+- **P5-D1:** replace `createAddressing` (same `AddressingDeps`) and `mind/addressing/index.test.ts`, which only tests the placeholder.
+- **P5-E1:** `markParticipantLeft(db, threadId, personId, at)` is in `storage/testing.ts` (import it from there in tests). The memory fakes' threads repository has the participant members.
+- **P5-F1:** replace the `thread.updated` / `thread.removed` no-op cases in `state.ts` (and the test "phase-5 thread.updated and thread.removed leave the open conversation as it is"). `InviteAcceptRequest` and the frames are exported from `@keith/protocol`.
+- **P5-I1:** step 8: `createAddressing({ config, runLoop, scheduler: scheduling.scheduler, log })` and `createGroupThreads({ config, repos, deliveries: scheduling.deliveries, events, ids, clock, log })`, `addressing` into `createThreadManager`; step 10: `relay: { service: scheduling.relay, persons: repos.persons }`, `groups: { service: groups, persons: repos.persons, config }`. `scheduling.relay` already exists. Remove the construction-order and tools Planned notes in core.md.

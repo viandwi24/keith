@@ -1,4 +1,4 @@
-// The `keith` command: setup, start, migrate, backup, restore, --version. `runCli` takes its I/O as parameters so
+// The `keith` command: setup, start, migrate, backup, restore, person, --version. `runCli` takes its I/O as parameters so
 // tests can run it in-process; `main.ts` is the executable.
 
 import { mkdir } from 'node:fs/promises'
@@ -12,6 +12,7 @@ import { systemClock, withHomeLock } from '../shared/index.ts'
 import type { Clock } from '../shared/types.ts'
 import { openDb } from '../storage/index.ts'
 import { runBackup } from './backup.ts'
+import { runPersonCommand } from './person.ts'
 import { type Prompter, terminalPrompter } from './prompt.ts'
 import { runRestore } from './restore.ts'
 import { runSetup } from './setup.ts'
@@ -53,6 +54,8 @@ Commands:
                          works while Keith runs
   restore DIR [--force]  Bring a backup back into a stopped KEITH_HOME (--force moves the
                          current state aside to <KEITH_HOME>.before-restore-<time>/ first)
+  person <command>       Add people, print invite links, change tiers, cards and relay
+                         blocks, remove people (keith person --help)
   --version              Print the version
 
 KEITH_HOME defaults to ~/.keith.`
@@ -89,6 +92,8 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
         return await backupCommand(rest, io)
       case 'restore':
         return await restoreCommand(rest, io)
+      case 'person':
+        return await runPersonCommand(rest, io)
       default:
         io.err(`Unknown command: ${command}`)
         io.err(USAGE)

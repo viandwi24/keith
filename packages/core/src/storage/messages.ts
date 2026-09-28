@@ -1,6 +1,6 @@
 // messages repository (docs/architecture/storage.md#messages-and-tool-calls).
 
-import { UiBlock } from '@keith/protocol'
+import { PersonId, UiBlock } from '@keith/protocol'
 import type { LlmToolCall } from '@keith/sdk'
 import { KeithError } from '@keith/sdk'
 import { and, asc, desc, eq, gt, inArray, lt, type SQL, sql } from 'drizzle-orm'
@@ -14,6 +14,7 @@ const MessageMetaSchema: z.ZodType<MessageMeta> = z.object({
   cancelled: z.boolean().optional(),
   proactive: z.boolean().optional(),
   spokenChars: z.number().int().nonnegative().optional(),
+  relayFrom: z.array(z.object({ personId: PersonId, name: z.string() })).optional(),
 })
 
 const LlmToolCallSchema: z.ZodType<LlmToolCall> = z

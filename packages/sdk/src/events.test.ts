@@ -63,6 +63,27 @@ describe('core events', () => {
     expect(byName.get('thread.summarized')).toEqual(Object.keys(summarized).sort())
   })
 
+  test('the phase-5 events have the payload fields events.md lists', async () => {
+    const rows = await coreEventRows()
+    const phase5 = rows.filter((r) => r.phase === 5)
+    expect(phase5.map((r) => r.name).sort()).toEqual(['thread.participant_joined', 'thread.participant_left'])
+    expect(CORE_EVENT_NAMES).toContain('thread.participant_joined')
+    expect(CORE_EVENT_NAMES).toContain('thread.participant_left')
+    // Compile-time: the payload types in CoreEventMap have exactly these keys.
+    const joined: Required<CoreEventMap['thread.participant_joined']> = {
+      threadId: 'thr_01J8ZQ3K4M5N6P7Q8R9S0T1V31',
+      personId: 'per_01J8ZQ3K4M5N6P7Q8R9S0T1V2Z',
+      invitedBy: null,
+    }
+    const left: Required<CoreEventMap['thread.participant_left']> = {
+      threadId: 'thr_01J8ZQ3K4M5N6P7Q8R9S0T1V31',
+      personId: 'per_01J8ZQ3K4M5N6P7Q8R9S0T1V2Z',
+    }
+    const byName = new Map(phase5.map((r) => [r.name, r.fields]))
+    expect(byName.get('thread.participant_joined')).toEqual(Object.keys(joined).sort())
+    expect(byName.get('thread.participant_left')).toEqual(Object.keys(left).sort())
+  })
+
   test('the naming pattern rejects commands and bad casing', () => {
     expect('weather.alert_raised').toMatch(EVENT_NAME_PATTERN)
     expect('Weather.alertRaised').not.toMatch(EVENT_NAME_PATTERN)

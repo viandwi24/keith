@@ -1,8 +1,10 @@
 // Test helper for every lane: a real, migrated database in a temp folder, removed on close.
 
+import { Database } from 'bun:sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { PersonId, ThreadId } from '../shared/types.ts'
 import { openDb } from './db.ts'
 import type { Db } from './types.ts'
 
@@ -34,4 +36,29 @@ export function createTestDb(): TestDb {
     rmSync(dir, { recursive: true, force: true })
   }
   return { path: db.path, repos: db.repos, dir, close, [Symbol.dispose]: close }
+}
+
+/**
+ * Test-only (phase 5): marks a current participant as left (`left_at = at`) on a real database,
+ * through its own connection. It lets tests build a "left" participant before
+ * `ThreadsRepository.removeParticipant` exists (P5-S1). Returns whether a row changed.
+ */
+export function markParticipantLeft(
+  db: Pick<Db, 'path'>,
+  threadId: ThreadId,
+  personId: PersonId,
+  at: number,
+): boolean {
+  const sqlite = new Database(db.path, { strict: true })
+  try {
+    sqlite.run('PRAGMA busy_timeout = 5000')
+    const result = sqlite
+      .query(
+        'update thread_participants set left_at = $at where thread_id = $threadId and person_id = $personId and left_at is null',
+      )
+      .run({ at, threadId, personId })
+    return result.changes > 0
+  } finally {
+    sqlite.close()
+  }
 }

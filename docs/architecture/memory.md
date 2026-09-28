@@ -106,4 +106,24 @@ Built by `createThreadSummaries` (`memory/summary/`), under [ADR-0014](../decisi
 ## Forgetting
 
 - `memory.forget` (owner or subject only) hard-deletes a memory. A memory not visible to the caller's viewer reads as not found, even for the owner, so existence never leaks. All three `memory.*` tools have `minTier: 'guest'`; the checks above do the rest.
-> Planned (phase 5): deleting a Person deletes their `subject` memories and their direct threads. v1 has no person deletion.
+
+## Deleting a person
+
+> Planned (phase 5, P5-S1, P5-A1): `keith person remove` and `PersonsRepository.remove`. Until then there is no person deletion.
+
+`keith person remove <name>` ([ADR-0018](../decisions/0018-deleting-a-person.md)) asks for confirmation (or takes `--yes`), needs Keith stopped (it holds the home lock), refuses the owner, and suggests `keith backup` first. There is no undo. One storage transaction (`PersonsRepository.remove`) does the following.
+
+**Deleted:**
+- the person, their relationship, auth tokens, invite links, group invitations to or from them, and reminders;
+- their direct threads (`kind = 'direct'`, owned by them), with everything in them: messages, deliveries, commitments, tasks, reminders and `thread` memories;
+- every memory whose subject is them, whatever its visibility;
+- their tasks and commitments elsewhere, the deliveries addressed to them, and relays they sent that are still pending;
+- their participant rows in group threads (they leave every group), and their own messages in group threads. Their words leave with them; the Mind's replies stay.
+
+**Kept, with the reference cleared:**
+- memories they authored about someone else or about nobody keep their content, visibility and source; `author_person_id` becomes null;
+- delivered relays they sent keep their content; `author_person_id` becomes null (the recipient's history still shows the delivery message, whose `meta.relayFrom` keeps the name the recipient saw);
+- group threads they created stay; `owner_person_id` becomes null;
+- other people's `blocked_relay_from` lists drop their id.
+
+**Files** they uploaded: the rows are deleted in the transaction, and the command deletes the stored bytes after the commit. A reference to such a file elsewhere answers `404`.

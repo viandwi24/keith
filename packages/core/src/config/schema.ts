@@ -26,6 +26,19 @@ function isTimezone(tz: string): boolean {
 
 const posInt = () => z.number().int().positive()
 
+function isHttpUrl(v: string): boolean {
+  try {
+    const url = new URL(v)
+    return (url.protocol === 'http:' || url.protocol === 'https:') && url.host !== ''
+  } catch {
+    // An unparsable URL throws a TypeError: report it as a schema issue.
+    return false
+  }
+}
+
+/** An absolute `http(s)` URL (`server.publicUrl`). */
+const httpUrl = z.string().refine(isHttpUrl, 'expected an http(s) URL')
+
 /** Default model ref for every role (docs/architecture/config.md). `keith setup` writes its own. */
 export const DEFAULT_MODEL_REF: ModelRef = 'deepseek:deepseek-flash'
 
@@ -40,6 +53,7 @@ export const configSchema = z.strictObject({
     .strictObject({
       host: z.string().min(1).default('127.0.0.1'),
       port: z.number().int().min(0).max(65_535).default(4824),
+      publicUrl: httpUrl.optional(),
     })
     .prefault({}),
   mind: z
@@ -70,6 +84,13 @@ export const configSchema = z.strictObject({
         .prefault({}),
       context: z.strictObject({ recentMessages: posInt().default(40) }).prefault({}),
       reminder: z.strictObject({ maxPerPerson: posInt().default(50) }).prefault({}),
+      group: z
+        .strictObject({
+          maxParticipants: z.number().int().min(2).default(8),
+          autoJoin: z.boolean().default(false),
+          addressing: z.enum(['rules+utility', 'rules']).default('rules+utility'),
+        })
+        .prefault({}),
     })
     .prefault({}),
   memory: z
@@ -107,7 +128,12 @@ export const configSchema = z.strictObject({
       utility: modelRef.default(DEFAULT_MODEL_REF),
     })
     .prefault({}),
-  auth: z.strictObject({ tokenTtlDays: posInt().default(30) }).prefault({}),
+  auth: z
+    .strictObject({
+      tokenTtlDays: posInt().default(30),
+      inviteTtlHours: z.number().positive().default(72),
+    })
+    .prefault({}),
   plugins: z
     .strictObject({
       enabled: z.array(z.string().min(1)).default([]),
