@@ -4,8 +4,8 @@ title: "S-4 privacy, S-5 relay and S-6 group thread end to end"
 phase: 5
 wave: 4
 lane: I
-status: todo
-owner: null
+status: in-progress
+owner: agent-P5-I2
 depends: [P5-I1, P5-F2, P5-F3]
 owns:
   - tests/e2e/**
@@ -81,6 +81,14 @@ Phase 5's scenarios run in CI on the real core, with nodes talking to it over HT
 5. **S-6:** Tony asks Keith to connect him with Pepper and Rhodey. Both join (one with the button, one by saying yes). Talk to each other for a few lines, then ask Keith something by name, then ask a question without naming it. Note every line where Keith spoke when not addressed, or stayed quiet when addressed (the addressing prompt's real-model check).
 6. Rhodey leaves. Then `keith person remove Rhodey` with Keith stopped, and check what `keith person remove` printed against ADR-0018.
 7. Record the models used, the addressing misses, and anything that looked like a privacy leak.
+
+
+## Notes from P5-I1 (coordinator)
+
+- Reuse `packages/core/test/people-helpers.ts` ideas in `tests/e2e` (e2e may not import `@keith/core` test files beyond what check-deps allows; copy what you need into the e2e harness): `signUp` = `addPersonForTest` → `POST /v1/auth/invite` → attach a node; `greet` before expecting deliveries (a first `thread.open` is an arrival, `on-greeting` holds deliveries); a routed fake chat model answering by request content, because turns of different people interleave; script `fake:utility` only for group lines the addressing rules can't decide.
+- Invitees get no `thread.updated` before they join (P5-N1 sends it only to current participants, per ADR-0017 and D11); their first one comes on join.
+- Once under heavy machine load, `keith person add` exited 1 in a P5-I1 test (a 6.4 s run, possibly an SQLite lock wait over the 5 s busy timeout). Not reproduced in 25+ runs. If you see it, investigate rather than retry blindly.
+- Human run: deferred by the owner (like phases 1–4). Still write the steps, including checking `ADDRESSING_SYSTEM_PROMPT` against a real utility model and invite links in both the browser and `keith-tui --invite`.
 
 ## Outcome
 
