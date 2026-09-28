@@ -24,6 +24,16 @@ describe('auth tokens', () => {
     expect(await db.repos.authTokens.get('a')).toBeNull()
   })
 
+  test('deleteForPerson ends every session of one person only', async () => {
+    await db.repos.persons.create(person(2))
+    await db.repos.authTokens.create(token('a', 100))
+    await db.repos.authTokens.create(token('b', 100))
+    await db.repos.authTokens.create({ ...token('other', 100), personId: testId('per', 2) })
+    expect(await db.repos.authTokens.deleteForPerson(testId('per', 1))).toBe(2)
+    expect(await db.repos.authTokens.get('a')).toBeNull()
+    expect(await db.repos.authTokens.get('other')).not.toBeNull()
+  })
+
   test('deletes expired tokens and returns how many', async () => {
     await db.repos.authTokens.create(token('old', 10))
     await db.repos.authTokens.create(token('edge', 20))

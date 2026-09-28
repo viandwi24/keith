@@ -629,6 +629,8 @@ export interface AuthTokensRepository {
   delete(tokenHash: string): Promise<void>
   /** Returns the number of deleted rows. */
   deleteExpired(now: number): Promise<number>
+  /** Deletes every token of the person (ends all their sessions). Returns the number deleted. */
+  deleteForPerson(personId: PersonId): Promise<number>
 }
 
 export interface NodeRecord {
@@ -894,8 +896,9 @@ export interface RemindersRepository {
 export interface ThreadInvitationsRepository {
   /**
    * Stores `inv` (normally `pending`, with null `resolvedAt`). When a `declined` row exists for the
-   * same thread and person, it is replaced (a re-invitation). Returns false, and changes nothing,
-   * when a `pending` or `accepted` row exists.
+   * same thread and person, or an `accepted` row for someone who is no longer a current participant
+   * (they left), it is replaced (a re-invitation). Returns false, and changes nothing, when a
+   * `pending` row exists or the person is a current participant.
    */
   create(inv: ThreadInvitation): Promise<boolean>
   get(threadId: ThreadId, personId: PersonId): Promise<ThreadInvitation | null>
@@ -1677,7 +1680,7 @@ A group thread (`kind: 'group'`, `slug` null) has several human participants (`t
   - The content names the inviter, the title, the purpose and the thread id, and says how to answer: `Tony invites you to the group thread "Mission" (thr_…): <purpose>. Say whether you want to join.`
   - Its `ui` is a `card` (`id: group_invitation`) with the same text and an `actions` block with **Join** and **Decline**. A click becomes `(clicked: Join)` input ([ui.md](ui.md#interactivity)), and the invitee's model calls `thread.join` (or `thread.leave` to decline) with the id from the content.
   - With `mind.group.autoJoin = true`, an invitee with tier `member` or higher joins at once (`joined`): the delivery says `Tony added you to the group thread "Mission" (thr_…)…` and its card has no buttons, the row is stored `accepted`, and `thread.participant_joined { invitedBy }` is emitted. Guests always accept.
-  - A former participant keeps an `accepted` row, which `threadInvitations.create` doesn't replace, so inviting them again answers `skipped` (known limitation until the storage contract allows it).
+  - A former participant can be invited again: `threadInvitations.create` replaces their `accepted` row once they are no longer a current participant. After rejoining they see the whole history again (ADR-0017).
 - `join` (`thread.join`): needs a `pending` invitation, else false. It becomes `accepted`, the person a participant (`threads.addParticipant`), and `thread.participant_joined { invitedBy }` is emitted.
 - `leave` (`thread.leave`): a current participant leaves (`left_at` set, `thread.participant_left`). On a pending invitation it declines it (no event). Otherwise false. Leaving a direct thread is refused (`not_group`). Nobody can remove another participant in v1.
 - Every event is emitted after the storage write. An unknown thread throws `KeithError('NOT_FOUND')`. A refusal by rule throws `KeithError('FORBIDDEN')` with `details.reason` (`GroupRefusalReason`).

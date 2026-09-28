@@ -1,9 +1,9 @@
 // thread_invitations repository (phase 5, docs/architecture/storage.md#invite-links-and-group-invitations-phase-5).
 
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, eq, isNull, notExists, or, type SQL, sql } from 'drizzle-orm'
 import type { ThreadInvitation } from '../shared/types.ts'
 import type { Orm } from './orm.ts'
-import { threadInvitations } from './schema.ts'
+import { threadInvitations, threadParticipants } from './schema.ts'
 import type { ThreadInvitationsRepository } from './types.ts'
 
 type ThreadInvitationRow = typeof threadInvitations.$inferSelect
@@ -39,7 +39,25 @@ export function createThreadInvitationsRepository(db: Orm): ThreadInvitationsRep
             createdAt: inv.createdAt,
             resolvedAt: inv.resolvedAt,
           },
-          setWhere: eq(threadInvitations.status, 'declined'),
+          // A re-invitation replaces a declined row, or the accepted row of someone who has left.
+          setWhere: or(
+            eq(threadInvitations.status, 'declined'),
+            and(
+              eq(threadInvitations.status, 'accepted'),
+              notExists(
+                db
+                  .select({ one: sql`1` })
+                  .from(threadParticipants)
+                  .where(
+                    and(
+                      eq(threadParticipants.threadId, inv.threadId),
+                      eq(threadParticipants.personId, inv.personId),
+                      isNull(threadParticipants.leftAt),
+                    ),
+                  ),
+              ),
+            ),
+          ) as SQL,
         })
         .run()
       return result.changes > 0

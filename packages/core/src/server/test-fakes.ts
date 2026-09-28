@@ -147,6 +147,16 @@ export function createFakeRepos(): FakeRepos {
         }
         return n
       },
+      async deleteForPerson(personId) {
+        let n = 0
+        for (const [hash, t] of data.tokens) {
+          if (t.personId === personId) {
+            data.tokens.delete(hash)
+            n += 1
+          }
+        }
+        return n
+      },
     },
     nodes: {
       async upsert(n) {

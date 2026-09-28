@@ -147,6 +147,8 @@ export interface AuthTokensRepository {
   delete(tokenHash: string): Promise<void>
   /** Returns the number of deleted rows. */
   deleteExpired(now: number): Promise<number>
+  /** Deletes every token of the person (ends all their sessions). Returns the number deleted. */
+  deleteForPerson(personId: PersonId): Promise<number>
 }
 
 export interface NodeRecord {
@@ -412,8 +414,9 @@ export interface RemindersRepository {
 export interface ThreadInvitationsRepository {
   /**
    * Stores `inv` (normally `pending`, with null `resolvedAt`). When a `declined` row exists for the
-   * same thread and person, it is replaced (a re-invitation). Returns false, and changes nothing,
-   * when a `pending` or `accepted` row exists.
+   * same thread and person, or an `accepted` row for someone who is no longer a current participant
+   * (they left), it is replaced (a re-invitation). Returns false, and changes nothing, when a
+   * `pending` row exists or the person is a current participant.
    */
   create(inv: ThreadInvitation): Promise<boolean>
   get(threadId: ThreadId, personId: PersonId): Promise<ThreadInvitation | null>

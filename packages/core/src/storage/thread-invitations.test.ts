@@ -42,13 +42,14 @@ describe('thread invitations (phase 5)', () => {
     expect(await db.repos.threadInvitations.get(g1, p3)).toBeNull()
   })
 
-  test('create refuses while pending or accepted', async () => {
+  test('create refuses while pending, or accepted by a current participant', async () => {
     await db.repos.threadInvitations.create(invitation(g1, p2))
     expect(
       await db.repos.threadInvitations.create(invitation(g1, p2, { invitedBy: p3, createdAt: 4_000 })),
     ).toBe(false)
     expect(await db.repos.threadInvitations.get(g1, p2)).toEqual(invitation(g1, p2))
     await db.repos.threadInvitations.resolve(g1, p2, 'accepted', 5_000)
+    await db.repos.threads.addParticipant(g1, p2, 5_000)
     expect(await db.repos.threadInvitations.create(invitation(g1, p2, { createdAt: 6_000 }))).toBe(false)
     expect(await db.repos.threadInvitations.get(g1, p2)).toMatchObject({
       status: 'accepted',
@@ -60,6 +61,18 @@ describe('thread invitations (phase 5)', () => {
     await db.repos.threadInvitations.create(invitation(g1, p2))
     await db.repos.threadInvitations.resolve(g1, p2, 'declined', 4_000)
     const again = invitation(g1, p2, { invitedBy: p3, createdAt: 6_000 })
+    expect(await db.repos.threadInvitations.create(again)).toBe(true)
+    expect(await db.repos.threadInvitations.get(g1, p2)).toEqual(again)
+  })
+
+  test('create re-invites a former participant, but not a current one (ADR-0017)', async () => {
+    await db.repos.threadInvitations.create(invitation(g1, p2))
+    await db.repos.threadInvitations.resolve(g1, p2, 'accepted', 4_000)
+    await db.repos.threads.addParticipant(g1, p2, 4_000)
+    const again = invitation(g1, p2, { invitedBy: p3, createdAt: 6_000 })
+    expect(await db.repos.threadInvitations.create(again)).toBe(false)
+    expect(await db.repos.threadInvitations.get(g1, p2)).toMatchObject({ status: 'accepted' })
+    await db.repos.threads.removeParticipant(g1, p2, 5_000)
     expect(await db.repos.threadInvitations.create(again)).toBe(true)
     expect(await db.repos.threadInvitations.get(g1, p2)).toEqual(again)
   })

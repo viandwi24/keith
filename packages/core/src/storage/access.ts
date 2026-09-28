@@ -24,6 +24,9 @@ export function createAuthTokensRepository(db: Orm): AuthTokensRepository {
     async deleteExpired(now) {
       return db.delete(authTokens).where(lte(authTokens.expiresAt, now)).run().changes
     },
+    async deleteForPerson(personId) {
+      return db.delete(authTokens).where(eq(authTokens.personId, personId)).run().changes
+    },
   }
 }
 

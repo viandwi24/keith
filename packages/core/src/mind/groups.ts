@@ -118,14 +118,6 @@ export function createGroupThreads(deps: GroupThreadsDeps): GroupThreads {
         skipped.push(p.id)
         continue
       }
-      const earlier = await repos.threadInvitations.get(thread.id, p.id)
-      if (earlier?.status === 'accepted') {
-        // A former participant: `threadInvitations.create` replaces only a `declined` row, so a
-        // new invitation can't be stored. Skipped until the storage contract allows it.
-        log.warn('former participant cannot be invited again', { threadId: thread.id, personId: p.id })
-        skipped.push(p.id)
-        continue
-      }
       fresh.push(p)
     }
     if (current.size + pendingIds.size + fresh.length > max()) {

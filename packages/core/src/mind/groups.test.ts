@@ -29,7 +29,8 @@ function createFakeInvitations(): FakeInvitations {
     async create(inv) {
       const i = find(inv.threadId, inv.personId)
       const row = rows[i]
-      if (row && row.status !== 'declined') return false
+      // Storage also refuses an `accepted` row of a current participant; `invite` skips those first.
+      if (row && row.status === 'pending') return false
       if (row) rows[i] = { ...inv }
       else rows.push({ ...inv })
       return true
@@ -361,15 +362,17 @@ describe('leave', () => {
     expect(await w.groups.join({ threadId: thread.id, personId: w.rhodey })).toBe(true)
   })
 
-  test('a former participant is skipped on a new invite (the accepted row cannot be replaced)', async () => {
+  test('a former participant can be invited again and rejoin (ADR-0017)', async () => {
     const w = await world()
     const { thread } = await startMission(w)
     await w.groups.join({ threadId: thread.id, personId: w.pepper })
     await w.groups.leave({ threadId: thread.id, personId: w.pepper })
     const sent = w.deliveries.all.length
     const r = await w.groups.invite({ threadId: thread.id, inviterId: w.tony, inviteeIds: [w.pepper] })
-    expect(r).toEqual({ invited: [], joined: [], skipped: [w.pepper] })
-    expect(w.deliveries.all).toHaveLength(sent)
+    expect(r).toEqual({ invited: [w.pepper], joined: [], skipped: [] })
+    expect(w.deliveries.all).toHaveLength(sent + 1)
+    expect(await w.invitations.get(thread.id, w.pepper)).toMatchObject({ status: 'pending' })
+    expect(await w.groups.join({ threadId: thread.id, personId: w.pepper })).toBe(true)
   })
 
   test('neither participant nor invited is false; a direct thread is refused', async () => {
