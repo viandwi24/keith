@@ -91,13 +91,13 @@ Frames from one node, text and binary, are handled in order, so a chunk never ov
 
 ## Adding people
 
-> Planned (phase 5, P5-A1, P5-N1): the whole section. Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md).
+> Planned (phase 5, P5-N1): accepting a link (`POST /v1/auth/invite`, the fourth bullet). The `keith person` commands are built. Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md).
 
 - The owner adds a member or a guest on the host with `keith person add <name> [--tier member|guest]` ([config.md](config.md#keith-person)). It creates the person without a username or password, their relationship card and their main thread, and prints an **invite link**, `<publicUrl>/#invite=<code>`, plus `keith-tui --url <publicUrl> --invite <code>`. Only the owner makes invite links.
 - The code is 32 random bytes, base64url (43 characters). Only its SHA-256 hash is stored (`invite_links`), like auth tokens. A link works once and expires after `auth.inviteTtlHours` (default 72). A new link for a person (`keith person invite`) revokes their older unused ones; it doubles as a password reset.
 - The code sits in the URL fragment, so it never reaches a server log. The web app reads `#invite=<code>`, removes it from the address bar, and asks for a username and a password (twice). The TUI takes `--invite <code>`.
 - The node sends `POST /v1/auth/invite { code, username, password }` ([protocol.md](../contracts/protocol.md#invite-links)). The server hashes the code and checks the link: a missing, used or expired link is `401 UNAUTHORIZED`, one answer for all three, and an unknown code still runs one password hash. A username taken by someone else is `400 INVALID_REQUEST`, and the link stays unused. Otherwise it marks the link used (a conditional update, so two requests with one code can't both win), sets the username and password hash, deletes the person's existing auth tokens (old sessions end), and answers `LoginResponse` like a login.
-- `keith person tier`, `card`, `block` and `unblock` change the database while Keith runs; the core reads them on the next turn. `keith person remove` needs Keith stopped ([ADR-0018](../decisions/0018-deleting-a-person.md)).
+- `keith person add`, `list`, `invite`, `tier`, `card`, `block` and `unblock` don't take the home lock, so they change the database while Keith runs; the core reads tiers and cards on the next turn. `keith person remove` needs Keith stopped ([ADR-0018](../decisions/0018-deleting-a-person.md)).
 
 ## Thread list (phase 5)
 

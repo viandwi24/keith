@@ -4,7 +4,7 @@ title: "People: keith person add, invite links, tiers, cards, blocks and removal
 phase: 5
 wave: 2
 lane: A
-status: in-progress
+status: review
 owner: agent-P5-A1
 depends: [P5-K1]
 owns:
@@ -58,16 +58,16 @@ The owner can bring people into Keith from the host: add a member or a guest, ha
 
 ## Acceptance criteria
 
-- [ ] `person.test.ts` (temp `KEITH_HOME`, fake clock, in-memory repositories built from the `storage/types.ts` JSDoc; P5-S1 builds the real ones in parallel, and P5-I1 runs the commands on a real database):
+- [x] `person.test.ts` (temp `KEITH_HOME`, fake clock, in-memory repositories built from the `storage/types.ts` JSDoc; P5-S1 builds the real ones in parallel, and P5-I1 runs the commands on a real database):
   - `add Pepper` creates the person, the card and the main thread, and prints a link whose code's hash is stored with the right expiry.
   - A second `add pepper` is refused.
   - `invite` revokes the older unused link.
   - `tier` refuses `owner`, and refuses to change the owner.
   - `card` edits keep `blockedRelayFrom`.
   - `block` / `unblock` round-trip.
-- [ ] `remove` while the lock is held by another process is refused. Without the lock and with `--yes`, it removes the person and deletes their uploaded file from disk.
-- [ ] The printed output never contains the code's hash, and the code appears only in the link and the TUI command.
-- [ ] `bun run check` passes.
+- [x] `remove` while the lock is held by another process is refused. Without the lock and with `--yes`, it removes the person and deletes their uploaded file from disk.
+- [x] The printed output never contains the code's hash, and the code appears only in the link and the TUI command.
+- [x] `bun run check` passes.
 
 ## Notes
 
@@ -76,4 +76,26 @@ The owner can bring people into Keith from the host: add a member or a guest, ha
 
 ## Outcome
 
-_Filled by the agent when finishing: what was built, decisions (ADR links), deviations, follow-ups._
+**Built**
+- `cli/person.ts`: `runPersonCommand(args, io)` (signature, `PERSON_SUBCOMMANDS` and `PERSON_USAGE` unchanged) builds a `PersonRun` from `KEITH_HOME` and calls `runPerson(args, run)`, which holds all the logic. `PersonRun` takes the paths, clock, output, prompter, a lazy `config()` loader and an `open()` repository factory, so tests inject in-memory repositories and a fake clock. Exported building blocks: `addPerson(deps, { name, tier })` and `createInvite(deps, person)` (return the `Invite` without printing), `hashInviteCode`, `publicUrl`, `formatTime`, `loadPersonConfig`, `PersonCommandRefusal`, `INVITE_CODE_BYTES`, and the `PersonRepos` / `PersonConfig` / `PersonDeps` / `PersonRun` / `Invite` types.
+- Every subcommand from the task: `add` (name checks via `persons.findByName`, person with no credentials, empty card, `main` direct thread titled `Main` like the thread manager's, invite link), `invite` (revokes, refuses the owner, says when it's a password reset), `list`, `tier`, `card`, `block` / `unblock`, `remove` (home lock, owner refused, summary + `keith backup` hint, `Remove <name>? (y/n)` unless `--yes`, `persons.remove`, file deletion after the commit, every `PersonRemoval` count printed). Only `remove` takes the lock.
+- Exit codes: 0 done, 1 refused / failed / cancelled, 2 usage error (unknown subcommand, bad flags, wrong number of arguments, a tier other than member/guest/owner).
+- `cli/person-testing.ts`: `createFakePersonRepos()` (in-memory `persons`, `relationships`, `threads`, `inviteLinks` following the `storage/types.ts` JSDoc; `persons.remove` models the rows the fakes hold, plus a `data.files` list for `filePaths`), and `addPersonForTest(home, { name, tier? }, clock, env?)` for integration tests: adds a person to the real database and returns `{ person, invite }` with `invite.code`, printing nothing.
+- `cli/person.test.ts`: 26 tests covering every acceptance criterion (add, duplicate names including a username clash, name limits, invite revocation and used links, tier refusals, card edits keeping `blockedRelayFrom`, block/unblock round-trip and refusals, remove under a held lock, remove with `--yes` deleting the uploaded file, missing/outside file warnings, confirmation, the output never containing the hash and the code appearing only in the link and TUI lines, the config loader, and the P5-K1 surface tests).
+- Docs: config.md `keith person` gained the command details and lost its marker; nodes.md "Adding people" now marks only the P5-N1 part; memory.md's marker names only P5-S1.
+
+**Decisions**
+- Invite code hash: `server/index.ts` doesn't export a hash helper (`hashToken` is private to `server/auth.ts`), so `hashInviteCode` in `cli/person.ts` computes SHA-256 of the UTF-8 code, hex, the same as `hashToken`. P5-N1 / P5-I1 can import `hashInviteCode` or keep their own; the test pins it to `Bun.CryptoHasher('sha256')`.
+- Refusals are a local `PersonCommandRefusal` error (message printed as-is, exit 1), because `KEITH_ERROR_CODES` has no fitting code (`INVALID_REQUEST` is protocol-only) and adding one is a contract change.
+- `loadPersonConfig` drops the `[plugins."<id>"]` sections before `parseConfig`, so `keith person` works in a shell where the provider's `env:` API key is not exported. `KEITH__` overrides still apply.
+- Commands refuse a home without `keith.db` instead of letting `openDb` create one.
+- `remove`'s pre-confirmation summary is qualitative plus the counts of direct and group threads (from `threads.listForPerson`); exact counts are printed after the removal from `PersonRemoval`.
+- Cancelling `remove` exits 1.
+
+**Deviations**
+- None outside `owns` and `updates`. Until P5-S1 lands, `keith person` on a real database fails at `persons.findByName` (storage placeholder); the logic is tested on the fakes.
+
+**Follow-ups / notes for other lanes**
+- **P5-I1:** run the commands on a real database (`runCli(['person', 'add', 'Pepper'], io)` or `addPersonForTest`) once P5-S1 is merged; check a tier change reaches the next turn without a restart, and that `hashInviteCode(code)` equals what `POST /v1/auth/invite` hashes.
+- **P5-N1:** the stored `codeHash` is `hashInviteCode(code)` (SHA-256 hex of the UTF-8 code), same as `hashToken`.
+- **P5-S1:** `persons.remove` must return `filePaths` relative to `files/`; the command refuses to delete a path that resolves outside it.

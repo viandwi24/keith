@@ -145,8 +145,6 @@ The first-party plugins are dependencies of `@keith/core`, so the plugin host's 
 
 ### `keith person`
 
-> Planned (phase 5, P5-A1): the commands below are a placeholder that prints "not implemented yet" and exits 1. `keith person` without a subcommand prints the usage.
-
 The owner brings people into Keith from the host. Every subcommand works on `KEITH_HOME` directly, so it runs while Keith runs (the running core reads tiers and cards on every turn), except `remove`, which takes the home lock. Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md), [ADR-0018](../decisions/0018-deleting-a-person.md).
 
 | Command | What it does |
@@ -158,6 +156,15 @@ The owner brings people into Keith from the host. Every subcommand works on `KEI
 | `keith person card <name> [--tone <text>] [--notes <text>]` | Shows or edits the relationship card |
 | `keith person block <name> --from <other>` / `unblock` | Edits `<name>`'s relay block list |
 | `keith person remove <name> [--yes]` | Deletes the person and their data (ADR-0018). Needs Keith stopped; suggests `keith backup` first |
+
+`keith person` without a subcommand prints the usage. `<name>` matches a name or a username, case-insensitively. Output is plain text; the only question is `remove`'s confirmation. Exit codes: 0 done, 1 refused (an unknown person, a taken name, the owner, a held lock) or cancelled, 2 a usage error. The commands read `server`, `auth` and `mind.timezone` from `config.toml` and ignore the `[plugins."<id>"]` sections, so an unset `env:` API key doesn't stop them. They refuse a home without `keith.db` (run `keith setup`). Details:
+
+- `add` refuses an empty name, a name over 80 characters, and a name or username someone has. The main thread is created at once, so deliveries and relays reach the person before they first sign in. The link's expiry is printed in `mind.timezone`.
+- `invite` says how many older unused links it revoked. For someone who already signs in, accepting the new link sets a new username and password.
+- `list` prints `-` for no username and for never seen; last seen is in `mind.timezone`.
+- `card` with `--tone` and/or `--notes` changes only those fields and keeps the relay block list.
+- `block` / `unblock` refuse `--from` naming the same person and are idempotent. The owner can be blocked too (ADR-0017).
+- `remove` prints what will go and asks `Remove <name>? (y/n)` (default no) unless `--yes`. After the commit it deletes the person's uploaded files from `files/` (a missing file is a warning, not an error) and prints every count of `PersonRemoval`.
 
 An **invite link** is `<publicUrl>/#invite=<code>`: 32 random bytes (base64url), single use, valid for `auth.inviteTtlHours` (default 72), stored only as a SHA-256 hash. The code is a URL fragment, so it never reaches a server log. The command also prints `keith-tui --url <publicUrl> --invite <code>` for the terminal. See [nodes.md](nodes.md#adding-people).
 
