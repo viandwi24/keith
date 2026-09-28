@@ -151,6 +151,24 @@ export interface Reminder {
   deliveryId: DeliveryId | null
 }
 
+// Group invitations (phase 5, docs/architecture/core.md#group-threads)
+
+export type ThreadInvitationStatus = 'pending' | 'accepted' | 'declined'
+
+/** An invitation of a person to a group thread. One row per (thread, person). */
+export interface ThreadInvitation {
+  threadId: ThreadId
+  personId: PersonId
+  /** The current participant who invited them. */
+  invitedBy: PersonId
+  status: ThreadInvitationStatus
+  /** The `invitation` delivery in the invitee's main thread; null when it is gone or not made yet. */
+  deliveryId: DeliveryId | null
+  createdAt: number
+  /** When it became `accepted` or `declined`; null while `pending`. */
+  resolvedAt: number | null
+}
+
 // Memories (docs/architecture/memory.md#memory-record)
 
 export type MemorySource = 'stated' | 'inferred' | 'relayed' | 'plugin'

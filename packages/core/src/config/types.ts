@@ -9,12 +9,20 @@ export type ModelRef = `${string}:${string}`
 
 export type BriefingMode = 'auto' | 'on-greeting' | 'off'
 
+/** Phase 5: how the Mind decides whether a group input is addressed to it. */
+export type GroupAddressingMode = 'rules+utility' | 'rules'
+
 export interface KeithConfig {
   server: {
     /** Default '127.0.0.1' (R-14). */
     host: string
     /** Default 4824. */
     port: number
+    /**
+     * Phase 5: the base URL people use to reach this Keith, e.g. 'https://keith.example.net'. Invite
+     * links are `<publicUrl>/#invite=<code>`. Optional: absent means `http://<host>:<port>`.
+     */
+    publicUrl?: string | undefined
   }
   mind: {
     name: string
@@ -35,6 +43,15 @@ export interface KeithConfig {
     reminder: {
       /** Pending reminders per person. Default 50. */
       maxPerPerson: number
+    }
+    /** Phase 5: `[mind.group]`, group threads (ADR-0017). */
+    group: {
+      /** Current participants plus pending invitations. Default 8, at least 2. */
+      maxParticipants: number
+      /** Invitees with tier `member` or higher join at once. Guests always accept. Default false. */
+      autoJoin: boolean
+      /** 'rules+utility' (default): the rule pass, then the `utility` model for unsure inputs. 'rules': no model. */
+      addressing: GroupAddressingMode
     }
   }
   memory: {
@@ -62,7 +79,11 @@ export interface KeithConfig {
   }
   scheduler: { foreground: number; delivery: number; background: number; tickMs: number }
   models: Record<ModelRole, ModelRef>
-  auth: { tokenTtlDays: number }
+  auth: {
+    tokenTtlDays: number
+    /** Phase 5: invite links expire after this many hours. Fractional allowed. Default 72. */
+    inviteTtlHours: number
+  }
   plugins: {
     /** Package names, loaded in this order. */
     enabled: string[]

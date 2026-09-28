@@ -30,6 +30,9 @@ export function toMessageDto(m: MessageRecord): MessageDto | null {
     if (m.meta.cancelled !== undefined) meta.cancelled = m.meta.cancelled
     if (m.meta.proactive !== undefined) meta.proactive = m.meta.proactive
     if (m.meta.spokenChars !== undefined) meta.spokenChars = m.meta.spokenChars
+    if (m.meta.relayFrom !== undefined) {
+      meta.relayFrom = m.meta.relayFrom.map((r) => ({ personId: r.personId, name: r.name }))
+    }
     if (Object.keys(meta).length > 0) dto.meta = meta
   }
   return dto

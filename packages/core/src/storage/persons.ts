@@ -1,6 +1,7 @@
 // persons + relationships repositories.
 
 import { PersonId } from '@keith/protocol'
+import { KeithError } from '@keith/sdk'
 import { asc, eq, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 import { type Orm, parseJson } from './orm.ts'
@@ -44,7 +45,24 @@ export function createPersonsRepository(db: Orm): PersonsRepository {
       if (ids.length === 0) return
       db.update(persons).set({ lastSeenAt: at }).where(inArray(persons.id, ids)).run()
     },
+    // Phase 5 placeholders: P5-S1 implements them (JSDoc in types.ts).
+    async findByName() {
+      throw notImplemented('persons.findByName')
+    },
+    async setTier() {
+      throw notImplemented('persons.setTier')
+    },
+    async setCredentials() {
+      throw notImplemented('persons.setCredentials')
+    },
+    async remove() {
+      throw notImplemented('persons.remove')
+    },
   }
+}
+
+function notImplemented(what: string): KeithError {
+  return new KeithError('INTERNAL', `${what} not implemented yet (P5-S1)`)
 }
 
 const BlockedRelayFrom = z.array(PersonId)

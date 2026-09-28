@@ -12,6 +12,11 @@ export interface AttachmentRegistry {
   /** Without `threadId`: detach the node from every thread. */
   detach(nodeId: NodeId, threadId?: ThreadId | undefined): void
   attachedTo(threadId: ThreadId): NodeId[]
+  /**
+   * Phase 5: the person's connected attended nodes, in connect order, whether or not they have a
+   * thread open (for `thread.updated` / `thread.removed`).
+   */
+  nodesOfPerson(personId: PersonId): NodeId[]
   /** No-op if the node is gone. */
   send(nodeId: NodeId, frame: CoreFrame): void
   /** Phase 3: a binary frame (`encodeAudioFrame` output) to one node. No-op if the node is gone. */

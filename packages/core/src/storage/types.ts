@@ -22,6 +22,8 @@ import type {
   TaskId,
   TaskStatus,
   ThreadId,
+  ThreadInvitation,
+  ThreadInvitationStatus,
   Tier,
   UiBlock,
 } from '../shared/types.ts'
@@ -48,6 +50,69 @@ export interface PersonsRepository {
   list(): Promise<PersonRecord[]>
   setPasswordHash(id: PersonId, passwordHash: string): Promise<void>
   setLastSeenAt(ids: PersonId[], at: number): Promise<void>
+  /**
+   * Phase 5: the person called `name`. Trims `name`, then matches it against `name`
+   * case-insensitively, then against `username` case-insensitively. Null when nothing matches or
+   * `name` is empty after trimming. Names are unique case-insensitively (`keith person add`
+   * enforces it), so a name matches at most one person; a name match wins over a username match.
+   */
+  findByName(name: string): Promise<PersonRecord | null>
+  /** Phase 5: sets the tier. An unknown id is a no-op. The callers keep exactly one owner (ADR-0017). */
+  setTier(id: PersonId, tier: Tier): Promise<void>
+  /**
+   * Phase 5: sets the username and the password hash together (accepting an invite link). The
+   * caller checks that no other person has `username` (`getByUsername`); storing a username that
+   * another person has throws. An unknown id is a no-op.
+   */
+  setCredentials(id: PersonId, c: { username: string; passwordHash: string }): Promise<void>
+  /**
+   * Phase 5: deletes the person in one transaction, exactly as ADR-0018 lists
+   * (docs/decisions/0018-deleting-a-person.md), and returns what it did. Throws
+   * `KeithError('FORBIDDEN')` for the owner and `KeithError('NOT_FOUND')` for an unknown id; then
+   * nothing changes. The stored file bytes are not touched: the caller deletes `filePaths` after
+   * the commit.
+   */
+  remove(id: PersonId): Promise<PersonRemoval>
+}
+
+/** Phase 5: what `PersonsRepository.remove` did. Every count is a number of rows. */
+export interface PersonRemoval {
+  deleted: {
+    /** Their direct threads (`kind = 'direct'`, owned by them). */
+    directThreads: number
+    /** Messages in their direct threads. */
+    directMessages: number
+    /** Their own messages in group threads. */
+    groupMessages: number
+    /** Their participant rows in group threads (they leave every group). */
+    groupMemberships: number
+    /** Memories about them (any visibility) and `thread` memories of their direct threads. */
+    memories: number
+    tasks: number
+    commitments: number
+    /** Deliveries addressed to them, in their direct threads, and their pending relays. */
+    deliveries: number
+    reminders: number
+    authTokens: number
+    inviteLinks: number
+    /** Group invitations to or from them. */
+    threadInvitations: number
+    /** File rows they uploaded. */
+    files: number
+  }
+  /** Rows kept, with the reference to the person cleared. */
+  cleared: {
+    /** Memories they authored about someone else or nobody (`author_person_id` → null). */
+    memories: number
+    /** Delivered relays they sent (`author_person_id` → null). */
+    relays: number
+    /** Group threads they created (`owner_person_id` → null). */
+    groupThreads: number
+    /** Other people's relationship cards whose `blockedRelayFrom` named them. */
+    blockLists: number
+  }
+  /** The deleted files' paths, relative to `KEITH_HOME/files/`, for the caller to delete. */
+  filePaths: string[]
 }
 
 export interface RelationshipRecord {
@@ -123,6 +188,12 @@ export interface ThreadRecord {
    * as `summaryThroughSeq`.
    */
   reflectedThroughSeq?: number | null | undefined
+  /**
+   * Phase 5: what a group thread is for; null for direct threads and groups without one. Set on
+   * every record `get`, `getBySlug` and `listForPerson` return. Optional only so existing record
+   * literals compile without it; `create` stores it as given (absent = null).
+   */
+  purpose?: string | null | undefined
 }
 
 export interface ThreadParticipantRecord {
@@ -153,6 +224,19 @@ export interface ThreadsRepository {
    */
   setReflectedThrough(id: ThreadId, seq: number): Promise<void>
   /**
+   * Phase 5: makes the person a current participant. Inserts a row (`joinedAt = at`), or, for a
+   * former participant, clears `leftAt` and sets `joinedAt = at` on their row. Returns false (and
+   * changes nothing) when the person is already a current participant.
+   */
+  addParticipant(threadId: ThreadId, personId: PersonId, at: number): Promise<boolean>
+  /**
+   * Phase 5: sets `leftAt = at` on the person's row if they are a current participant. Returns
+   * whether a current participant left (false: not a participant, or already left).
+   */
+  removeParticipant(threadId: ThreadId, personId: PersonId, at: number): Promise<boolean>
+  /** Phase 5: participant rows with `leftAt` set, most recent `leftAt` first (ties by person id). */
+  formerParticipants(threadId: ThreadId): Promise<ThreadParticipantRecord[]>
+  /**
    * Phase 4: threads that are due for reflection: `updated_at ≤ idleBefore` and at least one
    * message whose `seq` is greater than the reflection cursor (null counts as 0). Oldest
    * `updated_at` first (ties by id), at most `limit`. `lastSeq` is the thread's highest message
@@ -171,6 +255,12 @@ export type MessageMeta = {
   proactive?: boolean | undefined
   /** Phase 3: a spoken reply cut by barge-in; `content` holds only this many characters. */
   spokenChars?: number | undefined
+  /**
+   * Phase 5: on an assistant message whose delivery turn carried relays, one entry per sender, in
+   * delivery order (I-13). `name` is the name the recipient saw, kept when the sender is renamed
+   * or deleted.
+   */
+  relayFrom?: { personId: PersonId; name: string }[] | undefined
 }
 
 /** A UI block on an assistant message, with the tool that produced it (for `ui.action`). */
@@ -317,6 +407,57 @@ export interface RemindersRepository {
   cancel(id: ReminderId, at: number): Promise<boolean>
 }
 
+// thread_invitations (phase 5)
+
+export interface ThreadInvitationsRepository {
+  /**
+   * Stores `inv` (normally `pending`, with null `resolvedAt`). When a `declined` row exists for the
+   * same thread and person, it is replaced (a re-invitation). Returns false, and changes nothing,
+   * when a `pending` or `accepted` row exists.
+   */
+  create(inv: ThreadInvitation): Promise<boolean>
+  get(threadId: ThreadId, personId: PersonId): Promise<ThreadInvitation | null>
+  /** The thread's `pending` invitations, oldest first (ties by person id). */
+  pendingForThread(threadId: ThreadId): Promise<ThreadInvitation[]>
+  /** The person's `pending` invitations, oldest first (ties by thread id). */
+  pendingForPerson(personId: PersonId): Promise<ThreadInvitation[]>
+  /**
+   * Sets `status` and `resolvedAt = at`, only on a `pending` row. Returns whether a row changed
+   * (false: no invitation, or already accepted or declined).
+   */
+  resolve(
+    threadId: ThreadId,
+    personId: PersonId,
+    status: Exclude<ThreadInvitationStatus, 'pending'>,
+    at: number,
+  ): Promise<boolean>
+}
+
+// invite_links (phase 5)
+
+export interface InviteLinkRecord {
+  /** SHA-256 of the code's UTF-8 bytes, hex. The code itself is never stored (R-14). */
+  codeHash: string
+  personId: PersonId
+  createdAt: number
+  expiresAt: number
+  /** When the link was accepted; null while unused. */
+  usedAt: number | null
+}
+
+export interface InviteLinksRepository {
+  create(l: InviteLinkRecord): Promise<void>
+  /** The link, used or not, expired or not; null for an unknown hash. */
+  get(codeHash: string): Promise<InviteLinkRecord | null>
+  /**
+   * Sets `usedAt = at`, only on an unused row. Returns whether a row changed (false: unknown hash,
+   * or already used), so two requests with one code can't both win.
+   */
+  markUsed(codeHash: string, at: number): Promise<boolean>
+  /** Deletes the person's unused links (used ones stay). Returns the number of deleted rows. */
+  revokeFor(personId: PersonId): Promise<number>
+}
+
 // memories + memories_fts (docs/architecture/storage.md#memory-search-filter)
 
 /** Computed by `memory/visibility.ts` (`toStorageFilter(viewer)`); storage applies it as SQL. */
@@ -393,6 +534,10 @@ export interface Repositories {
   files: FilesRepository
   /** Phase 4. */
   reminders: RemindersRepository
+  /** Phase 5. */
+  threadInvitations: ThreadInvitationsRepository
+  /** Phase 5. */
+  inviteLinks: InviteLinksRepository
 }
 
 /** An open database. Used only by bootstrap (and test helpers); everything else gets `Repositories`. */

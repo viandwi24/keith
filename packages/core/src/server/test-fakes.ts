@@ -102,6 +102,25 @@ export function createFakeRepos(): FakeRepos {
           if (p) p.lastSeenAt = at
         }
       },
+      async findByName(name) {
+        const key = name.trim().toLowerCase()
+        if (key === '') return null
+        const all = [...data.persons.values()]
+        const p =
+          all.find((x) => x.name.toLowerCase() === key) ?? all.find((x) => x.username?.toLowerCase() === key)
+        return p ? { ...p } : null
+      },
+      async setTier(id, tier) {
+        const p = data.persons.get(id)
+        if (p) p.tier = tier
+      },
+      async setCredentials(id, c) {
+        const p = data.persons.get(id)
+        if (p) Object.assign(p, c)
+      },
+      async remove() {
+        throw new Error('fake persons.remove is not modeled')
+      },
     },
     authTokens: {
       async create(t) {
@@ -170,6 +189,31 @@ export function createFakeRepos(): FakeRepos {
       async touch(id, updatedAt) {
         const t = data.threads.get(id)
         if (t) t.updatedAt = updatedAt
+      },
+      async addParticipant(threadId, personId, at) {
+        const row = data.participants.find((p) => p.threadId === threadId && p.personId === personId)
+        if (!row) {
+          data.participants.push({ threadId, personId, joinedAt: at, leftAt: null })
+          return true
+        }
+        if (row.leftAt === null) return false
+        row.joinedAt = at
+        row.leftAt = null
+        return true
+      },
+      async removeParticipant(threadId, personId, at) {
+        const row = data.participants.find(
+          (p) => p.threadId === threadId && p.personId === personId && p.leftAt === null,
+        )
+        if (!row) return false
+        row.leftAt = at
+        return true
+      },
+      async formerParticipants(threadId) {
+        return data.participants
+          .filter((p) => p.threadId === threadId && p.leftAt !== null)
+          .sort((a, b) => (b.leftAt ?? 0) - (a.leftAt ?? 0) || a.personId.localeCompare(b.personId))
+          .map((p) => ({ ...p }))
       },
       async setSummary(id, s) {
         const t = data.threads.get(id)
@@ -423,6 +467,7 @@ export function testConfig(overrides: { awayAfterMinutes?: number } = {}): Keith
       },
       context: { recentMessages: 30 },
       reminder: { maxPerPerson: 50 },
+      group: { maxParticipants: 8, autoJoin: false, addressing: 'rules+utility' },
     },
     memory: {
       coreMaxChars: 2_000,
@@ -431,7 +476,7 @@ export function testConfig(overrides: { awayAfterMinutes?: number } = {}): Keith
     },
     scheduler: { foreground: 4, delivery: 2, background: 2, tickMs: 30_000 },
     models: { foreground: 'fake:model', background: 'fake:model', utility: 'fake:model' },
-    auth: { tokenTtlDays: 30 },
+    auth: { tokenTtlDays: 30, inviteTtlHours: 72 },
     plugins: { enabled: [], required: [], stopTimeoutMs: 5_000, sections: {} },
     services: {},
   }

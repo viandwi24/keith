@@ -105,6 +105,23 @@ describe('messages', () => {
     expect(page.messages[0]?.meta).toEqual({ cancelled: true, spokenChars: 6 })
   })
 
+  test('I-13: round-trips meta.relayFrom of a delivery turn that carried relays (phase 5)', async () => {
+    const relayFrom = [
+      { personId: testId('per', 7), name: 'Tony' },
+      { personId: testId('per', 8), name: 'Happy' },
+    ]
+    const relayed: AssistantMessageRecord = {
+      ...assistant,
+      id: testId('msg', 5),
+      content: 'Tony says he will be late.',
+      meta: { proactive: true, relayFrom },
+      toolCalls: null,
+      ui: null,
+    }
+    await db.repos.messages.append(relayed)
+    expect((await db.repos.messages.get(relayed.id))?.meta).toEqual({ proactive: true, relayFrom })
+  })
+
   test('assistant tool calls and tool results replay into LlmMessage shapes', async () => {
     for (const m of [userMessage(1, 10), assistant, { ...tool, isError: true }])
       await db.repos.messages.append(m)

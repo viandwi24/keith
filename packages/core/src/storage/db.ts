@@ -8,12 +8,14 @@ import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
 import { createAuthTokensRepository, createNodesRepository } from './access.ts'
 import { createFilesRepository } from './files.ts'
+import { createInviteLinksRepository } from './invite-links.ts'
 import { createMemoriesRepository } from './memories.ts'
 import { createMessagesRepository } from './messages.ts'
 import type { Orm } from './orm.ts'
 import { createPersonsRepository, createRelationshipsRepository } from './persons.ts'
 import { createPluginDataRepository } from './plugin-data.ts'
 import { createRemindersRepository } from './reminders.ts'
+import { createThreadInvitationsRepository } from './thread-invitations.ts'
 import { createThreadsRepository } from './threads.ts'
 import type { Db, Repositories } from './types.ts'
 import { createCommitmentsRepository, createDeliveriesRepository, createTasksRepository } from './work.ts'
@@ -57,5 +59,7 @@ function createRepositories(db: Orm): Repositories {
     pluginData: createPluginDataRepository(db),
     files: createFilesRepository(db),
     reminders: createRemindersRepository(db),
+    threadInvitations: createThreadInvitationsRepository(db),
+    inviteLinks: createInviteLinksRepository(db),
   }
 }

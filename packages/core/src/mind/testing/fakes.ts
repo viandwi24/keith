@@ -107,6 +107,27 @@ export function createFakeRepos(): FakeRepos {
           if (p) persons.set(id, { ...p, lastSeenAt: at })
         }
       },
+      async findByName(name) {
+        const key = name.trim().toLowerCase()
+        if (key === '') return null
+        const all = [...persons.values()]
+        return (
+          all.find((p) => p.name.toLowerCase() === key) ??
+          all.find((p) => p.username?.toLowerCase() === key) ??
+          null
+        )
+      },
+      async setTier(id, tier) {
+        const p = persons.get(id)
+        if (p) persons.set(id, { ...p, tier })
+      },
+      async setCredentials(id, c) {
+        const p = persons.get(id)
+        if (p) persons.set(id, { ...p, ...c })
+      },
+      async remove() {
+        throw new Error('fake persons.remove is not modeled')
+      },
     },
     relationships: {
       async get(personId) {
@@ -129,7 +150,9 @@ export function createFakeRepos(): FakeRepos {
         return threads.find((t) => t.ownerPersonId === owner && t.slug === slug) ?? null
       },
       async listForPerson(personId) {
-        const mine = new Set(participants.filter((p) => p.personId === personId).map((p) => p.threadId))
+        const mine = new Set(
+          participants.filter((p) => p.personId === personId && p.leftAt === null).map((p) => p.threadId),
+        )
         return threads.filter((t) => mine.has(t.id)).sort((a, b) => b.updatedAt - a.updatedAt)
       },
       async participants(threadId) {
@@ -139,6 +162,31 @@ export function createFakeRepos(): FakeRepos {
         const i = threads.findIndex((t) => t.id === id)
         const t = threads[i]
         if (t) threads[i] = { ...t, updatedAt }
+      },
+      async addParticipant(threadId, personId, at) {
+        const i = participants.findIndex((p) => p.threadId === threadId && p.personId === personId)
+        const row = participants[i]
+        if (!row) {
+          participants.push({ threadId, personId, joinedAt: at, leftAt: null })
+          return true
+        }
+        if (row.leftAt === null) return false
+        participants[i] = { ...row, joinedAt: at, leftAt: null }
+        return true
+      },
+      async removeParticipant(threadId, personId, at) {
+        const i = participants.findIndex(
+          (p) => p.threadId === threadId && p.personId === personId && p.leftAt === null,
+        )
+        const row = participants[i]
+        if (!row) return false
+        participants[i] = { ...row, leftAt: at }
+        return true
+      },
+      async formerParticipants(threadId) {
+        return participants
+          .filter((p) => p.threadId === threadId && p.leftAt !== null)
+          .sort((a, b) => (b.leftAt ?? 0) - (a.leftAt ?? 0) || a.personId.localeCompare(b.personId))
       },
       async setSummary(id, s) {
         const i = threads.findIndex((t) => t.id === id)
@@ -535,6 +583,7 @@ export function testConfig(
       arrival: { awayAfterMinutes: 30, briefing: 'on-greeting', holdMs: 120_000, graceMs: 1_500 },
       context: { recentMessages: 40 },
       reminder: { maxPerPerson: 50 },
+      group: { maxParticipants: 8, autoJoin: false, addressing: 'rules+utility' },
       ...mind,
     },
     memory: {

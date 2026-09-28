@@ -173,6 +173,7 @@ export async function createReflectionHarness(
       arrival: { awayAfterMinutes: 30, briefing: 'auto', holdMs: 1500, graceMs: 5000 },
       context: { recentMessages: 30 },
       reminder: { maxPerPerson: 50 },
+      group: { maxParticipants: 8, autoJoin: false, addressing: 'rules+utility' },
     },
   }
   const deps: ReflectionDeps = {

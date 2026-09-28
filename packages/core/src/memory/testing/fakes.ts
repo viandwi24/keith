@@ -20,6 +20,7 @@ import type {
   MemoryFilter,
   MemoryPatch,
   PersonRecord,
+  PersonRemoval,
   PersonsRepository,
   TaskPatch,
   TasksRepository,
@@ -150,6 +151,28 @@ export class FakePersonsRepository implements PersonsRepository {
       if (p) p.lastSeenAt = at
     }
   }
+  async findByName(name: string): Promise<PersonRecord | null> {
+    const key = name.trim().toLowerCase()
+    if (key === '') return null
+    const all = [...this.rows.values()]
+    return (
+      all.find((p) => p.name.toLowerCase() === key) ??
+      all.find((p) => p.username?.toLowerCase() === key) ??
+      null
+    )
+  }
+  async setTier(id: PersonId, tier: Tier): Promise<void> {
+    const p = this.rows.get(id)
+    if (p) p.tier = tier
+  }
+  async setCredentials(id: PersonId, c: { username: string; passwordHash: string }): Promise<void> {
+    const p = this.rows.get(id)
+    if (p) Object.assign(p, c)
+  }
+  /** Not modeled in this fake (ADR-0018 is P5-S1's, on the real database). */
+  async remove(_id: PersonId): Promise<PersonRemoval> {
+    throw new Error('FakePersonsRepository.remove is not modeled')
+  }
 }
 
 export class FakeThreadsRepository implements ThreadsRepository {
@@ -195,6 +218,31 @@ export class FakeThreadsRepository implements ThreadsRepository {
   async touch(id: ThreadId, updatedAt: number): Promise<void> {
     const t = this.rows.get(id)
     if (t) t.updatedAt = updatedAt
+  }
+  async addParticipant(threadId: ThreadId, personId: PersonId, at: number): Promise<boolean> {
+    const row = this.members.find((m) => m.threadId === threadId && m.personId === personId)
+    if (!row) {
+      this.members.push({ threadId, personId, joinedAt: at, leftAt: null })
+      return true
+    }
+    if (row.leftAt === null) return false
+    row.joinedAt = at
+    row.leftAt = null
+    return true
+  }
+  async removeParticipant(threadId: ThreadId, personId: PersonId, at: number): Promise<boolean> {
+    const row = this.members.find(
+      (m) => m.threadId === threadId && m.personId === personId && m.leftAt === null,
+    )
+    if (!row) return false
+    row.leftAt = at
+    return true
+  }
+  async formerParticipants(threadId: ThreadId): Promise<ThreadParticipantRecord[]> {
+    return this.members
+      .filter((m) => m.threadId === threadId && m.leftAt !== null)
+      .sort((a, b) => (b.leftAt ?? 0) - (a.leftAt ?? 0) || a.personId.localeCompare(b.personId))
+      .map((m) => ({ ...m }))
   }
   /** Fixture: each thread's highest message `seq` (this fake stores no messages). */
   readonly lastSeqs = new Map<ThreadId, number>()

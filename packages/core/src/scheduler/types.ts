@@ -57,3 +57,17 @@ export interface ReminderService {
   /** Enqueues a `reminder` delivery for every due reminder, then marks it fired. Returns how many fired. */
   fireDue(now: number): Promise<number>
 }
+
+/** Phase 5: why `RelayService.send` refused. The tool answers `not_allowed` generically (ADR-0017). */
+export type RelayResult =
+  | { ok: true; delivery: Delivery }
+  | { ok: false; reason: 'unknown_recipient' | 'self' | 'not_allowed' }
+
+/** Phase 5: relays between people (I-13, docs/architecture/core.md#relays). */
+export interface RelayService {
+  /** I-13 per ADR-0017. Enqueues a `relay` delivery authored by the sender into the recipient's main thread. */
+  send(a: { fromPersonId: PersonId; toPersonId: PersonId; text: string }): Promise<RelayResult>
+  /** Adds or removes `from` in `personId`'s `blockedRelayFrom`. Returns whether the list changed. */
+  block(a: { personId: PersonId; from: PersonId }): Promise<boolean>
+  unblock(a: { personId: PersonId; from: PersonId }): Promise<boolean>
+}

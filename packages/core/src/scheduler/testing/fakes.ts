@@ -53,6 +53,7 @@ export function createTestConfig(
       arrival: { awayAfterMinutes: 30, briefing: 'on-greeting', holdMs: 120_000, graceMs: 1_500 },
       context: { recentMessages: 40 },
       reminder: { maxPerPerson: 50 },
+      group: { maxParticipants: 8, autoJoin: false, addressing: 'rules+utility' },
     },
     memory: {
       coreMaxChars: 4000,
@@ -61,7 +62,7 @@ export function createTestConfig(
     },
     scheduler: { foreground: 4, delivery: 2, background: 2, tickMs: 30_000, ...overrides.scheduler },
     models: { foreground: 'fake:fg', background: 'fake:bg', utility: 'fake:util' },
-    auth: { tokenTtlDays: 30 },
+    auth: { tokenTtlDays: 30, inviteTtlHours: 72 },
     plugins: { enabled: [], required: [], stopTimeoutMs: 5000, sections: {} },
     services: {},
   }
@@ -284,7 +285,9 @@ export function createFakeRepos(): FakeRepos {
       )
     },
     async listForPerson(personId) {
-      const ids = new Set(participantRows.filter((p) => p.personId === personId).map((p) => p.threadId))
+      const ids = new Set(
+        participantRows.filter((p) => p.personId === personId && p.leftAt === null).map((p) => p.threadId),
+      )
       return [...threadRows.values()].filter((t) => ids.has(t.id))
     },
     async participants(threadId) {
@@ -293,6 +296,31 @@ export function createFakeRepos(): FakeRepos {
     async touch(id, updatedAt) {
       const t = threadRows.get(id)
       if (t) threadRows.set(id, { ...t, updatedAt })
+    },
+    async addParticipant(threadId, personId, at) {
+      const i = participantRows.findIndex((p) => p.threadId === threadId && p.personId === personId)
+      const row = participantRows[i]
+      if (!row) {
+        participantRows.push({ threadId, personId, joinedAt: at, leftAt: null })
+        return true
+      }
+      if (row.leftAt === null) return false
+      participantRows[i] = { ...row, joinedAt: at, leftAt: null }
+      return true
+    },
+    async removeParticipant(threadId, personId, at) {
+      const i = participantRows.findIndex(
+        (p) => p.threadId === threadId && p.personId === personId && p.leftAt === null,
+      )
+      const row = participantRows[i]
+      if (!row) return false
+      participantRows[i] = { ...row, leftAt: at }
+      return true
+    },
+    async formerParticipants(threadId) {
+      return participantRows
+        .filter((p) => p.threadId === threadId && p.leftAt !== null)
+        .sort((a, b) => (b.leftAt ?? 0) - (a.leftAt ?? 0) || a.personId.localeCompare(b.personId))
     },
     async setSummary(id, s) {
       const t = threadRows.get(id)
@@ -330,6 +358,27 @@ export function createFakeRepos(): FakeRepos {
         const p = personRows.get(id)
         if (p) personRows.set(id, { ...p, lastSeenAt: at })
       }
+    },
+    async findByName(name) {
+      const key = name.trim().toLowerCase()
+      if (key === '') return null
+      const all = [...personRows.values()]
+      return (
+        all.find((p) => p.name.toLowerCase() === key) ??
+        all.find((p) => p.username?.toLowerCase() === key) ??
+        null
+      )
+    },
+    async setTier(id, tier) {
+      const p = personRows.get(id)
+      if (p) personRows.set(id, { ...p, tier })
+    },
+    async setCredentials(id, c) {
+      const p = personRows.get(id)
+      if (p) personRows.set(id, { ...p, ...c })
+    },
+    async remove() {
+      throw new Error('fake persons.remove is not modeled')
     },
   }
 

@@ -49,7 +49,15 @@ import type {
 } from '../storage/types.ts'
 import type { SpeechHandle, VoiceOutput } from '../voice/types.ts'
 import { lowestTier, toMessageDto } from './messages.ts'
-import type { Arrival, ContextBuilder, RunLoop, RunLoopEvent, RunLoopResult, ThreadManager } from './types.ts'
+import type {
+  AddressingDetector,
+  Arrival,
+  ContextBuilder,
+  RunLoop,
+  RunLoopEvent,
+  RunLoopResult,
+  ThreadManager,
+} from './types.ts'
 import { findUiAction, idsFreeIn, validUiBlock } from './ui.ts'
 
 export type ThreadManagerDeps = {
@@ -78,6 +86,11 @@ export type ThreadManagerDeps = {
    * only, exactly as in phase 2.
    */
   voice?: VoiceOutput | undefined
+  /**
+   * Phase 5: decides whether a group input is addressed to the Mind (P5-C2 calls it). Without it
+   * every input is addressed, exactly as in phase 4.
+   */
+  addressing?: AddressingDetector | undefined
 }
 
 /** The ThreadManager plus lifecycle hooks for bootstrap and tests. */
