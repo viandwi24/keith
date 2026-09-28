@@ -4,8 +4,8 @@ title: Phase-5 contract additions and core interfaces for people, relays and gro
 phase: 5
 wave: 1
 lane: K
-status: todo
-owner: null
+status: in-progress
+owner: agent-P5-K1
 depends: [P4-I2]
 owns:
   - docs/contracts/**

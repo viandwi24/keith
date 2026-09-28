@@ -48,12 +48,12 @@ The overview's lanes map as follows. Lane 0 is K. People (A) is split into stora
 
 ## Open decisions
 
-Defaults below are what the plan assumes. The owner accepts or changes them before P5-K1 starts. D1 and D2 are the proposed ADRs, because the lanes can't start without them.
+The owner accepted ADR-0017, ADR-0018 and every default below on 2026-09-28. The P5-I2 human run is deferred like the phase 1–4 runs.
 
 | # | Decision | Where | Default in the plan |
 |---|---|---|---|
-| D1 | Who may relay, start groups, invite, join; what a leaver keeps; who makes invite links | [ADR-0017](../../decisions/0017-tier-rules-for-relays-and-group-threads.md), proposed | Relay: owner and members to anyone, a guest only to the owner, and a recipient's block always wins, with a generic refusal. Groups: members and owners start and invite, anyone may be invited. A leaver loses access, and the group keeps the history. Only the owner makes invite links, and exactly one owner exists |
-| D2 | What deleting a person removes | [ADR-0018](../../decisions/0018-deleting-a-person.md), proposed | Their direct threads, subject memories, tokens, links, tasks and pending relays, **and their own messages in groups**. Memories and delivered relays they authored stay with the author cleared. Needs Keith stopped |
+| D1 | Who may relay, start groups, invite, join; what a leaver keeps; who makes invite links | [ADR-0017](../../decisions/0017-tier-rules-for-relays-and-group-threads.md), accepted | Relay: owner and members to anyone, a guest only to the owner, and a recipient's block always wins, with a generic refusal. Groups: members and owners start and invite, anyone may be invited. A leaver loses access, and the group keeps the history. Only the owner makes invite links, and exactly one owner exists |
+| D2 | What deleting a person removes | [ADR-0018](../../decisions/0018-deleting-a-person.md), accepted | Their direct threads, subject memories, tokens, links, tasks and pending relays, **and their own messages in groups**. Memories and delivered relays they authored stay with the author cleared. Needs Keith stopped |
 | D3 | How an invitee accepts, and whether nodes get join/leave frames | P5-K1, P5-C1 | Conversationally, through `thread.join` / `thread.leave`, plus Join / Decline buttons on the invitation card. No new node → core frame. The sketch's `thread.invite` frame is dropped |
 | D4 | How a relay appears to the recipient | P5-K1, P5-C2, P5-C3 | A delivery turn in their main thread (Keith says it), with `meta.relayFrom` on the message. Not a verbatim user message authored by the sender in the recipient's thread |
 | D5 | Invite link mechanics | P5-K1, P5-A1, P5-N1 | 32 random bytes, SHA-256 at rest, single use, 72 h (`auth.inviteTtlHours`), `<publicUrl>/#invite=<code>` (a fragment, so it isn't logged), a new link revokes older unused ones, and accepting ends old sessions |

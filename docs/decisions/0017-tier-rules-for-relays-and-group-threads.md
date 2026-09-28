@@ -1,6 +1,6 @@
 # ADR-0017: Tier rules for relays, group threads and invite links
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-09-28
 - **Rules/invariants affected:** I-3, I-4, I-13, R-14
 

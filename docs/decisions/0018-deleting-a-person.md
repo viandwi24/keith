@@ -1,6 +1,6 @@
 # ADR-0018: What deleting a person removes
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-09-28
 - **Rules/invariants affected:** I-2, I-4, R-4, R-14
 
