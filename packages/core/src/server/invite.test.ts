@@ -128,8 +128,7 @@ describe('POST /v1/auth/invite', () => {
     expect(t.repos.data.persons.get(happy.id)?.username).toBe('hogan')
   })
 
-  // Blocked (P5-N1 ## Blocker): needs a storage member that deletes a person's auth tokens.
-  test.todo('a password reset through a new link ends the old token', async () => {
+  test('a password reset through a new link ends the old token', async () => {
     const first = await invite()
     const old = LoginResponse.parse(
       await (await accept({ code: first, username: 'happy', password: PASSWORD })).json(),

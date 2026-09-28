@@ -116,8 +116,8 @@ export function createAuth(deps: AuthDeps): Auth {
         // Another invite took the username since the check above (the unique index).
         return { ok: false, ...USERNAME_TAKEN }
       }
-      // BLOCKED (P5-N1 ## Blocker): ending the person's existing sessions needs a storage member
-      // that deletes a person's auth tokens; `AuthTokensRepository` has none yet.
+      // Old sessions end (a password reset must lock out whoever had the old password).
+      await authTokens.deleteForPerson(person.id)
       return { ok: true, login: await issue({ ...person, username, passwordHash }) }
     },
     async resolve(token) {
