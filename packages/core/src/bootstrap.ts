@@ -12,7 +12,14 @@ import { createEventBus } from './events/index.ts'
 import type { CoreEventBus } from './events/types.ts'
 import { createReflection, createThreadSummaries, MemoryStore } from './memory/index.ts'
 import type { MindThreadManager } from './mind/index.ts'
-import { createContextBuilder, createRunLoop, createThreadManager, personaFromFile } from './mind/index.ts'
+import {
+  createAddressing,
+  createContextBuilder,
+  createGroupThreads,
+  createRunLoop,
+  createThreadManager,
+  personaFromFile,
+} from './mind/index.ts'
 import {
   createAgentRegistry,
   createPluginDataStores,
@@ -226,7 +233,24 @@ export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
       log: log.child({ component: 'summaries' }),
     })
 
-    // 8. ThreadManager
+    // 8. ThreadManager, with the group-thread services (phase 5): the addressing detector decides
+    // whether a group input is for the Mind (its classifier runs in the foreground lane), and
+    // `GroupThreads` changes membership for the thread tools (step 10).
+    const addressing = createAddressing({
+      config,
+      runLoop,
+      scheduler: scheduling.scheduler,
+      log: log.child({ component: 'addressing' }),
+    })
+    const groups = createGroupThreads({
+      config,
+      repos,
+      deliveries: scheduling.deliveries,
+      events,
+      ids,
+      clock,
+      log: log.child({ component: 'groups' }),
+    })
     const context = createContextBuilder({
       config,
       persona: personaFromFile(paths.personaFile),
@@ -255,6 +279,7 @@ export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
       services,
       // Phase 3: spoken replies on the focus node; `config.voice` also sets barge-in.
       voice: voice?.output,
+      addressing,
     })
     threadsRef = threads
     closers.push({ name: 'threads', run: () => threads.stop() })
@@ -288,6 +313,8 @@ export async function bootstrap(opts: BootstrapOptions): Promise<Keith> {
       persons: repos.persons,
       skills,
       reminders: { service: scheduling.reminders, config, clock },
+      relay: { service: scheduling.relay, persons: repos.persons },
+      groups: { service: groups, persons: repos.persons, threads: repos.threads, config },
     })
 
     // 11. plugin host → load → setup → start

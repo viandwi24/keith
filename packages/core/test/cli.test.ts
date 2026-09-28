@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { createFakeLlm, createFakeLlmPlugin } from '@keith/sdk/testing'
 import { KEITH_VERSION } from '../src/bootstrap.ts'
 import { type CliIo, keithHome, runCli, scriptedPrompter } from '../src/cli/index.ts'
-import { PHASE4_DEFAULTS } from '../src/cli/setup.ts'
+import { PHASE4_DEFAULTS, PHASE5_DEFAULTS } from '../src/cli/setup.ts'
 import { defaultPersona, parseConfig } from '../src/config/index.ts'
 import { openDb } from '../src/storage/index.ts'
 import { createTestHome, quietLogger, testClock } from './helpers.ts'
@@ -89,6 +89,19 @@ describe('keith setup', () => {
     const parsed = parseConfig(Bun.TOML.parse(uncommented), { env: { DEEPSEEK_API_KEY: 'sk-test' } })
     expect(parsed.memory).toEqual(config.memory)
     expect(parsed.mind.reminder).toEqual(config.mind.reminder)
+    // Phase 5: group threads and invite links, the same way; publicUrl is commented, with no default.
+    for (const section of ['[mind.group]', '[auth]']) expect(text).toContain(`# ${section}`)
+    const block5 = PHASE5_DEFAULTS.join('\n')
+    expect(text).toContain(block5)
+    const uncommented5 = text.replace(block5, block5.replace(/^# (\[|\w+ = )/gm, '$1'))
+    expect(uncommented5).toContain('\n[mind.group]\n')
+    const parsed5 = parseConfig(Bun.TOML.parse(uncommented5), { env: { DEEPSEEK_API_KEY: 'sk-test' } })
+    expect(parsed5.mind.group).toEqual(config.mind.group)
+    expect(parsed5.mind.group).toEqual({ maxParticipants: 8, autoJoin: false, addressing: 'rules+utility' })
+    expect(parsed5.auth).toEqual(config.auth)
+    expect(parsed5.auth.inviteTtlHours).toBe(72)
+    expect(text).toMatch(/\n# publicUrl = "https:\/\/[^"]+"/)
+    expect(config.server.publicUrl).toBeUndefined()
 
     expect(await Bun.file(join(home, 'persona.md')).text()).toBe(defaultPersona('Keith'))
     for (const dir of ['files', 'plugins', 'logs']) expect(statSync(join(home, dir)).isDirectory()).toBe(true)

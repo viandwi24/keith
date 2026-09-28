@@ -1256,7 +1256,7 @@ The ThreadManager maps `RunLoopEvent`s to `message.delta`, `tool.activity` and `
 - `createGroupThreads(deps: GroupThreadsDeps): GroupThreads` (`mind/groups.ts`). Deps: `config` (`mind`), `repos` (`persons`, `threads`, `threadInvitations`), `deliveries` (`enqueue`), `events` (`emit`), `ids`, `clock`, `log`.
 - `ThreadManagerDeps.addressing?: AddressingDetector`. Without it every group input is addressed (the phase-4 behavior).
 
-> Planned (phase 5, P5-I1): bootstrap doesn't build `createAddressing` or `createGroupThreads` yet.
+Bootstrap builds both in step 8 ([Construction order](#construction-order-bootstrap)).
 
 ### Voice (`voice/types.ts`), implemented by `voice/` (P3-A1)
 
@@ -1469,13 +1469,13 @@ The only order that has no cycles. `bootstrap.ts` follows it:
 5. `RunLoop` (from `mind/`, needs providers, tools, repositories)
 6. scheduler, tasks, commitments, deliveries, reminders and the relay service (needs `RunLoop`)
 7. memory (needs repositories, events, config), then the phase-4 memory jobs: `createReflection` and `createThreadSummaries` (need memory, `RunLoop`, `scheduling.scheduler`, repositories, events, config). Built, not started.
-8. `ThreadManager` (needs everything above, and the voice output). It subscribes to `delivery.enqueued`, so nothing calls into it from below. Arrival reaches it only through `open({ arrival })`, never through the `person.arrived` event (which is for plugins).
+8. `createAddressing` (the real `RunLoop`, `scheduling.scheduler`) and `createGroupThreads` (repositories, `scheduling.deliveries`, events), then the `ThreadManager` (needs everything above, the voice output and `addressing`). It subscribes to `delivery.enqueued`, so nothing calls into it from below. Arrival reaches it only through `open({ arrival })`, never through the `person.arrived` event (which is for plugins).
 9. server (needs `ThreadManager`, attachments, presence, the voice input) builds its http and ws registries, **without listening yet**. It reads the plugin host's `status()` for the notices after `welcome` through a late binding (the host is built in step 11).
-10. built-in tools registered through the privileged `tools.registerBuiltin()`, including the `reminder.*` tools (`reminders: { service: scheduling.reminders, config, clock }`), and the default skill `morning_briefing`
+10. built-in tools registered through the privileged `tools.registerBuiltin()`, including the `reminder.*` tools (`reminders: { service: scheduling.reminders, config, clock }`), the `relay.*` tools (`relay: { service: scheduling.relay, persons }`), the `thread.*` tools (`groups: { service: groups, persons, threads, config }`), and the default skill `morning_briefing`
 11. plugin host (needs registries, server http/ws, the delivery sink, the data stores) → load → `setup` → `start`, then `checkVoiceProviders`: every `voice.vad/stt/tts` id must name a registered provider (`CONFIG_INVALID` otherwise)
 12. `scheduling.start()` (recovers tasks, starts the tick, subscribes `fireDue`), then the reflection and summary jobs `start()`, server `listen()` → emit `core.started`
 
-> Planned (phase 5, P5-I1): step 8 also builds `createAddressing(...)` and `createGroupThreads(...)` and passes `addressing` to the ThreadManager; step 10 passes `relay: { service: scheduling.relay, persons }` and `groups: { service: groups, persons, threads, config }` to `registerBuiltins`, which registers the `relay.*` and `thread.*` tools only when they are given.
+No new shutdown step for phase 5: an addressing classifier call runs under its thread's signal, which `threads.stop()` / `threads.cancelAll()` abort, and `GroupThreads` holds no timers or subscriptions.
 
 Shutdown runs the other way: presence flush, server stop, `threads.stop()` then `threads.cancelAll()` (each running turn persists its partial reply), presence, the reflection and summary jobs (unsubscribed, running passes aborted; an aborted pass writes nothing), scheduling, memory, plugins, event bus, database, log file, and the home lock last. A start that fails tears down what it built, lock included; the memory jobs stop before scheduling there too.
 
@@ -1632,7 +1632,7 @@ A relay passes one person's words to another through Keith (I-13, S-5). `RelaySe
 
 - **Checks** (`RelayService.send`, in order): the sender and the recipient are the same person → `self`; the recipient doesn't exist or has no `main` thread → `unknown_recipient`; the sender is a guest and the recipient is not the owner, or the recipient's `relationships.blockedRelayFrom` names the sender → `not_allowed`. A block wins over every tier, the owner's included. A sender that doesn't exist is refused as `not_allowed` too (logged as a warning). The log records who relayed to whom and which rule refused, never the text.
 - **Delivery.** Otherwise it enqueues `{ personId: to, threadId: <their main>, kind: 'relay', authorPersonId: from, source: 'core', urgency: 'normal', content: <the text, verbatim> }`. The relay flushes like any delivery (I-11): now if the recipient is present and the thread idle, else on their next arrival. v1 relays go only to the recipient's main thread, never into a group.
-- **Attribution.** Section 8 labels the item with the sender's name (P5-C3). The delivery turn's assistant message stores `meta.relayFrom` (`{ personId, name }` per sender, in delivery order), so `message.completed` and history carry it and a node can show "via Tony" even if the model paraphrases. The same holds for a user turn that carries relays after an arrival. Several relays from one sender give one entry; a sender who no longer exists gives none.
+- **Attribution.** Section 8 labels the item with the sender's name (`(relay from Tony)`). The delivery turn's assistant message stores `meta.relayFrom` (`{ personId, name }` per sender, in delivery order), so `message.completed` and history carry it and a node can show "via Tony" even if the model paraphrases. The same holds for a user turn that carries relays after an arrival. Several relays from one sender give one entry; a sender who no longer exists gives none.
 - **Answers** (`RELAY_MESSAGES`): "I'll pass that on to <name>.", "I don't know anyone called <name>.", and one generic refusal for a tier rule and a block alike: "I can't pass messages from you to <name>." Relaying to yourself answers "You can't relay to yourself."
 - **Blocks.** `relay.block { from }` / `relay.unblock { from }` change only the caller's own `blockedRelayFrom` (`RelayService.block` / `unblock`). The service reads the card (a missing card counts as empty, with `tone` and `notes` `''`), adds or removes the id, and upserts only when the list changed, keeping `tone` and `notes`; it answers whether it changed. `personId === from` changes nothing. The tools answer with `RELAY_MESSAGES`: blocked / already blocked, unblocked / not blocked, the unknown-name text, and "You can't block yourself." (unblocking yourself answers "not blocked"). The owner can change anyone's list with `keith person block` / `unblock`.
 - A relay writes no memory. It reaches later contexts only through the recipient's thread history. There are no `relay.*` events: a relay is a `delivery.enqueued` with `kind: 'relay'`.
@@ -1665,11 +1665,11 @@ Registered with `tools.registerBuiltin()`. Their namespaces are reserved. `regis
 
 The tiers come from [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md). `builtins/relay.ts` and `builtins/thread.ts` also export the input schemas, the tool names and the answers (`RELAY_MESSAGES`, `THREAD_MESSAGES`).
 
-> Planned (phase 5, P5-I1): bootstrap doesn't pass `relay` or `groups` to `registerBuiltins` yet, so none of the seven is registered.
+`registerBuiltins` registers the `relay.*` and `thread.*` tools only when it is given `relay` / `groups`; bootstrap always passes both.
 
 ## Group threads
 
-Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md). Scenario: [S-6](../concept/scenarios.md#s-6-collaboration-a-group-thread-with-shared-state). Bootstrap wiring is P5-I1.
+Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md). Scenario: [S-6](../concept/scenarios.md#s-6-collaboration-a-group-thread-with-shared-state). Bootstrap builds the detector and `GroupThreads` in step 8 and passes them to the thread manager and the `thread.*` tools ([Construction order](#construction-order-bootstrap)).
 
 A group thread (`kind: 'group'`, `slug` null) has several human participants (`thread_participants`), a `title` and an optional `purpose`. Participants and message authors are stored from phase 1.
 
@@ -1710,4 +1710,4 @@ With `mind.group.addressing = "rules+utility"`, an `unsure` input goes to the cl
 
 The labelled corpus in `mind/addressing/corpus.ts` (over 40 Tony / Pepper / Rhodey lines) is the rule pass's regression test.
 
-**Frames.** Membership changes reach nodes as `thread.updated` / `thread.removed` ([protocol.md](../contracts/protocol.md#delivery-rules)); the server sends them on the participant events (P5-N1).
+**Frames.** Membership changes reach nodes as `thread.updated` / `thread.removed` ([protocol.md](../contracts/protocol.md#delivery-rules)); the server (`server/thread-list.ts`) sends them on the participant events: `thread.updated` to every node of every current participant, and to the leaver's nodes `thread.removed` after detaching them from the thread ([nodes.md](nodes.md#thread-list-phase-5)).

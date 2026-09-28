@@ -171,6 +171,21 @@ export const PHASE4_DEFAULTS: readonly string[] = [
 ]
 
 /**
+ * Phase 5: group threads and invite links, shown with their defaults as comments (no question,
+ * like the phase-4 block). Uncommented, the block parses to the defaults.
+ */
+export const PHASE5_DEFAULTS: readonly string[] = [
+  '# Group threads (docs/architecture/core.md#group-threads). Unsure lines cost one utility call.',
+  '# [mind.group]',
+  '# maxParticipants = 8              # current participants plus pending invitations',
+  '# autoJoin = false                 # true: members and owners join at once',
+  '# addressing = "rules+utility"     # or "rules": no utility-model call',
+  '#',
+  '# [auth]',
+  '# inviteTtlHours = 72              # `keith person add` / `invite` links expire after this',
+]
+
+/**
  * The config.toml `keith setup` writes: the chosen provider (enabled and required), every role on
  * one model, plus the optional plugins the person enabled.
  */
@@ -199,6 +214,7 @@ export function renderConfig(
     '[server]',
     'host = "127.0.0.1"',
     'port = 4824',
+    '# publicUrl = "https://keith.example.net"   # base of invite links; default http://<host>:<port>',
     '',
     '[models]                           # "<providerId>:<modelId>"; split roles across models freely',
     `foreground = ${ref}`,
@@ -206,6 +222,8 @@ export function renderConfig(
     `utility    = ${ref}`,
     '',
     ...PHASE4_DEFAULTS,
+    '',
+    ...PHASE5_DEFAULTS,
     '',
     '[plugins]',
     `enabled  = [${enabled.join(', ')}]`,

@@ -57,18 +57,18 @@ The running process. Internal folders:
 
 | Folder | Owns |
 |---|---|
-| `src/cli/` | `keith start`, `keith setup`, `keith migrate`, `keith backup` (`cli/backup.ts`) and `keith restore` (`cli/restore.ts`) |
-| `src/shared/` | Logger, rotating log file, `KEITH_HOME` lock, clock and prefixed-ULID generator implementations |
+| `src/cli/` | `keith start`, `keith setup`, `keith migrate`, `keith backup` (`cli/backup.ts`), `keith restore` (`cli/restore.ts`) and `keith person` (`cli/person.ts`, phase 5; `cli/person-testing.ts` has its fakes and `addPersonForTest`) |
+| `src/shared/` | Logger, rotating log file, `KEITH_HOME` lock, clock and prefixed-ULID generator implementations, `sha256Hex` (the hash of auth tokens and invite codes, `shared/hash.ts`) |
 | `src/config/` | Loading and validating `~/.keith/config.toml` |
 | `src/plugins/` | Plugin host, registry implementations (services, tools, skills, agents, providers) |
 | `src/events/` | Event bus implementation |
-| `src/server/` | Bun HTTP + WS, auth, handshake, frame routing, http/ws registries |
+| `src/server/` | Bun HTTP + WS, auth (login and `POST /v1/auth/invite`), handshake, frame routing, http/ws registries, the live thread list (`server/thread-list.ts`, phase 5) |
 | `src/storage/` | Drizzle schema, migration runner, repositories, `backupDatabase` (`storage/backup.ts`). The generated SQL migrations live in `packages/core/drizzle/` (drizzle-kit, [storage.md](storage.md)) |
-| `src/mind/` | ThreadManager, turn loop, context builder, focus, turn state |
-| `src/scheduler/` | Lanes, Tasks, Commitments, Deliveries, Reminders (`scheduler/reminders.ts`, phase 4) |
+| `src/mind/` | ThreadManager, turn loop, context builder, focus, turn state. Phase 5: `mind/groups.ts` (group membership and invitations) and `mind/addressing/` (the addressing detector: rules, the `utility` classifier, prompts and the labelled corpus) |
+| `src/scheduler/` | Lanes, Tasks, Commitments, Deliveries, Reminders (`scheduler/reminders.ts`, phase 4), the relay service (`scheduler/relay.ts`, phase 5) |
 | `src/memory/` | Memory write/recall, visibility filter, awareness digest. Phase 4 memory jobs: `memory/reflect/` (reflection) and `memory/summary/` (thread summaries) |
 | `src/voice/` | Phase 3: the voice pipeline (VAD → STT → Mind, TTS → focus node) and `checkVoiceProviders` ([voice.md](voice.md)) |
-| `src/builtins/` | Built-in tools: `task.*`, `memory.*`, `skill.load`, `reminder.*` (phase 4), and the default skills in `builtins/skills/` (`morning_briefing`) |
+| `src/builtins/` | Built-in tools: `task.*`, `memory.*`, `skill.load`, `reminder.*` (phase 4), `relay.*` (`builtins/relay.ts`) and `thread.*` (`builtins/thread.ts`) (phase 5), and the default skills in `builtins/skills/` (`morning_briefing`) |
 | `src/bootstrap.ts` | Wires everything together. Owned by integration tasks only |
 
 Core folders talk through TypeScript interfaces declared in [core.md](core.md#internal-interfaces). This lets lanes build in parallel against the interface before the implementation exists. `bun run core-docs` (`scripts/check-core-docs.ts`, part of `bun run check`) fails when an interface block in core.md differs from its `types.ts`.

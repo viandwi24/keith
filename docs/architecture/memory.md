@@ -69,7 +69,7 @@ The visibility filter is a single pure function (`memory/visibility.ts`) that ev
 - The awareness digest describes an item in detail only when every viewer participant may see it, and is counts-only with a guest in the group (below).
 - Reflection in a group writes only `thread` memories, never updates a card, and its input holds only memories visible to every participant ([Reflection](#reflection)).
 
-`memory/audit.test.ts` checks all of this on a real database: for every viewer (four direct threads, a group, a group with a guest and a group someone left), every read path above returns exactly the rows the rule admits, over one memory of every visibility and a task of every visibility.
+`memory/audit.test.ts` checks all of this on a real database: for every viewer (four direct threads, a group, a group with a guest and a group someone left through `threads.removeParticipant`), every read path above returns exactly the rows the rule admits, over one memory of every visibility and a task of every visibility.
 
 ## Recall
 
@@ -120,7 +120,7 @@ Built by `createThreadSummaries` (`memory/summary/`), under [ADR-0014](../decisi
 
 ## Deleting a person
 
-Deleting a Person: `keith person remove` runs `PersonsRepository.remove` ([ADR-0018](../decisions/0018-deleting-a-person.md), [storage.md](storage.md#invite-links-and-group-invitations-phase-5)).
+Deleting a Person: `keith person remove` runs `PersonsRepository.remove` ([ADR-0018](../decisions/0018-deleting-a-person.md), [storage.md](storage.md#invite-links-and-group-invitations-phase-5)). `packages/core/test/people.test.ts` runs it on a home a real core wrote, then starts the core again.
 
 `keith person remove <name>` ([ADR-0018](../decisions/0018-deleting-a-person.md)) asks for confirmation (or takes `--yes`), needs Keith stopped (it holds the home lock), refuses the owner, and suggests `keith backup` first. There is no undo. One storage transaction (`PersonsRepository.remove`) does the following.
 
