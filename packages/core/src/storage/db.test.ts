@@ -61,6 +61,8 @@ describe('openDb', () => {
       'plugin_data',
       'files',
       'reminders',
+      'invite_links',
+      'thread_invitations',
       'memories_fts_insert',
       'memories_fts_update',
       'memories_fts_delete',
@@ -183,6 +185,7 @@ describe('openDb', () => {
       updatedAt: 2,
       summaryThroughSeq: null,
       reflectedThroughSeq: null,
+      purpose: null,
     }
     expect(await db.repos.threads.get(threadId)).toEqual(expected)
     // The null reflection cursor counts as 0, so the old thread is due.
@@ -190,6 +193,40 @@ describe('openDb', () => {
       { thread: expected, lastSeq: 1 },
     ])
     expect(await db.repos.reminders.countPending('per_1' as PersonId)).toBe(0)
+    db.close()
+    expect(migrationCount(path)).toBe(
+      readdirSync(MIGRATIONS_FOLDER, { withFileTypes: true }).filter((e) => e.isDirectory()).length,
+    )
+  })
+
+  test('P5-S1: a phase-4 database migrates to the phase-5 schema; existing threads have null purpose', async () => {
+    const dir = tempDir()
+    const oldMigrations = join(dir, 'migrations')
+    const phase4 = readdirSync(MIGRATIONS_FOLDER, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && e.name <= '20260927130302_reminders-thread-cursors')
+      .map((e) => e.name)
+    expect(phase4).toHaveLength(8)
+    for (const name of phase4)
+      cpSync(join(MIGRATIONS_FOLDER, name), join(oldMigrations, name), { recursive: true })
+    const path = join(dir, 'keith.db')
+    const raw = new Database(path, { create: true, strict: true })
+    migrate(drizzle({ client: raw }), { migrationsFolder: oldMigrations })
+    raw.run("insert into persons (id, name, tier, created_at) values ('per_1', 'Tony', 'owner', 1)")
+    raw.run(
+      `insert into threads (id, kind, slug, title, owner_person_id, created_at, updated_at)
+       values ('thr_a', 'direct', 'main', 'T', 'per_1', 1, 2)`,
+    )
+    raw.run("insert into thread_participants (thread_id, person_id, joined_at) values ('thr_a', 'per_1', 1)")
+    raw.close()
+
+    const db = openDb(path)
+    const threadId = 'thr_a' as ThreadId
+    const personId = 'per_1' as PersonId
+    expect((await db.repos.threads.get(threadId))?.purpose).toBeNull()
+    expect((await db.repos.threads.listForPerson(personId)).map((t) => t.purpose)).toEqual([null])
+    expect((await db.repos.persons.findByName(' tony '))?.id).toBe(personId)
+    expect(await db.repos.threadInvitations.pendingForPerson(personId)).toEqual([])
+    expect(await db.repos.inviteLinks.revokeFor(personId)).toBe(0)
     db.close()
     expect(migrationCount(path)).toBe(
       readdirSync(MIGRATIONS_FOLDER, { withFileTypes: true }).filter((e) => e.isDirectory()).length,

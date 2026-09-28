@@ -1,8 +1,9 @@
-// Drizzle schema for every phase-1 to phase-4 table in docs/architecture/storage.md. drizzle-kit reads this file
+// Drizzle schema for every phase-1 to phase-5 table in docs/architecture/storage.md. drizzle-kit reads this file
 // (packages/core/drizzle.config.ts) to generate migrations; never edit a generated migration.
 // JSON columns are plain text here; repositories parse them with zod on read (R-9).
 // `memories_fts` is an FTS5 virtual table created by a custom migration, not declared here.
 
+import { sql } from 'drizzle-orm'
 import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 import type {
   CommitmentId,
@@ -37,16 +38,22 @@ export const URGENCY_LEVELS = ['low', 'normal', 'high', 'critical'] as const
 export const DELIVERY_STATUSES = ['pending', 'delivered', 'dismissed'] as const
 export const MEMORY_SOURCES = ['stated', 'inferred', 'relayed', 'plugin'] as const
 export const REMINDER_STATUSES = ['pending', 'fired', 'cancelled'] as const
+export const THREAD_INVITATION_STATUSES = ['pending', 'accepted', 'declined'] as const
 
-export const persons = sqliteTable('persons', {
-  id: text('id').$type<PersonId>().primaryKey(),
-  name: text('name').notNull(),
-  username: text('username').unique(),
-  passwordHash: text('password_hash'),
-  tier: text('tier', { enum: TIERS }).notNull(),
-  lastSeenAt: integer('last_seen_at'),
-  createdAt: integer('created_at').notNull(),
-})
+export const persons = sqliteTable(
+  'persons',
+  {
+    id: text('id').$type<PersonId>().primaryKey(),
+    name: text('name').notNull(),
+    username: text('username').unique(),
+    passwordHash: text('password_hash'),
+    tier: text('tier', { enum: TIERS }).notNull(),
+    lastSeenAt: integer('last_seen_at'),
+    createdAt: integer('created_at').notNull(),
+  },
+  // Phase 5: names are unique case-insensitively (SQLite `lower()` folds ASCII only).
+  (t) => [uniqueIndex('persons_name_lower_idx').on(sql`lower(${t.name})`)],
+)
 
 export const relationships = sqliteTable('relationships', {
   personId: text('person_id')
@@ -100,6 +107,8 @@ export const threads = sqliteTable(
     summaryThroughSeq: integer('summary_through_seq'),
     /** Phase 4: the last message `seq` that reflection has read; null = never reflected. */
     reflectedThroughSeq: integer('reflected_through_seq'),
+    /** Phase 5: what a group thread is for; null for direct threads and groups without one. */
+    purpose: text('purpose'),
   },
   (t) => [uniqueIndex('threads_owner_slug_idx').on(t.ownerPersonId, t.slug)],
 )
@@ -329,4 +338,50 @@ export const reminders = sqliteTable(
       .references(() => deliveries.id, { onDelete: 'set null' }),
   },
   (t) => [index('reminders_status_due_idx').on(t.status, t.dueAt)],
+)
+
+/** Phase 5: single-use invite links. Only the SHA-256 of the code is stored (R-14). */
+export const inviteLinks = sqliteTable(
+  'invite_links',
+  {
+    codeHash: text('code_hash').primaryKey(),
+    personId: text('person_id')
+      .$type<PersonId>()
+      .notNull()
+      .references(() => persons.id, { onDelete: 'cascade' }),
+    createdAt: integer('created_at').notNull(),
+    expiresAt: integer('expires_at').notNull(),
+    usedAt: integer('used_at'),
+  },
+  (t) => [index('invite_links_person_idx').on(t.personId)],
+)
+
+/** Phase 5: invitations to group threads, one row per (thread, person). */
+export const threadInvitations = sqliteTable(
+  'thread_invitations',
+  {
+    threadId: text('thread_id')
+      .$type<ThreadId>()
+      .notNull()
+      .references(() => threads.id, { onDelete: 'cascade' }),
+    personId: text('person_id')
+      .$type<PersonId>()
+      .notNull()
+      .references(() => persons.id, { onDelete: 'cascade' }),
+    invitedBy: text('invited_by')
+      .$type<PersonId>()
+      .notNull()
+      .references(() => persons.id, { onDelete: 'cascade' }),
+    status: text('status', { enum: THREAD_INVITATION_STATUSES }).notNull(),
+    /** The `invitation` delivery; null when it is gone or not made yet. */
+    deliveryId: text('delivery_id')
+      .$type<DeliveryId>()
+      .references(() => deliveries.id, { onDelete: 'set null' }),
+    createdAt: integer('created_at').notNull(),
+    resolvedAt: integer('resolved_at'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.threadId, t.personId] }),
+    index('thread_invitations_person_status_idx').on(t.personId, t.status),
+  ],
 )

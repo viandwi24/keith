@@ -1,27 +1,47 @@
 // invite_links repository (phase 5, docs/architecture/storage.md#invite-links-and-group-invitations-phase-5).
-// Placeholder: P5-S1 adds the table and implements it (JSDoc in types.ts).
 
-import { KeithError } from '@keith/sdk'
+import { and, eq, isNull } from 'drizzle-orm'
 import type { Orm } from './orm.ts'
-import type { InviteLinksRepository } from './types.ts'
+import { inviteLinks } from './schema.ts'
+import type { InviteLinkRecord, InviteLinksRepository } from './types.ts'
 
-function notImplemented(what: string): KeithError {
-  return new KeithError('INTERNAL', `${what} not implemented yet (P5-S1)`)
+type InviteLinkRow = typeof inviteLinks.$inferSelect
+
+function toInviteLink(row: InviteLinkRow): InviteLinkRecord {
+  return {
+    codeHash: row.codeHash,
+    personId: row.personId,
+    createdAt: row.createdAt,
+    expiresAt: row.expiresAt,
+    usedAt: row.usedAt,
+  }
 }
 
-export function createInviteLinksRepository(_db: Orm): InviteLinksRepository {
+export function createInviteLinksRepository(db: Orm): InviteLinksRepository {
   return {
-    async create() {
-      throw notImplemented('inviteLinks.create')
+    async create(l) {
+      db.insert(inviteLinks).values(l).run()
     },
-    async get() {
-      throw notImplemented('inviteLinks.get')
+    async get(codeHash) {
+      const row = db.select().from(inviteLinks).where(eq(inviteLinks.codeHash, codeHash)).get()
+      return row ? toInviteLink(row) : null
     },
-    async markUsed() {
-      throw notImplemented('inviteLinks.markUsed')
+    // Conditional update: only an unused link changes, so of two requests with one code only
+    // the first wins.
+    async markUsed(codeHash, at) {
+      const result = db
+        .update(inviteLinks)
+        .set({ usedAt: at })
+        .where(and(eq(inviteLinks.codeHash, codeHash), isNull(inviteLinks.usedAt)))
+        .run()
+      return result.changes > 0
     },
-    async revokeFor() {
-      throw notImplemented('inviteLinks.revokeFor')
+    async revokeFor(personId) {
+      const result = db
+        .delete(inviteLinks)
+        .where(and(eq(inviteLinks.personId, personId), isNull(inviteLinks.usedAt)))
+        .run()
+      return result.changes
     },
   }
 }

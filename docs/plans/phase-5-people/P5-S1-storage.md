@@ -4,7 +4,7 @@ title: "Storage: invite links, group invitations, participants and person remova
 phase: 5
 wave: 2
 lane: S
-status: in-progress
+status: review
 owner: agent-P5-S1
 depends: [P5-K1]
 owns:
@@ -60,21 +60,21 @@ The repository members that P5-K1 declared work against SQLite: invite links, gr
 
 ## Acceptance criteria
 
-- [ ] `db.test.ts`: a database migrated by the phase-4 migrations opens and migrates to the new schema. Existing threads read back with `purpose: null`.
-- [ ] `threads.test.ts`:
+- [x] `db.test.ts`: a database migrated by the phase-4 migrations opens and migrates to the new schema. Existing threads read back with `purpose: null`.
+- [x] `threads.test.ts`:
   - `addParticipant` then `removeParticipant` then `addParticipant` leaves one current row, with the new `joined_at`.
   - `listForPerson` drops a thread the person left.
   - `formerParticipants` lists only people who left.
-- [ ] `invite-links.test.ts`: a second `markUsed` returns false; `revokeFor` deletes only unused links; deleting a person cascades.
-- [ ] `thread-invitations.test.ts`: `create` refuses while `pending` or `accepted`, and re-invites after `declined`. `resolve` changes only `pending`.
-- [ ] `persons.test.ts`: `findByName` is case-insensitive, trims, and falls back to the username. `setTier` and `setCredentials` round-trip.
-- [ ] `remove-person.test.ts`, one fixture with a row in every table (direct thread with messages, deliveries, commitments, tasks, reminders and memories; a group thread they created and wrote in; memories about them and memories they authored about others; relays they sent, pending and delivered; a file; invite links; invitations; another person's block list naming them). After `remove`:
+- [x] `invite-links.test.ts`: a second `markUsed` returns false; `revokeFor` deletes only unused links; deleting a person cascades.
+- [x] `thread-invitations.test.ts`: `create` refuses while `pending` or `accepted`, and re-invites after `declined`. `resolve` changes only `pending`.
+- [x] `persons.test.ts`: `findByName` is case-insensitive, trims, and falls back to the username. `setTier` and `setCredentials` round-trip.
+- [x] `remove-person.test.ts`, one fixture with a row in every table (direct thread with messages, deliveries, commitments, tasks, reminders and memories; a group thread they created and wrote in; memories about them and memories they authored about others; relays they sent, pending and delivered; a file; invite links; invitations; another person's block list naming them). After `remove`:
   - every row ADR-0018 deletes is gone;
   - every row it keeps has the reference cleared;
   - the other participants' group messages and the Mind's replies are untouched;
   - the returned counts and file paths match.
-- [ ] `remove` of the owner throws `FORBIDDEN`, and nothing changes.
-- [ ] `bun run check` passes.
+- [x] `remove` of the owner throws `FORBIDDEN`, and nothing changes.
+- [x] `bun run check` passes.
 
 ## Notes
 
@@ -84,4 +84,30 @@ The repository members that P5-K1 declared work against SQLite: invite links, gr
 
 ## Outcome
 
-_Filled by the agent when finishing: what was built, decisions (ADR links), deviations, follow-ups._
+No new ADR. Everything follows `storage/types.ts` (P5-K1) and [ADR-0018](../../decisions/0018-deleting-a-person.md).
+
+**Built**
+- `schema.ts`: `threads.purpose` (text, nullable); `invite_links` and `thread_invitations` exactly as scoped (FKs, cascade / set null, PK, indexes); a unique index `persons_name_lower_idx` on `lower(persons.name)`. drizzle-kit 1.0.0-rc.4 expresses the expression index (`uniqueIndex(...).on(sql` over `lower(name)`), so names are unique case-insensitively in the database, not only in `keith person add`.
+- Migration `drizzle/20260928064730_people-invites`, generated with `bunx drizzle-kit generate --name=people-invites` (a second `generate` reports no changes). No backfill. Before phase 5 only `keith setup` created a person (the owner), so the unique name index can't fail on an existing database.
+- `persons.ts`: `findByName` (trim, SQLite `lower()` on name then username, name wins, empty → null), `setTier`, `setCredentials`, and `remove(id)`: one `db.transaction`, explicit statements in the order written in storage.md (refuse unknown / owner first, so a throw changes nothing). Returns `PersonRemoval` with counts and file paths.
+- `threads.ts`: `addParticipant` (one upsert whose update applies only when `left_at` is set), `removeParticipant` (update `WHERE left_at IS NULL`), `formerParticipants` (most recent `left_at` first, ties by person id). `create` stores `purpose` (absent = null); `get`, `getBySlug`, `listForPerson` return it.
+- `invite-links.ts`, `thread-invitations.ts`: the full repositories. `markUsed` / `resolve` are conditional updates; `threadInvitations.create` is one upsert that only overwrites a `declined` row.
+- `db.ts` needed no change: P5-K1 already wired `repos.inviteLinks` / `repos.threadInvitations` to these factories.
+- Tests: `db.test.ts` (phase-4 database → phase-5 schema, `purpose: null`, new tables listed), `threads.test.ts`, `persons.test.ts`, `invite-links.test.ts`, `thread-invitations.test.ts`, `remove-person.test.ts` (one fixture with a row in every table ADR-0018 names; exact `PersonRemoval`; every deleted row gone, every kept row cleared, others' group messages and the Mind's replies byte-for-byte unchanged; owner → `FORBIDDEN` and unknown → `NOT_FOUND` with a full-database dump unchanged).
+- Docs: storage.md (the `persons` index, FK list, semantics, the removal order; the `(P5-S1)` marker removed), memory.md (the marker now names only P5-A1).
+
+**Decisions**
+- **Counts via `select count(*)`**, not `changes`: `bun:sqlite`'s `changes` also counts rows touched by triggers (the memories FTS triggers) and FK cascades, which inflated `memories` and `directThreads`.
+- **Memories tied to a direct thread are deleted whatever their visibility** (ADR-0018 says `thread` memories). Any memory with `thread_id` pointing at the thread would otherwise block the thread delete (no FK action).
+- **Every remaining delivery the person authored gets `author_person_id = null`**, not only delivered relays (for example an `invitation` delivery they sent to someone else). Otherwise the person delete fails on the FK. `cleared.relays` counts only the `relay` ones, as its JSDoc says. The invitation row itself is deleted (invitations "from them"); the pending invitation delivery in the invitee's thread stays, with no author.
+- **`groupMemberships`** counts current and former participant rows (a leaver's row is still theirs).
+- **`meta.relayFrom`** on the Mind's delivery message keeps the removed person's id and name (ADR-0018 keeps the name the recipient saw); the test checks it is the only place the id remains.
+
+**Deviations**
+- None in scope. `db.ts` is untouched (already wired by P5-K1).
+
+**Notes for other lanes**
+- **P5-A1:** duplicate names (case-insensitive) now throw from `persons.create` (the unique index); check with `findByName` first for a friendly message. `remove` returns `filePaths` relative to `KEITH_HOME/files/`; delete them after it resolves. `revokeFor` returns the number deleted.
+- **P5-N1 / P5-A1:** `setCredentials` throws on a username another person has; check `getByUsername` first as the JSDoc says.
+- **P5-C1:** `addParticipant` returns false for a current participant, `removeParticipant` false for a non-participant; `threadInvitations.create` returns false while `pending`/`accepted`.
+- **P5-I1:** `lower()` folds ASCII only, so `Élodie` / `élodie` are different names to the index and to `findByName`.

@@ -15,7 +15,7 @@ One SQLite file (`~/.keith/keith.db`) plus one data folder (`~/.keith/files/`). 
 
 | Table | Key columns | Phase |
 |---|---|---|
-| `persons` | id, name, username (unique, nullable), password_hash, tier, last_seen_at (nullable), created_at | 1 |
+| `persons` | id, name, username (unique, nullable), password_hash, tier, last_seen_at (nullable), created_at. Unique index on `lower(name)` (phase 5) | 1 |
 | `relationships` | person_id (PK), tone, notes, blocked_relay_from (json) | 1 |
 | `auth_tokens` | token_hash (PK), person_id, node_id (nullable; filled on `hello`), expires_at, created_at | 1 |
 | `nodes` | id, name, kind (`attended`/`headless`), capabilities (json), last_seen_at | 1 |
@@ -46,7 +46,7 @@ Group-thread columns (`threads.kind`, `thread_participants`, `messages.author_pe
 - After a schema change, run `bunx drizzle-kit generate --name=<slug>` in `packages/core`. Raw SQL that Drizzle can't express (FTS5, triggers) goes in a custom migration: `bunx drizzle-kit generate --custom --name=<slug>`, then write the SQL into the generated file before it is ever applied.
 - `openDb` applies migrations with Drizzle's migrator, which records them in `__drizzle_migrations`. Reopening a migrated file applies nothing.
 - A new NOT NULL column that existing rows need a value for takes three migrations, all from drizzle-kit: add it nullable (`generate`), fill it (`generate --custom`, e.g. `message-seq-backfill`), then make it NOT NULL (`generate`, which rebuilds the table and copies the column).
-- Foreign keys: child rows of a person or thread (`relationships`, `auth_tokens`, `thread_participants`, `messages`, `reminders`) cascade on delete. `deliveries.message_id` is set null when its message is deleted, and `reminders.delivery_id` when its delivery is deleted. Other references have no action. `node_id` columns have no foreign key, because nodes are registered on `hello`, independently of tokens and messages.
+- Foreign keys: child rows of a person or thread (`relationships`, `auth_tokens`, `thread_participants`, `messages`, `reminders`, `invite_links`, `thread_invitations`) cascade on delete. `deliveries.message_id` is set null when its message is deleted, and `reminders.delivery_id` and `thread_invitations.delivery_id` when their delivery is deleted. Other references have no action. `node_id` columns have no foreign key, because nodes are registered on `hello`, independently of tokens and messages.
 
 ## Messages and tool calls
 
@@ -83,13 +83,26 @@ The columns and the `reminders` table come from the migration `reminders-thread-
 
 ## Invite links and group invitations (phase 5)
 
-> Planned (phase 5, P5-S1): the tables, the `threads.purpose` column and these semantics. The repositories are placeholders that throw `INTERNAL` "not implemented yet".
+The tables, the `threads.purpose` column and the index on `lower(persons.name)` come from the migration `people-invites`. `purpose` is nullable, so it needs no backfill.
 
-- **Persons.** `persons.findByName(name)` trims the name and matches it against `name` case-insensitively, then against `username` case-insensitively; null when nothing matches. Names are unique case-insensitively (enforced by `keith person add`, or by an index on `lower(name)`). `setTier(id, tier)` and `setCredentials(id, { username, passwordHash })` update one row.
-- **Participants.** `threads.addParticipant(threadId, personId, at)` inserts a row, or clears `left_at` and sets `joined_at` on a former participant's row; false when the person is already a current participant. `removeParticipant(threadId, personId, at)` sets `left_at` and returns whether a current participant left. `formerParticipants(threadId)` lists the rows with `left_at` set, most recent first. `threads.purpose` is null for direct threads; `ThreadRecord.purpose` carries it on every record `get`, `getBySlug` and `listForPerson` return.
-- **Invite links** (`InviteLinksRepository`, `repos.inviteLinks`): `create`, `get(codeHash)`, `markUsed(codeHash, at)` (a conditional update on an unused row; returns whether it changed), `revokeFor(personId)` (deletes the person's unused links). Only the hash is stored (R-14).
-- **Group invitations** (`ThreadInvitationsRepository`, `repos.threadInvitations`): `create(inv)` stores a `pending` row, or replaces a `declined` one (a re-invitation), and returns false while a `pending` or `accepted` row exists. `get`, `pendingForThread`, `pendingForPerson`. `resolve(threadId, personId, status, at)` changes only a `pending` row and returns whether it did.
-- **Deleting a person** (`persons.remove(id)`, [ADR-0018](../decisions/0018-deleting-a-person.md)) runs one transaction and returns a `PersonRemoval`: a count per kind of deleted row, a count per kind of row kept with the reference cleared, and the file paths (relative to `files/`) for the command to delete after the commit. It refuses the owner (`FORBIDDEN`) and an unknown id (`NOT_FOUND`). Several foreign keys (`threads.owner_person_id`, `messages.author_person_id`, `tasks`, `commitments`, `deliveries`, `memories`, `files`) have no `on delete` action, so it runs explicit statements in a fixed order. `messages.author_person_id = null` means the Mind (I-2), so a person's own messages are deleted, never re-attributed.
+- **Persons.** `persons.findByName(name)` trims the name and matches it against `name` case-insensitively, then against `username` case-insensitively; null when nothing matches or the trimmed name is empty. Names are unique case-insensitively: the unique index `persons_name_lower_idx` on `lower(name)` refuses a second `Pepper` / `PEPPER`, and `findByName` compares with the same SQLite `lower()` (which folds ASCII letters only). `setTier(id, tier)` and `setCredentials(id, { username, passwordHash })` update one row; an unknown id is a no-op, and a username another person has throws (the unique index).
+- **Participants.** `threads.addParticipant(threadId, personId, at)` inserts a row, or clears `left_at` and sets `joined_at` on a former participant's row; false when the person is already a current participant. `removeParticipant(threadId, personId, at)` sets `left_at` and returns whether a current participant left. `formerParticipants(threadId)` lists the rows with `left_at` set, most recent first (ties by person id). Both writes are single conditional statements (an upsert whose update applies only when `left_at` is set, and an update `WHERE left_at IS NULL`), so a person has one row per thread. `threads.purpose` is null for direct threads; `ThreadRecord.purpose` carries it on every record `get`, `getBySlug` and `listForPerson` return.
+- **Invite links** (`InviteLinksRepository`, `repos.inviteLinks`): `create`, `get(codeHash)`, `markUsed(codeHash, at)` (a conditional update on an unused row; returns whether it changed), `revokeFor(personId)` (deletes the person's unused links and returns how many). Only the hash is stored (R-14). Deleting the person deletes their links (cascade).
+- **Group invitations** (`ThreadInvitationsRepository`, `repos.threadInvitations`): `create(inv)` stores a `pending` row, or replaces a `declined` one (a re-invitation), and returns false while a `pending` or `accepted` row exists. `create` is one upsert whose update applies only to a `declined` row. `get`, `pendingForThread` (oldest first, ties by person id), `pendingForPerson` (oldest first, ties by thread id). `resolve(threadId, personId, status, at)` changes only a `pending` row and returns whether it did. Deleting the thread, the invitee or the inviter deletes the row; deleting its delivery sets `delivery_id` to null.
+- **Deleting a person** (`persons.remove(id)`, [ADR-0018](../decisions/0018-deleting-a-person.md)) runs one transaction and returns a `PersonRemoval`: a count per kind of deleted row, a count per kind of row kept with the reference cleared, and the file paths (relative to `files/`) for the command to delete after the commit. It refuses the owner (`FORBIDDEN`) and an unknown id (`NOT_FOUND`). Several foreign keys (`threads.owner_person_id`, `messages.author_person_id`, `tasks`, `commitments`, `deliveries`, `memories`, `files`) have no `on delete` action, so it runs explicit statements in a fixed order:
+  1. read the person (refuse owner / unknown) and their direct threads (`kind = 'direct'`, owned by them);
+  2. `files` rows they own (paths collected first);
+  3. commitments (theirs, in their direct threads, or on a task deleted next), then tasks (theirs or in their direct threads);
+  4. reminders (theirs or in their direct threads);
+  5. deliveries addressed to them, in their direct threads, or `relay` deliveries they authored that are still `pending`; every remaining delivery they authored gets `author_person_id = null` (`cleared.relays` counts the `relay` ones);
+  6. memories whose subject is them or whose thread is one of their direct threads; the rest they authored get `author_person_id = null`;
+  7. messages in their direct threads, then every remaining message they authored (their words in groups). `messages.author_person_id = null` means the Mind (I-2), so a person's own messages are deleted, never re-attributed;
+  8. their participant rows in other threads (current and former), and `owner_person_id = null` on the group threads they created;
+  9. thread invitations to or from them, invite links, auth tokens;
+  10. their id is removed from other people's `blocked_relay_from` lists;
+  11. their direct threads, then the person (their relationship cascades).
+
+  Counts are taken with a `select count(*)` before each statement, because `changes` from `bun:sqlite` also counts rows touched by triggers and foreign-key actions. A delivered relay's message keeps `meta.relayFrom` (the name the recipient saw), so that JSON is the one place the removed id can remain.
 
 ## Memory search filter
 
