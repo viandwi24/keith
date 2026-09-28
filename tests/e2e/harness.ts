@@ -9,11 +9,13 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { addPersonForTest } from '../../packages/core/src/cli/person-testing.ts'
 import { bootstrap, type Keith } from '../../packages/core/src/index.ts'
 import {
   type CoreFrame,
   type CoreFrameType,
   type FrameData,
+  LoginResponse,
   type MessageDto,
   makeFrame,
   type NodeFrameType,
@@ -39,7 +41,9 @@ import {
   createFakeLlmPlugin,
   type FakeClock,
   type FakeLlm,
+  type FakeLlmStep,
   type FakeLlmTurn,
+  fakeText,
 } from '../../packages/sdk/src/testing/index.ts'
 
 export type { Keith }
@@ -348,7 +352,7 @@ let nodeFrameSeq = 0
 export async function connectNode(
   keith: Keith,
   person: E2ePerson,
-  opts: { token?: string; capabilities?: string[] } = {},
+  opts: { token?: string | undefined; capabilities?: string[] | undefined } = {},
 ): Promise<E2eNode> {
   const token = opts.token ?? (await login(keith, person))
   const url = `${keith.url.replace(/^http/, 'ws')}/v1/ws?token=${encodeURIComponent(token)}`
@@ -464,4 +468,165 @@ export function systemOf(req: LlmRequest | undefined): string {
 /** Every message text of a request, joined. */
 export function transcriptOf(req: LlmRequest | undefined): string {
   return (req?.messages ?? []).map((m) => `${m.role}: ${m.content}`).join('\n')
+}
+
+// People (phase 5): sign-up through invite links, a routed chat model, request text
+
+/**
+ * Adds a person the way `keith person add` does (on the real home, while Keith runs) and signs them
+ * up through `POST /v1/auth/invite` with the invite code, as the web app and `keith-tui --invite`
+ * do. Returns the person (who can also log in with `password`) and the session token the invite
+ * gave. `tone` writes their relationship card.
+ */
+export async function signUp(
+  keith: Keith,
+  home: E2eHome,
+  clock: Clock,
+  p: { name: string; tier?: Exclude<Tier, 'owner'>; tone?: string },
+): Promise<E2ePerson & { token: string }> {
+  const { person, invite } = await addPersonForTest(
+    home.dir,
+    { name: p.name, tier: p.tier ?? 'member' },
+    clock,
+  )
+  const username = p.name.toLowerCase()
+  const password = `${username}-password`
+  const res = await fetch(`${keith.url}/v1/auth/invite`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ code: invite.code, username, password }),
+  })
+  if (!res.ok) throw new Error(`invite failed: ${res.status} ${await res.text()}`)
+  const body = LoginResponse.parse(await res.json())
+  if (p.tone !== undefined) {
+    await keith.repos.relationships.upsert({
+      personId: person.id,
+      tone: p.tone,
+      notes: '',
+      blockedRelayFrom: [],
+    })
+  }
+  return { id: person.id, name: person.name, username, password, token: body.token }
+}
+
+export const GREETING = 'Hi.'
+
+/**
+ * Says "Hi." in the thread and waits for the answer. A person's first `thread.open` is an arrival,
+ * and with `briefing = "on-greeting"` their deliveries wait for their first input.
+ */
+export async function greet(node: E2eNode, threadId: ThreadId): Promise<MessageDto> {
+  node.say(threadId, GREETING)
+  return node.reply(threadId)
+}
+
+/** Context section 8's heading: the turn carries pending deliveries. */
+export const PENDING_ITEMS_HEADING = '# Things to tell them'
+
+/** One scripted answer: used for the first request `when` matches, `times` times (default 1). */
+export type Route = {
+  name: string
+  when: (req: LlmRequest) => boolean
+  reply: (req: LlmRequest) => FakeLlmStep[]
+  times?: number
+}
+
+export type RoutedChat = FakeLlm & {
+  /** Adds routes, checked in the order added. */
+  route(...routes: Route[]): void
+  /** Requests no route matched (they got the text "(unscripted)"). */
+  readonly unmatched: LlmRequest[]
+  /** Names of the routes used, in order. */
+  readonly used: string[]
+}
+
+/**
+ * A chat model that answers by what a request holds (P5-I1's `routedChat`). Turns of different
+ * people run concurrently, so a fixed script order would be flaky. A plain "Hi." with no pending
+ * items in its context is answered "Hello.".
+ */
+export function routedChat(): RoutedChat {
+  const routes: (Route & { left: number })[] = []
+  const unmatched: LlmRequest[] = []
+  const used: string[] = []
+  const fake = createFakeLlm([], {
+    fallback: (req) => {
+      const found = routes.find((r) => r.left > 0 && r.when(req))
+      if (!found) {
+        unmatched.push(req)
+        return fakeText('(unscripted)')
+      }
+      found.left -= 1
+      used.push(found.name)
+      return found.reply(req)
+    },
+  })
+  const chat: RoutedChat = Object.assign(fake, {
+    route(...more: Route[]) {
+      for (const r of more) routes.push({ ...r, left: r.times ?? 1 })
+    },
+    unmatched,
+    used,
+  })
+  chat.route({
+    name: 'greeting',
+    when: (r) => lastUser(r) === GREETING && !systemOf(r).includes(PENDING_ITEMS_HEADING),
+    reply: () => fakeText('Hello.'),
+    times: 1000,
+  })
+  return chat
+}
+
+/** The last message's content when it is a user message (a new user step), else null. */
+export function lastUser(req: LlmRequest): string | null {
+  const last = req.messages.at(-1)
+  return last?.role === 'user' ? last.content : null
+}
+
+/** Whether the last message is the result of a call to `tool` (the step after that call). */
+export function afterTool(req: LlmRequest, tool: string): boolean {
+  const last = req.messages.at(-1)
+  if (last?.role !== 'tool') return false
+  const call = [...req.messages]
+    .reverse()
+    .find((m) => m.role === 'assistant' && m.toolCalls?.some((c) => c.id === last.toolCallId))
+  return call?.role === 'assistant' && call.toolCalls?.some((c) => c.name === tool) === true
+}
+
+/** The result text of the last tool call (the step after it). */
+export function toolResult(req: LlmRequest): string {
+  const last = req.messages.at(-1)
+  return last?.role === 'tool' ? last.content : ''
+}
+
+/** Everything a model saw in a request: the system prompt, every message and every tool call's arguments. */
+export function requestText(req: LlmRequest): string {
+  const parts = [systemOf(req)]
+  for (const m of req.messages) {
+    parts.push(m.content)
+    if (m.role === 'assistant') for (const c of m.toolCalls ?? []) parts.push(JSON.stringify(c.args))
+  }
+  return parts.join('\n')
+}
+
+/** The lines of context section 6 (the awareness digest), without its heading. Empty when absent. */
+export function digestOf(req: LlmRequest | undefined): string[] {
+  const lines = systemOf(req).split('\n')
+  const start = lines.indexOf('# Meanwhile')
+  if (start < 0) return []
+  const out: string[] = []
+  for (const line of lines.slice(start + 1)) {
+    if (!line.startsWith('- ')) break
+    out.push(line)
+  }
+  return out
+}
+
+/** Waits until every turn and event handler is done. */
+export async function settle(keith: Keith): Promise<void> {
+  for (let i = 0; i < 3; i++) {
+    await keith.threads.idle()
+    await keith.events.idle()
+    await Bun.sleep(10)
+  }
 }

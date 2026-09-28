@@ -43,3 +43,10 @@ Phases 3, 4 and 7 can overlap once phase 2 is done, if there are enough agents. 
 - [ ] A human used the phase's result end to end: pending, needs a real API key (steps in [P4-I2](phase-4-memory/P4-I2-e2e.md#human-run-owner-real-keys)).
 - [x] `docs/architecture/*` has no `Planned (phase 4…)` markers left.
 - [ ] Next phase's task files written by the coordinator.
+
+### Phase 5 status (P5-I2)
+
+- [ ] Integration task `done`, and its e2e scenario tests pass in CI: `tests/e2e/s4-privacy.test.ts`, `s5-relay.test.ts` and `s6-group.test.ts` (with a light browser check) pass five runs in a row locally, and CI runs each five times in a row (not yet observed in CI). P5-I2 is in review.
+- [ ] A human used the phase's result end to end: deferred by the owner, like phases 1–4 (steps in [P5-I2](phase-5-people/P5-I2-e2e.md#human-run-owner-real-keys-two-or-three-people)).
+- [x] `docs/architecture/*` has no `Planned (phase 5…)` markers left (P5-I1).
+- [ ] Next phase's task files written by the coordinator.
