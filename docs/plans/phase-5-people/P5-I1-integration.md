@@ -4,8 +4,8 @@ title: "Integration: wire relays, group threads, addressing and people into boot
 phase: 5
 wave: 3
 lane: I
-status: todo
-owner: null
+status: in-progress
+owner: agent-P5-I1
 depends: [P5-S1, P5-A1, P5-N1, P5-B1, P5-C1, P5-C2, P5-C3, P5-D1, P5-E1, P5-F1]
 owns:
   - packages/core/**
@@ -82,6 +82,19 @@ A real `keith start` supports several people: invite links sign people up, relay
 
 - The e2e harness maps `utility` to `fake:utility` (P4-I2). Group tests that reach the classifier must script it. Old tests never do, because they have no group threads.
 - `plugins/web/app/**` and `apps/tui/**` belong to P5-F2 and P5-F3 in this wave. A fix there is a blocker for them, not an edit here.
+
+
+## Wiring notes from wave 2 (coordinator)
+
+- **Addressing:** `createAddressing({ config, runLoop, scheduler: scheduling.scheduler, log })` (P5-D1) and pass it to `createThreadManager({ addressing })` (P5-C2). Until then every group input is addressed.
+- **Groups:** build `createGroupThreads` in step 8 and pass `groups: { service: groups, persons: repos.persons, threads: repos.threads, config }` to `registerBuiltins` (P5-C1 added `threads` to `ThreadToolsDeps`).
+- **Relay:** pass `relay: { service: scheduling.relay, persons: repos.persons }` to `registerBuiltins` (P5-B1). Remove core.md's remaining `> Planned (phase 5, P5-I1)` markers once wired.
+- **Server:** no bootstrap change needed (P5-N1); `createCoreServer` already gets full `repos` and `events`. core.md's Group threads "Frames" line still says "(P5-N1)": reword as built.
+- **People CLI (P5-A1):** run `keith person` on a real database (`runCli(['person', …])` or `addPersonForTest`), check that a tier change reaches the next turn without a restart, and that `hashInviteCode(code)` in `cli/person.ts` matches what `POST /v1/auth/invite` hashes (`hashToken` in `server/auth.ts`). Consider exporting one shared hash helper instead of two copies.
+- **Storage (P5-S1):** SQLite `lower()` folds ASCII only for name uniqueness; document it. `persons.remove` returns `filePaths` relative to `files/`.
+- **Visibility (P5-E1):** rerun `memory/audit.test.ts` on the real storage; it can switch from `markParticipantLeft` to `threads.removeParticipant`.
+- **Coordinator fix 6a7d292:** `authTokens.deleteForPerson` and re-inviting former participants are in; no action needed beyond an integration test that a leaver can be re-invited and sees the whole history.
+- P5-F2 (web) and P5-F3 (TUI) run beside this task in wave 3; don't edit `plugins/web/app/**` or `apps/tui/**`.
 
 ## Outcome
 
