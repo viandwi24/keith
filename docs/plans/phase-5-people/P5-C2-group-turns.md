@@ -4,7 +4,7 @@ title: "Group turns: human-to-human fan-out without an LLM turn, addressing, liv
 phase: 5
 wave: 2
 lane: C
-status: review
+status: done
 owner: agent-P5-C2
 depends: [P5-K1]
 owns:
