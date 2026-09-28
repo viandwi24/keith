@@ -4,7 +4,7 @@ title: "Relay: relay.send with I-13 checks, relay.block and relay.unblock"
 phase: 5
 wave: 2
 lane: B
-status: in-progress
+status: review
 owner: agent-P5-B1
 depends: [P5-K1]
 owns:
@@ -51,14 +51,14 @@ scenarios: [S-5]
 
 ## Acceptance criteria
 
-- [ ] `relay.test.ts` (fake repositories and delivery queue), each test named with the invariant:
+- [x] `relay.test.ts` (fake repositories and delivery queue), each test named with the invariant:
   - "I-13: member relays to member" enqueues a `relay` delivery authored by the sender in the recipient's main thread.
   - "I-13: guest may relay only to the owner": to the owner ok, to a member `not_allowed`.
   - "I-13: a block refuses" even for the owner as sender.
   - `self`, `unknown_recipient` (no person, and a person without a main thread).
   - `block` / `unblock` are idempotent and keep `tone` and `notes`.
-- [ ] `builtins/relay.test.ts`: `relay.send` answers the same generic text for a tier refusal and for a block. It resolves names case-insensitively, and answers the unknown-name text.
-- [ ] `bun run check` passes.
+- [x] `builtins/relay.test.ts`: `relay.send` answers the same generic text for a tier refusal and for a block. It resolves names case-insensitively, and answers the unknown-name text.
+- [x] `bun run check` passes.
 
 ## Notes
 
@@ -67,4 +67,21 @@ scenarios: [S-5]
 
 ## Outcome
 
-_Filled by the agent when finishing: what was built, decisions (ADR links), deviations, follow-ups._
+**Built**
+- `scheduler/relay.ts`: `createRelayService(deps)` (same `RelayServiceDeps`). `send` checks in order: `self`; `unknown_recipient` (no person, or no `main` thread via `getBySlug(to, MAIN_THREAD_SLUG)`); `not_allowed` for a guest sender to a non-owner, or when the recipient's `blockedRelayFrom` names the sender (the block wins over every tier, the owner's included). Otherwise it enqueues `{ personId: to, threadId: <their main>, kind: 'relay', authorPersonId: from, source: 'core', urgency: 'normal', content: text }` with the text verbatim and answers `{ ok: true, delivery }`. `block` / `unblock` read the card (missing = empty), add or remove the id, upsert only on a change (keeping `tone` and `notes`), and answer whether it changed. Writes no memory; the log never contains the text.
+- `builtins/relay.ts`: the three tool bodies, with P5-K1's names, schemas, `minTier` and `RELAY_MESSAGES` unchanged. Names resolve via `persons.findByName`. Answers use the resolved person's name, except the unknown-name answer, which echoes what the caller typed. Refusals, unknown names and self are tool errors (`error: true`); block/unblock results are not.
+- Tests: `scheduler/relay.test.ts` (14 tests over the fake repositories and the real `DeliveryQueue`, named with I-13) and `builtins/relay.test.ts` (P5-K1's spec tests plus 8 behavior tests over the real service).
+- core.md: the `RelayService` Planned note is gone; the Relays marker now covers only the Attribution item (P5-C2, P5-C3); the built-in tools marker now names only P5-C1 and P5-I1. The Checks and Blocks items describe the details below.
+
+**Decisions**
+- A sender that doesn't exist answers `not_allowed` (logged as a warning), not an exception. The caller is always a known person, so this only guards against misuse.
+- `block` / `unblock` with `personId === from` change nothing and answer false. The `relay.block` tool answers "You can't block yourself." (`RELAY_MESSAGES.blockSelf`) before calling the service; `relay.unblock` on yourself answers "Messages from <name> were not blocked."
+- A recipient without a `main` thread gets the unknown-name answer, like a missing person (the service reports both as `unknown_recipient`).
+- Relays from inside a task are allowed: the sender is `t.person`, like any tool call.
+
+**Deviations**
+- None. No file outside `owns` plus this task file and core.md changed. The tests import the scheduler fakes (`scheduler/testing/fakes.ts`, P5-E1's) read-only.
+
+**Notes for other lanes**
+- P5-I1: step 10 passes `relay: { service: scheduling.relay, persons: repos.persons }`; nothing else is needed. Then remove the P5-I1 part of the tools marker in core.md.
+- P5-C2 / P5-C3: a relay delivery has `kind: 'relay'`, `authorPersonId` = the sender, and the text verbatim in `content`. Resolve the sender's name from `authorPersonId`.
