@@ -72,3 +72,18 @@ The owner accepted ADR-0017, ADR-0018 and every default below on 2026-09-28. The
 **Reserved ADR numbers:** `0017` and `0018` for this plan. `0015` stays reserved (phase-4 sqlite-vec, not needed) and `0016` is earmarked for DeepSeek reasoning. Lane agents start at `0019`.
 
 **Exit:** S-4 (privacy), S-5 and S-6 (group part) pass in CI, and a human ran the P5-I2 steps with real people and a real model. No `> Planned (phase 5…)` marker is left in `docs/architecture`. The shared group workspace (S-6 step 5) is phase 6.
+
+## Exit (2026-09-28)
+
+Closed by the owner's decision. The human run is deferred.
+
+- [x] Integration tasks done (P5-I1, P5-I2). S-4 privacy, S-5 relay and S-6 group pass 5 runs in a row locally, the whole `tests/e2e` suite passes, and `bun run check` is green.
+- [ ] **CI:** the new loops are wired in `ci.yml` but haven't run yet. The owner pushes `main` manually.
+- [ ] **Human run** (several people, real keys): deferred by the owner ([P5-I2](P5-I2-e2e.md)).
+- [x] No `> Planned (phase 5)` markers left in `docs/architecture`.
+- [ ] Phase-6 task files: written when phase 6 starts.
+
+**Coordinator decisions during the phase:**
+- `authTokens.deleteForPerson` and re-inviting former participants were added on main (6a7d292), resolving the P5-N1 blocker and the P5-C1 limitation.
+- S-6 "Leaving" now follows ADR-0017: a leaver loses access. The old concept text said they keep history up to leaving, which contradicted the accepted ADR.
+- P5-I2 step 5 of the plan (a group memory absent from a participant's direct thread) contradicted I-4 and memory.md. The test follows the docs: a group's `thread` memories show for current participants only.
