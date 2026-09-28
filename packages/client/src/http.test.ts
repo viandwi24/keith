@@ -1,7 +1,17 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { startFakeCore } from '../test/fake-core.ts'
+import { FAKE_INVITE_CODE, startFakeCore } from '../test/fake-core.ts'
 import { ClientError } from './errors.ts'
-import { getMe, listMessages, listThreads, login, logout, normalizeBaseUrl, wsUrl } from './http.ts'
+import {
+  acceptInvite,
+  getMe,
+  INVITE_INVALID_MESSAGE,
+  listMessages,
+  listThreads,
+  login,
+  logout,
+  normalizeBaseUrl,
+  wsUrl,
+} from './http.ts'
 
 async function rejection(promise: Promise<unknown>): Promise<unknown> {
   try {
@@ -111,5 +121,63 @@ describe('bearer endpoints', () => {
     }
     await getMe('http://core.test', 'tok', { fetch })
     expect(calls).toEqual(['GET http://core.test/v1/me Bearer tok'])
+  })
+})
+
+describe('acceptInvite (phase 5)', () => {
+  const body = { code: FAKE_INVITE_CODE, username: 'pepper', password: 'longenough' }
+
+  test('returns the session; the new credentials sign in and the link works once', async () => {
+    const core = startFakeCore()
+    try {
+      const res = await acceptInvite(core.url, body)
+      expect(res.person).toEqual(core.person)
+      expect(await getMe(core.url, res.token)).toEqual(core.person)
+      expect((await login(core.url, { username: 'pepper', password: 'longenough' })).token).not.toBe('')
+      const again = await rejection(acceptInvite(core.url, body))
+      expect((again as ClientError).code).toBe('INVITE_INVALID')
+    } finally {
+      await core.stop()
+    }
+  })
+
+  test('401 → INVITE_INVALID with the sentence a node shows', async () => {
+    const core = startFakeCore()
+    try {
+      const error = await rejection(acceptInvite(core.url, { ...body, code: 'wrong' }))
+      expect(error).toBeInstanceOf(ClientError)
+      expect((error as ClientError).code).toBe('INVITE_INVALID')
+      expect((error as ClientError).message).toBe(INVITE_INVALID_MESSAGE)
+    } finally {
+      await core.stop()
+    }
+  })
+
+  test("400 → INVALID_REQUEST with the core's message", async () => {
+    const core = startFakeCore({ takenUsernames: ['tony'] })
+    try {
+      const error = await rejection(acceptInvite(core.url, { ...body, username: 'tony' }))
+      expect((error as ClientError).code).toBe('INVALID_REQUEST')
+      expect((error as ClientError).message).toBe("username 'tony' is taken")
+    } finally {
+      await core.stop()
+    }
+  })
+
+  test('sends the body with the injected fetch; other statuses are HTTP_ERROR', async () => {
+    const calls: string[] = []
+    const fetch = async (input: string, init: RequestInit) => {
+      calls.push(`${init.method} ${input} ${String(init.body)}`)
+      return Response.json({ error: { code: 'INTERNAL', message: 'boom' } }, { status: 500 })
+    }
+    const error = await rejection(acceptInvite('http://core.test', body, { fetch }))
+    expect((error as ClientError).code).toBe('HTTP_ERROR')
+    expect(calls).toEqual([`POST http://core.test/v1/auth/invite ${JSON.stringify(body)}`])
+  })
+
+  test('an invalid response body → INVALID_RESPONSE', async () => {
+    const fetch = async () => Response.json({ token: '' })
+    const error = await rejection(acceptInvite('http://x', body, { fetch }))
+    expect((error as ClientError).code).toBe('INVALID_RESPONSE')
   })
 })

@@ -15,13 +15,14 @@ import {
   type NodeFrameType,
   type NodeId,
   parseCoreFrame,
+  type ThreadDto,
   type ThreadId,
   UI_BLOCK_ID_PATTERN,
   WS_CLOSE_CODES,
 } from '@keith/protocol'
 import { AUDIO_IN_SAMPLE_RATE, type AudioEvent, newStreamId, pcm16ToBytes } from './audio.ts'
 import { ClientError } from './errors.ts'
-import { type Fetch, listMessages, wsUrl } from './http.ts'
+import { type Fetch, listMessages, listThreads, wsUrl } from './http.ts'
 import {
   applyFrame,
   applyLocal,
@@ -35,6 +36,8 @@ import {
  * A node's live connection to the core: one standard `WebSocket`, `hello`, `thread.open` of the
  * main thread, frame handling through `@keith/protocol` parsers, heartbeat replies and reconnect
  * with exponential backoff. It holds a `ChatState` and reports every change through `onState`.
+ * Phase 5: it also keeps the person's thread list (`GET /v1/threads` on connect, then
+ * `thread.updated` / `thread.removed`) and switches the one open thread with `openThread`.
  * Runs in Bun and in browsers (no `bun:*` / `node:*` imports).
  */
 
@@ -82,9 +85,11 @@ export type ChatClientDeps = {
   /** Audio from the core (with `audio.output`), and `flush` when this node sends a new input. */
   onAudio?: ((event: AudioEvent) => void) | undefined
   onState: (state: ChatState) => void
+  /** Phase 5: called with the thread list (`ChatState.threads`) each time it changes. */
+  onThreads?: ((threads: ThreadDto[]) => void) | undefined
   /** Called when the core issues a new `nodeId`, so it can be persisted. */
   onNodeId?: ((nodeId: NodeId) => void) | undefined
-  /** Used by `loadOlder`. Defaults to the global `fetch`. */
+  /** Used by `loadOlder` and to load the thread list. Defaults to the global `fetch`. */
   fetch?: Fetch | undefined
   now?: (() => number) | undefined
   newId?: (() => string) | undefined
@@ -119,6 +124,8 @@ export type AudioSendResult =
   /** `invalid`: a bad sequence, or a chunk too big for one frame (`AUDIO_FRAME_MAX_BYTES`). */
   | { ok: false; reason: 'unsupported' | 'offline' | 'unknown-stream' | 'invalid' }
 
+export type OpenThreadResult = { ok: true } | { ok: false; reason: 'invalid' | 'offline' }
+
 export type LoadOlderResult =
   | { ok: true; added: number }
   | { ok: false; reason: 'no-thread' | 'no-more' | 'busy' | 'failed'; error?: ClientError | undefined }
@@ -142,6 +149,13 @@ export type ChatClient = {
   sendAudio(streamId: AudioStreamId, sequence: number, pcm16: Int16Array): AudioSendResult
   /** Sends `audio.end` for a started stream. Returns false when there was none (or offline). */
   endAudio(streamId: AudioStreamId): boolean
+  /**
+   * Phase 5: switches the open thread. Sends `thread.close` for the open thread, then `thread.open`
+   * for `threadId`, and clears the conversation until `thread.opened` arrives. A reconnect reopens
+   * the thread opened last. If the core refuses to open it (e.g. the person is no longer a
+   * participant), the client opens the main thread instead. `invalid`: not a `thr_…` id.
+   */
+  openThread(threadId: ThreadId): OpenThreadResult
   /** Fetches the page of history before the oldest shown message and prepends it. */
   loadOlder(): Promise<LoadOlderResult>
   /**
@@ -177,8 +191,15 @@ export function createChatClient(deps: ChatClientDeps): ChatClient {
   let token = deps.token
   let socket: WebSocket | null = null
   let nodeId = deps.nodeId
-  /** The thread to reopen after a reconnect. Unknown until the first `thread.opened`. */
+  /**
+   * The thread to (re)open: the one opened last, or asked for with `openThread`. `undefined` means
+   * the main thread (before the first `thread.opened`, or after the open thread was removed).
+   */
   let threadId: ThreadId | undefined
+  /** The frame id of the last `thread.open`, to recognize an `error` that refuses it. */
+  let pendingOpen: string | null = null
+  /** A notice to show once the next thread is open (the old conversation is cleared until then). */
+  let noticeOnOpen: string | null = null
   let attempt = 0
   let cancelTimer: (() => void) | null = null
   /** Not connected and not reconnecting on its own (auth-required, or closed). */
@@ -189,20 +210,52 @@ export function createChatClient(deps: ChatClientDeps): ChatClient {
   const audioStreams = new Set<AudioStreamId>()
 
   const update = (next: ChatState) => {
+    const threadsChanged = next.threads !== state.threads
     state = next
     deps.onState(state)
+    if (threadsChanged) deps.onThreads?.(state.threads)
   }
   const setConnection = (status: ConnectionStatus) =>
     update(applyLocal(state, { type: 'connection', status }))
   const notice = (level: 'info' | 'warn' | 'error', text: string) =>
     update(applyLocal(state, { type: 'notice', level, text }))
 
-  const sendFrame = <T extends NodeFrameType>(type: T, data: FrameData<T>, re?: string): boolean => {
-    if (!socket || socket.readyState !== WebSocket.OPEN) return false
-    const frame: FrameOf<T> = makeFrame(type, data, { id: newId(), ts: now(), re })
+  /** Sends a frame. Returns its id, or null when the socket is not open. */
+  const sendFrame = <T extends NodeFrameType>(type: T, data: FrameData<T>, re?: string): string | null => {
+    if (!socket || socket.readyState !== WebSocket.OPEN) return null
+    const id = newId()
+    const frame: FrameOf<T> = makeFrame(type, data, { id, ts: now(), re })
     socket.send(JSON.stringify(frame))
-    return true
+    return id
   }
+
+  /** `thread.open` for `threadId` (the main thread when undefined). */
+  const openCurrent = () => {
+    pendingOpen = sendFrame('thread.open', { ...(threadId ? { threadId } : {}), historyLimit })
+  }
+
+  /** Ends this node's microphone streams and its playback: they belong to the thread being left. */
+  const leaveAudio = () => {
+    for (const streamId of audioStreams) sendFrame('audio.end', { streamId })
+    audioStreams.clear()
+    deps.onAudio?.({ type: 'flush', reason: 'thread' })
+  }
+
+  /** `GET /v1/threads`, then the list replaces `state.threads`. A failure is a warning notice. */
+  const loadThreads = async () => {
+    try {
+      const threads = await listThreads(deps.baseUrl, token, { fetch: deps.fetch })
+      if (closed) return
+      update(applyLocal(state, { type: 'threads', threads }))
+    } catch (error) {
+      if (closed) return
+      const reason = error instanceof ClientError ? error.message : String(error)
+      notice('warn', `cannot load the thread list: ${reason}`)
+    }
+  }
+
+  const titleOf = (id: ThreadId): string | undefined =>
+    (state.thread?.id === id ? state.thread : state.threads.find((t) => t.id === id))?.title
 
   const connect = () => {
     if (stopped) return
@@ -273,7 +326,8 @@ export function createChatClient(deps: ChatClientDeps): ChatClient {
           deps.onNodeId?.(frame.data.nodeId)
         }
         update(applyFrame(state, frame))
-        sendFrame('thread.open', { ...(threadId ? { threadId } : {}), historyLimit })
+        openCurrent()
+        void loadThreads()
         return
       case 'audio.start':
         // `messageId` marks the core → node direction (parseCoreFrame gives the core's frame).
@@ -286,10 +340,44 @@ export function createChatClient(deps: ChatClientDeps): ChatClient {
         deps.onAudio?.({ type: 'stop', streamId: frame.data.streamId })
         return
       case 'thread.opened': {
-        threadId = frame.data.thread.id
+        const opened = frame.data.thread.id
+        // A late answer for a thread this node switched away from: close it again.
+        if (threadId !== undefined && opened !== threadId) {
+          sendFrame('thread.close', { threadId: opened })
+          return
+        }
+        threadId = opened
+        pendingOpen = null
         const next = applyFrame(state, frame)
         const hasMore = frame.data.messages.length >= historyLimit
         update(applyLocal(next, { type: 'history', history: { hasMore, loading: false } }))
+        if (noticeOnOpen !== null) {
+          const text = noticeOnOpen
+          noticeOnOpen = null
+          notice('info', text)
+        }
+        return
+      }
+      case 'thread.removed': {
+        const removed = frame.data.threadId
+        const wasOpen = threadId === removed || state.thread?.id === removed
+        const title = titleOf(removed)
+        update(applyFrame(state, frame))
+        if (!wasOpen) return
+        // The person left the open thread: fall back to their main thread.
+        leaveAudio()
+        threadId = undefined
+        noticeOnOpen = title ? `You are no longer in ${title}.` : 'You are no longer in that thread.'
+        openCurrent()
+        return
+      }
+      case 'error': {
+        update(applyFrame(state, frame))
+        // The core refused to open the thread asked for (e.g. left while offline): open main.
+        if (pendingOpen !== null && frame.re === pendingOpen && threadId !== undefined) {
+          threadId = undefined
+          openCurrent()
+        }
         return
       }
       default:
@@ -365,7 +453,7 @@ export function createChatClient(deps: ChatClientDeps): ChatClient {
     cancel() {
       const thread = state.thread
       if (!thread || state.turnState === 'idle') return false
-      return sendFrame('input.cancel', { threadId: thread.id })
+      return sendFrame('input.cancel', { threadId: thread.id }) !== null
     },
     sendUiAction(action) {
       const { messageId, blockId, actionId } = action
@@ -420,7 +508,23 @@ export function createChatClient(deps: ChatClientDeps): ChatClient {
     },
     endAudio(streamId) {
       if (!audioStreams.delete(streamId)) return false
-      return sendFrame('audio.end', { streamId })
+      return sendFrame('audio.end', { streamId }) !== null
+    },
+    openThread(id) {
+      if (!isPrefixedId('thr', id)) return { ok: false, reason: 'invalid' }
+      if (state.connection.kind !== 'online' || !socket || socket.readyState !== WebSocket.OPEN) {
+        return { ok: false, reason: 'offline' }
+      }
+      // `threadId` is the thread open or being opened; `state.thread` may still be an older one.
+      const current = threadId ?? state.thread?.id
+      if (current === id) return { ok: true }
+      leaveAudio()
+      if (current !== undefined) sendFrame('thread.close', { threadId: current })
+      threadId = id
+      noticeOnOpen = null
+      openCurrent()
+      update(applyLocal(state, { type: 'thread.closed' }))
+      return { ok: true }
     },
     async loadOlder() {
       const thread = state.thread

@@ -1,6 +1,12 @@
-import { type LoginRequest, NodeId, PersonDto } from '@keith/protocol'
+import {
+  type InviteAcceptRequest,
+  type LoginRequest,
+  type LoginResponse,
+  NodeId,
+  PersonDto,
+} from '@keith/protocol'
 import { ClientError } from './errors.ts'
-import { type Fetch, login, logout } from './http.ts'
+import { acceptInvite, type Fetch, login, logout } from './http.ts'
 
 /**
  * The signed-in session and where it is kept. Storage is injected: the TUI keeps it in
@@ -108,6 +114,11 @@ export type Auth = {
   restore(): Promise<StoredSession | null>
   /** `POST /v1/auth/login`, then saves the session (keeping a known `nodeId`). */
   login(credentials: LoginRequest, opts?: { signal?: AbortSignal | undefined }): Promise<StoredSession>
+  /**
+   * Phase 5: `POST /v1/auth/invite` (sign-up through an invite link), then saves the session like
+   * `login`. Errors are `acceptInvite`'s (`INVITE_INVALID`, `INVALID_REQUEST`, …).
+   */
+  acceptInvite(body: InviteAcceptRequest, opts?: { signal?: AbortSignal | undefined }): Promise<StoredSession>
   /** `POST /v1/auth/logout` (best effort: a core that can't be reached is ignored), then clears the store. */
   logout(): Promise<void>
   /** Persists the `nodeId` from `welcome`. Pass it as `ChatClientDeps.onNodeId`. */
@@ -127,6 +138,20 @@ export function createAuth(deps: AuthDeps): Auth {
     await deps.store.save(next)
   }
 
+  /** Saves a new session from a login or an accepted invite, keeping a known `nodeId`. */
+  const started = async (res: LoginResponse): Promise<StoredSession> => {
+    const known = session?.nodeId ?? nodeId
+    const next: StoredSession = {
+      url: deps.baseUrl,
+      token: res.token,
+      person: res.person,
+      expiresAt: res.expiresAt,
+      ...(known ? { nodeId: known } : {}),
+    }
+    await save(next)
+    return next
+  }
+
   return {
     baseUrl: deps.baseUrl,
     get session() {
@@ -143,17 +168,10 @@ export function createAuth(deps: AuthDeps): Auth {
       return session
     },
     async login(credentials, opts = {}) {
-      const res = await login(deps.baseUrl, credentials, { signal: opts.signal, fetch: deps.fetch })
-      const known = session?.nodeId ?? nodeId
-      const next: StoredSession = {
-        url: deps.baseUrl,
-        token: res.token,
-        person: res.person,
-        expiresAt: res.expiresAt,
-        ...(known ? { nodeId: known } : {}),
-      }
-      await save(next)
-      return next
+      return started(await login(deps.baseUrl, credentials, { signal: opts.signal, fetch: deps.fetch }))
+    },
+    async acceptInvite(body, opts = {}) {
+      return started(await acceptInvite(deps.baseUrl, body, { signal: opts.signal, fetch: deps.fetch }))
     },
     async logout() {
       const current = session

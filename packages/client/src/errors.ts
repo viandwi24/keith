@@ -8,6 +8,10 @@ export type ClientErrorCode =
   /** A bearer request got 401: the token is invalid or expired. Sign in again. */
   | 'UNAUTHORIZED'
   | 'NOT_FOUND'
+  /** Phase 5: the invite link is wrong, used or expired (`POST /v1/auth/invite` answered 401). */
+  | 'INVITE_INVALID'
+  /** The core refused the request body (400), e.g. a username someone else has. The message is the core's. */
+  | 'INVALID_REQUEST'
   /** Any other non-2xx HTTP answer. */
   | 'HTTP_ERROR'
   /** The core could not be reached. */
