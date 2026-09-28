@@ -1,7 +1,27 @@
 import { afterEach, describe, expect, jest, test } from 'bun:test'
-import { isKeithError } from '@keith/sdk'
+import { defineTool, isKeithError, type LlmProvider } from '@keith/sdk'
+import {
+  createFakeClock,
+  createFakeLlm,
+  createMemoryLogger,
+  fakeText,
+  fakeToolCall,
+} from '@keith/sdk/testing'
+import { z } from 'zod'
+import { createRunLoop } from '../mind/index.ts'
+import { createServiceRegistry, createToolRegistry } from '../plugins/index.ts'
 import type { Task } from '../shared/types.ts'
-import { createFakeRepos, createTestConfig, seedPerson, waitFor } from './testing/fakes.ts'
+import type { MessagesRepository } from '../storage/types.ts'
+import {
+  createFakeEventBus,
+  createFakeIds,
+  createFakeRepos,
+  createTestConfig,
+  type FakeRepos,
+  seedGroup,
+  seedPerson,
+  waitFor,
+} from './testing/fakes.ts'
 import { createHarness, type Harness } from './testing/harness.ts'
 
 async function statusOf(h: Harness, id: Task['id']) {
@@ -391,5 +411,174 @@ describe('task service', () => {
       expect(await repos.tasks.get(task.id)).toMatchObject({ status: 'running', attempt: 1 })
       await h.stop()
     })
+  })
+})
+
+describe('tasks started in a group thread (D16)', () => {
+  async function household(h: Harness) {
+    const tony = await seedPerson(h.repos, h.ids, { name: 'Tony', tier: 'owner', tone: 'dry wit' })
+    const pepper = await seedPerson(h.repos, h.ids, { name: 'Pepper', tier: 'member', notes: 'likes lists' })
+    const happy = await seedPerson(h.repos, h.ids, { name: 'Happy', tier: 'guest', notes: 'drives' })
+    const rhodey = await seedPerson(h.repos, h.ids, { name: 'Rhodey', tier: 'member', notes: 'RHODEY-CARD' })
+    return { tony, pepper, happy, rhodey }
+  }
+
+  test("runs for the group's current participants at start, with all their cards, and reports back to the group", async () => {
+    const h = createHarness()
+    const { tony, pepper, happy, rhodey } = await household(h)
+    const group = await seedGroup(h.repos, h.ids, {
+      title: 'Expo',
+      participants: [tony.personId, pepper.personId, happy.personId],
+      left: [rhodey.personId],
+    })
+    const task = await h.tasks.start({
+      personId: pepper.personId,
+      threadId: group,
+      agentId: 'general',
+      goal: 'find three venues',
+      notify: 'when-done',
+      promise: "I'll post the shortlist here",
+    })
+    expect(task.visibility).toBe('thread')
+    expect((await h.commitments.openFor(group))[0]?.taskId).toBe(task.id)
+
+    await h.loop.waitForCalls(1)
+    const args = h.loop.calls[0]
+    expect(args?.runCtx).toEqual({
+      personId: pepper.personId,
+      participants: [tony.personId, pepper.personId, happy.personId],
+      threadId: group,
+      taskId: task.id,
+    })
+    expect(args?.system).toContain(
+      'working in the background for the group thread "Expo" (Tony, Pepper and Happy)',
+    )
+    expect(args?.system).toContain('About Tony (tier: owner):\n- Tone: dry wit')
+    expect(args?.system).toContain('About Pepper (tier: member):\n- Notes: likes lists')
+    expect(args?.system).toContain('About Happy (tier: guest):\n- Notes: drives')
+    // Rhodey left before the task started: not in the run, and not in its context.
+    expect(args?.system).not.toContain('RHODEY-CARD')
+
+    h.loop.pending[0]?.resolve({ text: 'Stark Hall, Pier 9, the Tower.' })
+    await waitFor(() => h.repos.deliveryRows.size === 1, 'delivery')
+    const [delivery] = await h.deliveries.pendingFor(group)
+    expect(delivery).toMatchObject({ kind: 'task_result', threadId: group, personId: pepper.personId })
+    expect(delivery?.content).toContain('Stark Hall, Pier 9, the Tower.')
+    expect(await h.deliveries.pendingFor(pepper.threadId)).toEqual([])
+  })
+
+  test('a failed group task reports its failure to the group thread', async () => {
+    const h = createHarness()
+    const { tony, pepper } = await household(h)
+    const group = await seedGroup(h.repos, h.ids, {
+      title: 'Expo',
+      participants: [tony.personId, pepper.personId],
+    })
+    await h.tasks.start({
+      personId: tony.personId,
+      threadId: group,
+      agentId: 'general',
+      goal: 'g',
+      notify: 'when-done',
+    })
+    await h.loop.waitForCalls(1)
+    h.loop.pending[0]?.reject(new Error('provider down'))
+    await waitFor(() => h.repos.deliveryRows.size === 1, 'delivery')
+    expect((await h.deliveries.pendingFor(group))[0]).toMatchObject({ kind: 'task_failed', threadId: group })
+  })
+
+  test('a group everyone left runs for the task person alone', async () => {
+    const h = createHarness()
+    const { tony, pepper } = await household(h)
+    const group = await seedGroup(h.repos, h.ids, {
+      title: 'Expo',
+      participants: [],
+      left: [tony.personId, pepper.personId],
+    })
+    await h.tasks.start({
+      personId: tony.personId,
+      threadId: group,
+      agentId: 'general',
+      goal: 'g',
+      notify: 'silent',
+    })
+    await h.loop.waitForCalls(1)
+    expect(h.loop.calls[0]?.runCtx.participants).toEqual([tony.personId])
+  })
+
+  describe('the lowest tier among the participants applies to its tools', () => {
+    const book = defineTool({
+      name: 'expo.book',
+      description: 'Book a venue',
+      input: z.object({}),
+      minTier: 'member',
+      run: async () => ({ content: 'BOOKED' }),
+    })
+
+    /** A harness whose tasks run through the real RunLoop and tool registry. */
+    function realHarness(repos: FakeRepos, llm: LlmProvider) {
+      const log = createMemoryLogger()
+      const clock = createFakeClock(0)
+      const events = createFakeEventBus(clock)
+      const tools = createToolRegistry({
+        log,
+        clock,
+        services: createServiceRegistry({ winners: {}, log }),
+        events,
+      })
+      tools.forPlugin({ pluginId: '@keith/tool-expo', namespace: 'expo', kind: 'tool' }).register(book)
+      const unusedMessages = {} as MessagesRepository
+      const runLoop = createRunLoop({
+        providers: {
+          llm: {
+            resolve: () => ({ provider: llm, model: 'm', ref: `${llm.id}:m` }),
+            get: (id) => (id === llm.id ? llm : undefined),
+            list: () => [llm],
+          },
+        },
+        tools,
+        repos: { persons: repos.persons, messages: unusedMessages },
+        events,
+        ids: createFakeIds(),
+        clock,
+        log,
+        stallMs: 60_000,
+      })
+      return createHarness({
+        repos,
+        runLoop,
+        agents: [
+          { id: 'general', description: 'd', system: 's', tools: ['expo.book'], modelRole: 'background' },
+        ],
+      })
+    }
+
+    for (const [label, withGuest, expected] of [
+      ['a guest in the group refuses a member tool', true, 'TIER_INSUFFICIENT'],
+      ['members and owners only allow it', false, 'BOOKED'],
+    ] as const) {
+      test(label, async () => {
+        const repos = createFakeRepos()
+        const llm = createFakeLlm([[fakeToolCall('expo.book', {}, 'call_1')], fakeText('done')])
+        const h = realHarness(repos, llm)
+        const { tony, pepper, happy } = await household(h)
+        const group = await seedGroup(h.repos, h.ids, {
+          title: 'Expo',
+          participants: withGuest
+            ? [tony.personId, pepper.personId, happy.personId]
+            : [tony.personId, pepper.personId],
+        })
+        const task = await h.tasks.start({
+          personId: tony.personId,
+          threadId: group,
+          agentId: 'general',
+          goal: 'book it',
+          notify: 'silent',
+        })
+        await until(h, task.id, 'completed')
+        const toolResult = llm.requests[1]?.messages.find((m) => m.role === 'tool')
+        expect(toolResult?.content).toContain(expected)
+      })
+    }
   })
 })

@@ -1,7 +1,7 @@
 // The visibility rule (I-4). Every memory read path goes through this file: recall, core, index,
 // digest and the context builder. See docs/architecture/memory.md#visibility-rule-i-4.
 
-import type { Memory, PersonId, ThreadId, Tier, Viewer } from '../shared/types.ts'
+import type { Memory, PersonId, Task, ThreadId, Tier, Viewer } from '../shared/types.ts'
 import type { MemoryFilter, PersonsRepository, ThreadsRepository } from '../storage/types.ts'
 
 /** What the rule needs to know about one person. */
@@ -16,6 +16,14 @@ export type VisibilityFacts = ReadonlyMap<PersonId, PersonFacts>
 
 /** The part of a memory (or task) the rule looks at. */
 export type VisibilityTarget = Pick<Memory, 'visibility' | 'subjectPersonId' | 'threadId'>
+
+/**
+ * A task as a visibility target: its `visibility`, its person as the subject and the thread it was
+ * started in (docs/architecture/memory.md#visibility-rule-i-4).
+ */
+export function taskTarget(task: Pick<Task, 'visibility' | 'personId' | 'threadId'>): VisibilityTarget {
+  return { visibility: task.visibility, subjectPersonId: task.personId, threadId: task.threadId }
+}
 
 /** The viewer's distinct participants, in their original order. */
 export function viewerPersonIds(viewer: Viewer): PersonId[] {

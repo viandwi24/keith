@@ -445,6 +445,31 @@ export async function seedPerson(
   return { personId, threadId }
 }
 
+/** Adds a group thread with these participants; `left` are added, then marked as having left. */
+export async function seedGroup(
+  repos: FakeRepos,
+  ids: Ids,
+  g: { title: string; participants: PersonId[]; left?: PersonId[] },
+): Promise<ThreadId> {
+  const threadId = ids.next('thr')
+  const left = g.left ?? []
+  await repos.threads.create(
+    {
+      id: threadId,
+      kind: 'group',
+      slug: null,
+      title: g.title,
+      ownerPersonId: g.participants[0] ?? null,
+      summary: null,
+      createdAt: 0,
+      updatedAt: 0,
+    },
+    [...g.participants, ...left],
+  )
+  for (const personId of left) await repos.threads.removeParticipant(threadId, personId, 1)
+  return threadId
+}
+
 export function createFakeAgents(agents: Agent[]): Pick<CoreAgentRegistry, 'get'> {
   return { get: (id) => agents.find((a) => a.id === id) }
 }

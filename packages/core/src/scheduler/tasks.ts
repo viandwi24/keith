@@ -4,9 +4,21 @@
 import { type Agent, KeithError } from '@keith/sdk'
 import type { KeithConfig } from '../config/types.ts'
 import type { CoreEventBus } from '../events/types.ts'
+import { isVisible, loadVisibilityFacts, taskTarget } from '../memory/index.ts'
 import type { RunLoop } from '../mind/types.ts'
 import type { CoreAgentRegistry } from '../plugins/types.ts'
-import type { Clock, Ids, Logger, Task, TaskId, ThreadId, UiBlock, Visibility } from '../shared/types.ts'
+import type {
+  Clock,
+  Ids,
+  Logger,
+  PersonId,
+  Task,
+  TaskId,
+  ThreadId,
+  UiBlock,
+  Viewer,
+  Visibility,
+} from '../shared/types.ts'
 import type { Repositories, TaskPatch } from '../storage/types.ts'
 import { mainThreadOf } from './deliveries.ts'
 import type { CommitmentService, DeliveryQueue, Scheduler, TaskService } from './types.ts'
@@ -15,6 +27,11 @@ import type { CommitmentService, DeliveryQueue, Scheduler, TaskService } from '.
 export const TASK_SUMMARY_MAX_CHARS = 500
 
 export type TaskManager = TaskService & {
+  /**
+   * The tasks the viewer may see (I-4): `isVisible` with the task's visibility, its person as the
+   * subject and its thread. `task.status` and `task.cancel` read through this.
+   */
+  visibleTo(tasks: Task[], viewer: Viewer): Promise<Task[]>
   /**
    * Boot recovery: tasks left `queued` are scheduled again; tasks left `running` are re-queued
    * once (`attempt` + 1), and fail when they were already on their second attempt.
@@ -70,21 +87,48 @@ export function createTaskService(deps: TaskServiceDeps): TaskManager {
     return agent
   }
 
-  /** Agent prompt + persona line + goal + the person's relationship card (core.md "Tasks"). */
-  const buildSystem = async (task: Task, agent: Agent): Promise<string> => {
-    const person = await repos.persons.get(task.personId)
-    const relationship = await repos.relationships.get(task.personId)
+  /**
+   * Who the task runs for: its person, or, for a task started in a group thread, the group's
+   * current participants when it starts running (core.md "Tasks"). A group nobody is in any more
+   * falls back to the task's person.
+   */
+  const participantsOf = async (task: Task): Promise<PersonId[]> => {
+    if (task.visibility !== 'thread' || task.threadId === null) return [task.personId]
+    const ids = [...new Set((await repos.threads.participants(task.threadId)).map((p) => p.personId))]
+    return ids.length > 0 ? ids : [task.personId]
+  }
+
+  /** One relationship card for the task context. */
+  const cardOf = async (personId: PersonId): Promise<{ name: string; card: string }> => {
+    const person = await repos.persons.get(personId)
+    const relationship = await repos.relationships.get(personId)
     const name = person?.name ?? 'the person'
     const card = [
       `About ${name}${person ? ` (tier: ${person.tier})` : ''}:`,
       relationship?.tone ? `- Tone: ${relationship.tone}` : null,
       relationship?.notes ? `- Notes: ${relationship.notes}` : null,
     ].filter((line): line is string => line !== null)
+    return { name, card: card.join('\n') }
+  }
+
+  /**
+   * Agent prompt + persona line + goal + the relationship cards of everyone the task runs for
+   * (core.md "Tasks"): the task's person, or every participant of the group it was started in.
+   */
+  const buildSystem = async (task: Task, agent: Agent, participants: PersonId[]): Promise<string> => {
+    const cards = await Promise.all(participants.map(cardOf))
+    let forWhom = cards[0]?.name ?? 'the person'
+    if (task.visibility === 'thread' && task.threadId !== null) {
+      const thread = await repos.threads.get(task.threadId)
+      const names = cards.map((c) => c.name)
+      const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names.join('')
+      forWhom = `the group thread "${thread?.title ?? 'group'}" (${list})`
+    }
     return [
       agent.system,
-      `You are ${config.mind.name}, working in the background for ${name}. Nobody is waiting in a conversation. Work until the goal is met, then reply with the result only.`,
+      `You are ${config.mind.name}, working in the background for ${forWhom}. Nobody is waiting in a conversation. Work until the goal is met, then reply with the result only.`,
       `Goal: ${task.goal}`,
-      card.join('\n'),
+      ...cards.map((c) => c.card),
     ].join('\n\n')
   }
 
@@ -162,7 +206,8 @@ export function createTaskService(deps: TaskServiceDeps): TaskManager {
       await update(task.id, { status: 'running', startedAt })
       events.emit('task.started', { taskId: task.id, personId: task.personId, agentId: task.agentId })
       const agent = requireAgent(task.agentId)
-      const system = await buildSystem(running, agent)
+      const participants = await participantsOf(running)
+      const system = await buildSystem(running, agent, participants)
       let ui: UiBlock | null = null
       const result = await runLoop({
         system,
@@ -172,7 +217,9 @@ export function createTaskService(deps: TaskServiceDeps): TaskManager {
         maxSteps: config.mind.task.maxSteps,
         runCtx: {
           personId: task.personId,
-          participants: [task.personId],
+          // In a group: tools filter by the lowest tier among them, memory reads admit only
+          // what every one of them may see (I-4).
+          participants,
           threadId: task.threadId,
           taskId: task.id,
         },
@@ -283,6 +330,12 @@ export function createTaskService(deps: TaskServiceDeps): TaskManager {
 
     get(id) {
       return repos.tasks.get(id)
+    },
+
+    async visibleTo(tasks, viewer) {
+      if (tasks.length === 0) return []
+      const facts = await loadVisibilityFacts(viewer, repos)
+      return tasks.filter((t) => isVisible(taskTarget(t), viewer, facts))
     },
 
     active() {

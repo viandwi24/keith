@@ -5,7 +5,7 @@
 import type { CoreEventBus } from '../events/types.ts'
 import type { PersonId, Task, TaskId, ThreadId, TurnState, Viewer } from '../shared/types.ts'
 import type { PersonsRepository, TasksRepository, ThreadsRepository } from '../storage/types.ts'
-import { isVisible, type VisibilityFacts, viewerPersonIds } from './visibility.ts'
+import { isVisible, taskTarget, type VisibilityFacts, viewerPersonIds } from './visibility.ts'
 
 export const DIGEST_MAX_LINES = 5
 const GOAL_MAX_CHARS = 120
@@ -102,15 +102,15 @@ export async function buildDigest(
   }
 
   for (const t of tasks) {
-    const target = { visibility: t.visibility, subjectPersonId: t.personId, threadId: t.threadId }
-    if (!isVisible(target, viewer, facts)) {
+    if (!isVisible(taskTarget(t), viewer, facts)) {
       hiddenTasks++
       continue
     }
     const verb = t.status === 'running' ? 'Working on' : 'Queued'
-    detail.push(
-      `- ${verb} a background task for ${await nameOf(t.personId)}: ${truncate(t.goal, GOAL_MAX_CHARS)}`,
-    )
+    // A group task works for the group, not only for the person who started it.
+    const group = t.visibility === 'thread' && t.threadId !== null ? await deps.threads.get(t.threadId) : null
+    const forWhom = group ? `the group "${truncate(group.title, 60)}"` : await nameOf(t.personId)
+    detail.push(`- ${verb} a background task for ${forWhom}: ${truncate(t.goal, GOAL_MAX_CHARS)}`)
   }
 
   for (const [id, state] of threads) {

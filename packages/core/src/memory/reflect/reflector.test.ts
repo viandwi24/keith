@@ -340,6 +340,36 @@ describe('reflector: relationship cards', () => {
     expect(second?.cardsUpdated).toEqual([])
   })
 
+  test('a group pass writes only thread memories, keeps about as the subject, and updates no card', async () => {
+    const h = await createReflectionHarness({
+      script: [
+        extract(
+          [
+            { content: 'Tony is afraid of flying.', about: TONY },
+            { content: 'Pepper books the Expo venue.', about: 'Pepper' },
+            { content: 'The Expo opens on May 3.', about: null },
+          ],
+          [
+            { personId: TONY, notes: 'Likes jokes.' },
+            { personId: PEPPER, notes: 'Wants lists.' },
+          ],
+        ),
+      ],
+    })
+    await h.say(MISSION, TONY, 'I hate flying. Pepper, can you book the venue? We open May 3.')
+    await h.say(MISSION, PEPPER, 'Sure, I will book it.')
+    const result = await h.reflection.reflector.reflect({ threadId: MISSION, signal: signal() })
+
+    const rows = [...h.memories.rows.values()]
+    expect(rows.map((m) => [m.visibility, m.threadId, m.subjectPersonId])).toEqual([
+      ['thread', MISSION, TONY],
+      ['thread', MISSION, PEPPER],
+      ['thread', MISSION, null],
+    ])
+    expect(result?.cardsUpdated).toEqual([])
+    expect(h.relationships.rows.size).toBe(0)
+  })
+
   test('group threads never update cards', async () => {
     const h = await createReflectionHarness({
       script: [extract([], [{ personId: TONY, notes: 'Likes jokes.' }])],
