@@ -4,8 +4,8 @@ title: "TUI: switch threads, show authors and relay marks, sign up with --invite
 phase: 5
 wave: 3
 lane: F
-status: todo
-owner: null
+status: in-progress
+owner: agent-P5-F3
 depends: [P5-F1]
 owns:
   - apps/tui/**

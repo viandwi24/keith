@@ -4,8 +4,8 @@ title: "Web: thread list, group participants, author names, relay marks, invite 
 phase: 5
 wave: 3
 lane: F
-status: todo
-owner: null
+status: in-progress
+owner: agent-P5-F2
 depends: [P5-F1]
 owns:
   - plugins/web/app/**
