@@ -1,8 +1,18 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { ClientInfo, type MessageDto } from '@keith/protocol'
+import { ClientInfo, type MessageDto, ThreadDto } from '@keith/protocol'
 import { KeithError } from '@keith/sdk'
 import type { NodeId } from '../shared/types.ts'
-import { connect, eventually, login, startTestServer, type TestServer, threadId } from './test-fakes.ts'
+import {
+  connect,
+  eventually,
+  login,
+  OWNER_PASSWORD,
+  personId,
+  type ReceivedFrame,
+  startTestServer,
+  type TestServer,
+  threadId,
+} from './test-fakes.ts'
 
 let t: TestServer | null = null
 afterEach(async () => {
@@ -306,5 +316,112 @@ describe('frames', () => {
     const error = await client.next('error')
     expect(error.data.code).toBe('INVALID_FRAME')
     expect(error.re).toBe(id)
+  })
+})
+
+describe('thread list (phase 5)', () => {
+  const PASSWORD = 'pepper-potts-2008'
+
+  async function person(s: TestServer, n: number, name: string) {
+    await s.repos.persons.create({
+      id: personId(n),
+      name,
+      username: name.toLowerCase(),
+      passwordHash: await Bun.password.hash(PASSWORD),
+      tier: 'member',
+      lastSeenAt: null,
+      createdAt: 0,
+    })
+    return personId(n)
+  }
+
+  async function node(s: TestServer, username: string, capabilities: string[]) {
+    const token = await login(s, username, username === 'tony' ? OWNER_PASSWORD : PASSWORD)
+    const client = await connect(s.wsUrl(token))
+    const nodeId = (await client.hello({ capabilities })).data.nodeId as NodeId
+    return { client, nodeId }
+  }
+
+  const names = (f: ReceivedFrame, key: 'participants' | 'formerParticipants') =>
+    ((f.data.thread as ThreadDto)[key] ?? []).map((p) => p.name)
+
+  test('joins and leaves reach every node of every participant; the leaver loses the thread', async () => {
+    const s = await setup()
+    const pepper = await person(s, 2, 'Pepper')
+    const happy = await person(s, 3, 'Happy')
+    const group = threadId(10)
+    await s.repos.threads.create(
+      {
+        id: group,
+        kind: 'group',
+        slug: null,
+        title: 'Expo',
+        ownerPersonId: s.owner.id,
+        summary: null,
+        purpose: 'Plan the Expo launch.',
+        createdAt: 0,
+        updatedAt: 0,
+      },
+      [s.owner.id, pepper],
+    )
+    // Tony: one node with only the main thread open, one without chat.text@1 and nothing open.
+    const tonyMain = await node(s, 'tony', ['chat.text@1'])
+    tonyMain.client.send('thread.open', {})
+    await tonyMain.client.next('thread.opened')
+    const tonyBare = await node(s, 'tony', [])
+    const pepperNode = await node(s, 'pepper', ['chat.text@1'])
+    pepperNode.client.send('thread.open', { threadId: group })
+    await pepperNode.client.next('thread.opened')
+    const happyNode = await node(s, 'happy', ['chat.text@1'])
+
+    await s.repos.threads.addParticipant(group, happy, 1)
+    s.events.emit('thread.participant_joined', { threadId: group, personId: happy, invitedBy: s.owner.id })
+    for (const n of [tonyMain, tonyBare, pepperNode, happyNode]) {
+      const updated = await n.client.next('thread.updated')
+      expect(ThreadDto.parse(updated.data.thread).id).toBe(group)
+      expect(names(updated, 'participants')).toEqual(['Tony', 'Pepper', 'Happy'])
+      expect((updated.data.thread as ThreadDto).purpose).toBe('Plan the Expo launch.')
+    }
+
+    await s.repos.threads.removeParticipant(group, pepper, 2)
+    s.events.emit('thread.participant_left', { threadId: group, personId: pepper })
+    expect((await pepperNode.client.next('thread.removed')).data).toEqual({ threadId: group })
+    for (const n of [tonyMain, tonyBare, happyNode]) {
+      const updated = await n.client.next('thread.updated')
+      expect(names(updated, 'participants')).toEqual(['Tony', 'Happy'])
+      expect(names(updated, 'formerParticipants')).toEqual(['Pepper'])
+    }
+    expect(pepperNode.client.frames.filter((f) => f.type === 'thread.updated')).toHaveLength(1)
+    // The leaver's node is detached: the thread's frames no longer reach it.
+    expect(s.attachments.attachedTo(group)).not.toContain(pepperNode.nodeId)
+    expect(s.threads.calls.detach).toContainEqual({ nodeId: pepperNode.nodeId, threadId: group })
+    // It had no other thread open, so Pepper is away now.
+    expect(s.presence.isPresent(pepper)).toBe(false)
+    happyNode.client.send('thread.open', { threadId: group })
+    await happyNode.client.next('thread.opened')
+    for (const nodeId of s.attachments.attachedTo(group)) {
+      s.attachments.send(nodeId, {
+        v: 1,
+        type: 'thread.state',
+        id: 'x2',
+        ts: 1,
+        data: { threadId: group, state: 'thinking' },
+      })
+    }
+    await happyNode.client.next('thread.state')
+    expect(pepperNode.client.frames.some((f) => f.type === 'thread.state')).toBe(false)
+  })
+
+  test('an event for an unknown thread sends nothing', async () => {
+    const s = await setup()
+    const tony = await node(s, 'tony', ['chat.text@1'])
+    s.events.emit('thread.participant_joined', {
+      threadId: threadId(99),
+      personId: s.owner.id,
+      invitedBy: null,
+    })
+    await s.events.idle()
+    expect(tony.client.frames.some((f) => f.type === 'thread.updated')).toBe(false)
+    expect(s.log.entries.some((e) => e.msg === 'participant event for an unknown thread')).toBe(true)
   })
 })

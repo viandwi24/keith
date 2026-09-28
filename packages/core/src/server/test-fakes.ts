@@ -13,6 +13,7 @@ import type { FileId, IdPrefix, Ids, NodeId, PersonId, ThreadId, TurnState } fro
 import type {
   AuthTokenRecord,
   FileRecord,
+  InviteLinkRecord,
   MessageRecord,
   NodeRecord,
   PersonRecord,
@@ -47,13 +48,14 @@ export const threadId = (n: number) => `thr_${String(n).padStart(26, '0')}` as T
 
 export type ServerRepos = Pick<
   Repositories,
-  'persons' | 'authTokens' | 'nodes' | 'threads' | 'messages' | 'files'
+  'persons' | 'authTokens' | 'inviteLinks' | 'nodes' | 'threads' | 'messages' | 'files'
 >
 
 export type FakeRepos = ServerRepos & {
   data: {
     persons: Map<PersonId, PersonRecord>
     tokens: Map<string, AuthTokenRecord>
+    inviteLinks: Map<string, InviteLinkRecord>
     nodes: Map<NodeId, NodeRecord>
     threads: Map<ThreadId, ThreadRecord>
     participants: ThreadParticipantRecord[]
@@ -67,6 +69,7 @@ export function createFakeRepos(): FakeRepos {
   const data: FakeRepos['data'] = {
     persons: new Map(),
     tokens: new Map(),
+    inviteLinks: new Map(),
     nodes: new Map(),
     threads: new Map(),
     participants: [],
@@ -115,6 +118,9 @@ export function createFakeRepos(): FakeRepos {
         if (p) p.tier = tier
       },
       async setCredentials(id, c) {
+        for (const other of data.persons.values()) {
+          if (other.id !== id && other.username === c.username) throw new Error('username is taken')
+        }
         const p = data.persons.get(id)
         if (p) Object.assign(p, c)
       },
@@ -152,6 +158,31 @@ export function createFakeRepos(): FakeRepos {
         for (const [hash, t] of data.tokens) {
           if (t.personId === personId) {
             data.tokens.delete(hash)
+            n += 1
+          }
+        }
+        return n
+      },
+    },
+    inviteLinks: {
+      async create(l) {
+        data.inviteLinks.set(l.codeHash, { ...l })
+      },
+      async get(codeHash) {
+        const l = data.inviteLinks.get(codeHash)
+        return l ? { ...l } : null
+      },
+      async markUsed(codeHash, at) {
+        const l = data.inviteLinks.get(codeHash)
+        if (!l || l.usedAt !== null) return false
+        l.usedAt = at
+        return true
+      },
+      async revokeFor(personId) {
+        let n = 0
+        for (const [hash, l] of data.inviteLinks) {
+          if (l.personId === personId && l.usedAt === null) {
+            data.inviteLinks.delete(hash)
             n += 1
           }
         }

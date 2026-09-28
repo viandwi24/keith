@@ -2,24 +2,27 @@
 
 import {
   type HealthResponse,
+  InviteAcceptRequest,
   LoginRequest,
   type LoginResponse,
   type MeResponse,
   type MessageDto,
   MessagesQuery,
   type MessagesResponse,
+  PASSWORD_MIN_CHARS,
   PROTOCOL_VERSION,
   type ThreadDto,
   ThreadId,
   type ThreadsResponse,
 } from '@keith/protocol'
 import type { ThreadManager } from '../mind/types.ts'
-import type { Logger, PersonDto, PersonId } from '../shared/types.ts'
+import type { Logger } from '../shared/types.ts'
 import type { Repositories } from '../storage/types.ts'
 import { type Auth, type AuthSession, bearerToken } from './auth.ts'
-import { toMessageDto, toPersonDto, toThreadDto } from './dto.ts'
+import { toMessageDto, toPersonDto } from './dto.ts'
 import type { FilesApi } from './files.ts'
 import { errorResponse } from './responses.ts'
+import { createThreadDescriber } from './thread-list.ts'
 
 export { errorResponse }
 
@@ -53,31 +56,12 @@ const FILE_PATH = /^\/v1\/files\/[^/]+$/
 export function createHttpApi(deps: HttpApiDeps): (req: Request, url: URL) => Promise<Response> {
   const { auth, repos } = deps
 
-  const personsById = async (ids: PersonId[], cache: Map<PersonId, PersonDto | null>) => {
-    const out: PersonDto[] = []
-    for (const id of ids) {
-      if (!cache.has(id)) {
-        const p = await repos.persons.get(id)
-        cache.set(id, p ? toPersonDto(p) : null)
-      }
-      const dto = cache.get(id)
-      if (dto) out.push(dto)
-    }
-    return out
-  }
-
   const threadsOf = async (session: AuthSession): Promise<ThreadDto[]> => {
-    const cache = new Map<PersonId, PersonDto | null>()
-    const records = await repos.threads.listForPerson(session.person.id)
+    const describe = createThreadDescriber(deps)
     const out: ThreadDto[] = []
-    for (const t of records) {
-      const participants = await repos.threads.participants(t.id)
-      const people = await personsById(
-        participants.map((p) => p.personId),
-        cache,
-      )
-      if (people.length === 0) continue
-      out.push(toThreadDto(t, people, deps.threads.state(t.id)))
+    for (const t of await repos.threads.listForPerson(session.person.id)) {
+      const dto = await describe(t)
+      if (dto) out.push(dto)
     }
     return out
   }
@@ -121,6 +105,22 @@ export function createHttpApi(deps: HttpApiDeps): (req: Request, url: URL) => Pr
       const result = await auth.login(parsed.data.username, parsed.data.password)
       if (!result) return errorResponse('UNAUTHORIZED', 'invalid username or password')
       const body: LoginResponse = result
+      return Response.json(body)
+    }
+
+    if (path === '/v1/auth/invite' && method === 'POST') {
+      const json = await readJson(req)
+      if (!json.ok) return errorResponse('INVALID_REQUEST', 'body is not valid JSON')
+      const parsed = InviteAcceptRequest.safeParse(json.value)
+      if (!parsed.success) {
+        return errorResponse(
+          'INVALID_REQUEST',
+          `expected { code, username, password } with a password of at least ${PASSWORD_MIN_CHARS} characters`,
+        )
+      }
+      const result = await auth.acceptInvite(parsed.data)
+      if (!result.ok) return errorResponse(result.code, result.message)
+      const body: LoginResponse = result.login
       return Response.json(body)
     }
 
