@@ -1253,7 +1253,7 @@ The ThreadManager maps `RunLoopEvent`s to `message.delta`, `tool.activity` and `
 - `createGroupThreads(deps: GroupThreadsDeps): GroupThreads` (`mind/groups.ts`). Deps: `config` (`mind`), `repos` (`persons`, `threads`, `threadInvitations`), `deliveries` (`enqueue`), `events` (`emit`), `ids`, `clock`, `log`.
 - `ThreadManagerDeps.addressing?: AddressingDetector`. Without it every group input is addressed (the phase-4 behavior).
 
-> Planned (phase 5, P5-D1): `createAddressing` is a placeholder whose `decide` answers `{ addressed: true, by: 'default' }`. Bootstrap doesn't build it or `createGroupThreads` yet (P5-I1).
+> Planned (phase 5, P5-I1): bootstrap doesn't build `createAddressing` or `createGroupThreads` yet.
 
 ### Voice (`voice/types.ts`), implemented by `voice/` (P3-A1)
 
@@ -1665,7 +1665,7 @@ The tiers come from [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group
 
 ## Group threads
 
-> Planned (phase 5, P5-D1): addressing. Membership and the turn rules below are built. Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md). Scenario: [S-6](../concept/scenarios.md#s-6-collaboration-a-group-thread-with-shared-state).
+Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md). Scenario: [S-6](../concept/scenarios.md#s-6-collaboration-a-group-thread-with-shared-state). Bootstrap wiring is P5-I1.
 
 A group thread (`kind: 'group'`, `slug` null) has several human participants (`thread_participants`), a `title` and an optional `purpose`. Participants and message authors are stored from phase 1.
 
@@ -1694,6 +1694,16 @@ A group thread (`kind: 'group'`, `slug` null) has several human participants (`t
 - **Deliveries** (for example the result of a task started in the group) flush as in direct threads: idle, some participant present, no hold. An arrival hold, and the `auto` briefing, apply only to direct threads.
 - **`thread.opened`** for a group carries `purpose` (when set) and `formerParticipants` (people who left, most recent first; empty when nobody left).
 
-**Addressing** (`AddressingDetector`, `mind/addressing/`, P5-D1): a cheap rule pass first (single human, the Mind's name, a reply to the Mind's question, an open question after the Mind spoke, another human named first), then, for unsure inputs and only with `mind.group.addressing = "rules+utility"`, the `utility` model in the `foreground` lane (5 s timeout, addressed only at confidence ≥ 0.7). Still unsure means not addressed: the Mind doesn't interrupt humans. The verdict's `by` names the rule that decided.
+**Addressing** (`AddressingDetector`, `mind/addressing/`, P5-D1). `decide` never throws. A rule pass (`rules.ts`, pure and synchronous, because it runs on every group input) goes in this order:
+
+1. Fewer than two human participants: `single_human`, addressed.
+2. `mind.name` as a whole word, in any letter case ("hey Keith", "@keith", "Keith's"; not "Keithley"): `name`, addressed. Otherwise, an input that opens by naming another participant ("Pepper, …", "@pepper …", "hey Pepper …", "Rhodey?") is `other_human`, not addressed. A multi-word name also matches by its first word.
+3. The latest visible message before the input (tool messages and empty tool-calling steps are skipped) is the Mind's and ends with a question: `reply`, addressed. There is no reply-to in the protocol (D6). The detector gets no join times, so anyone who is a participant now counts.
+4. A question ("?", a wh-word opening, or an auxiliary followed by a subject: "can you", "is it", "do we") that names no participant, while one of the last three visible messages is the Mind's: `question`, addressed.
+5. Anything else is `unsure`, which means not addressed: the Mind doesn't interrupt humans.
+
+With `mind.group.addressing = "rules+utility"`, an `unsure` input goes to the classifier (`classifier.ts`): one `RunLoop` run with `modelRole: 'utility'`, no tools, one step and `persist: null`, through `scheduler.run('foreground', …)` because a human is waiting (I-5). `runCtx` is the thread, with the input's author as `personId` and the author plus the humans who wrote the recent messages as `participants` (the detector gets names, not ids, for the others). The system prompt is `ADDRESSING_SYSTEM_PROMPT` (`prompts.ts`). The one user message holds only the Mind's name, the participants' names, the last 10 visible messages (each cut to 500 characters, human authors labelled "Person A", "Person B", …) and the input: no memories and no cards. The reply must be JSON `{ "addressed": boolean, "confidence": 0..1 }` (zod-checked, a code fence is tolerated). Confidence ≥ 0.7 gives `by: 'classifier'` with the model's answer; lower confidence, a 5 s timeout, an invalid reply, a provider error or an abort give `unsure`, logged at warn with the thread id and the reason, never the text. With `"rules"`, no model is called.
+
+The labelled corpus in `mind/addressing/corpus.ts` (over 40 Tony / Pepper / Rhodey lines) is the rule pass's regression test.
 
 **Frames.** Membership changes reach nodes as `thread.updated` / `thread.removed` ([protocol.md](../contracts/protocol.md#delivery-rules)); the server sends them on the participant events (P5-N1).

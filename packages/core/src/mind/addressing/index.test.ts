@@ -1,27 +1,81 @@
-// P5-K1: the placeholder keeps the phase-4 behavior. P5-D1 replaces it (and this test) with the
-// rule pass and the classifier.
-
 import { expect, test } from 'bun:test'
-import { createMemoryLogger } from '@keith/sdk/testing'
-import { createFakeScheduler, testConfig } from '../testing/fakes.ts'
-import { PEPPER } from '../testing/harness.ts'
 import { createAddressing } from './index.ts'
+import {
+  CAST,
+  createAddressingHarness,
+  MISSION,
+  mindConfig,
+  PEPPER,
+  replyTurn,
+  transcript,
+} from './testing.ts'
 
-test('the placeholder answers addressed for every input (by default)', async () => {
-  const detector = createAddressing({
-    config: testConfig(),
-    runLoop: async () => {
-      throw new Error('the placeholder never calls the model')
-    },
-    scheduler: createFakeScheduler(),
-    log: createMemoryLogger(),
-  })
-  const verdict = await detector.decide({
-    threadId: 'thr_01J8ZQ3K4M5N6P7Q8R9S0T1V31',
-    input: { authorPersonId: PEPPER, text: 'Rhodey, are you on your way?' },
+const signal = () => new AbortController().signal
+
+test('a rule verdict is final: the model is not called', async () => {
+  const h = createAddressingHarness()
+  const verdict = await h.detector.decide({
+    threadId: MISSION,
+    input: { authorPersonId: PEPPER, text: 'Keith, are you there?' },
     recent: [],
-    participantNames: ['Tony', 'Pepper', 'Rhodey'],
-    signal: new AbortController().signal,
+    participantNames: CAST,
+    signal: signal(),
   })
-  expect(verdict).toEqual({ addressed: true, by: 'default' })
+  expect(verdict).toEqual({ addressed: true, by: 'name' })
+  expect(h.llm.calls).toBe(0)
+})
+
+test('an unsure input goes to the classifier with "rules+utility"', async () => {
+  const h = createAddressingHarness({ script: [replyTurn({ addressed: true, confidence: 0.9 })] })
+  const verdict = await h.detector.decide({
+    threadId: MISSION,
+    input: { authorPersonId: PEPPER, text: 'find us a quiet place' },
+    recent: transcript([['tony', 'we need a venue']]),
+    participantNames: CAST,
+    signal: signal(),
+  })
+  expect(verdict).toEqual({ addressed: true, by: 'classifier' })
+  expect(h.scheduler.lanes).toEqual(['foreground'])
+})
+
+test('with "rules" an unsure input stays unsure and no model is called', async () => {
+  const h = createAddressingHarness({ addressing: 'rules' })
+  const verdict = await h.detector.decide({
+    threadId: MISSION,
+    input: { authorPersonId: PEPPER, text: 'find us a quiet place' },
+    recent: [],
+    participantNames: CAST,
+    signal: signal(),
+  })
+  expect(verdict).toEqual({ addressed: false, by: 'unsure' })
+  expect(h.runLoop.calls).toHaveLength(0)
+})
+
+test('decide never throws: a failing rule pass or run loop is unsure', async () => {
+  const h = createAddressingHarness()
+  const detector = createAddressing({
+    ...h.deps,
+    config: mindConfig(),
+    runLoop: async () => {
+      throw new Error('boom')
+    },
+  })
+  const unsure = await detector.decide({
+    threadId: MISSION,
+    input: { authorPersonId: PEPPER, text: 'lol' },
+    recent: [],
+    participantNames: CAST,
+    signal: signal(),
+  })
+  expect(unsure).toEqual({ addressed: false, by: 'unsure' })
+
+  const broken = await detector.decide({
+    threadId: MISSION,
+    input: { authorPersonId: PEPPER, text: 'lol' },
+    recent: [{ role: 'user' } as never],
+    participantNames: CAST,
+    signal: signal(),
+  })
+  expect(broken).toEqual({ addressed: false, by: 'unsure' })
+  expect(h.log.entries.filter((e) => e.level === 'warn')).toHaveLength(2)
 })
