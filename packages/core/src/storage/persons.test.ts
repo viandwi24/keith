@@ -45,6 +45,54 @@ describe('persons', () => {
   })
 })
 
+describe('persons (phase 5)', () => {
+  test('findByName is case-insensitive, trims, and falls back to the username', async () => {
+    const pepper = person(1, { name: 'Pepper', username: 'pep' })
+    const tony = person(2, { name: 'Tony', username: 'pepper-fan' })
+    // A name match wins over another person's username match.
+    const other = person(3, { name: 'Happy', username: 'TONY' })
+    for (const p of [pepper, tony, other]) await db.repos.persons.create(p)
+    expect(await db.repos.persons.findByName('pepper')).toEqual(pepper)
+    expect(await db.repos.persons.findByName('  PEPPER \n')).toEqual(pepper)
+    expect(await db.repos.persons.findByName('Pep')).toEqual(pepper)
+    expect(await db.repos.persons.findByName('tony')).toEqual(tony)
+    expect(await db.repos.persons.findByName('PEPPER-FAN')).toEqual(tony)
+    expect(await db.repos.persons.findByName('nobody')).toBeNull()
+    expect(await db.repos.persons.findByName('   ')).toBeNull()
+  })
+
+  test('names are unique case-insensitively (index on lower(name))', async () => {
+    await db.repos.persons.create(person(1, { name: 'Pepper' }))
+    await expect(db.repos.persons.create(person(2, { name: 'PEPPER' }))).rejects.toThrow()
+  })
+
+  test('setTier and setCredentials round-trip; an unknown id is a no-op', async () => {
+    const p = person(1, { username: null, tier: 'guest' })
+    await db.repos.persons.create(p)
+    await db.repos.persons.setTier(p.id, 'member')
+    await db.repos.persons.setCredentials(p.id, { username: 'pepper', passwordHash: 'argon' })
+    expect(await db.repos.persons.get(p.id)).toEqual({
+      ...p,
+      tier: 'member',
+      username: 'pepper',
+      passwordHash: 'argon',
+    })
+    expect(await db.repos.persons.getByUsername('pepper')).toMatchObject({ id: p.id })
+    await db.repos.persons.setTier(testId('per', 9), 'guest')
+    await db.repos.persons.setCredentials(testId('per', 9), { username: 'x', passwordHash: 'y' })
+    expect(await db.repos.persons.list()).toHaveLength(1)
+  })
+
+  test("setCredentials with another person's username throws", async () => {
+    await db.repos.persons.create(person(1))
+    await db.repos.persons.create(person(2))
+    await expect(
+      db.repos.persons.setCredentials(testId('per', 2), { username: 'user1', passwordHash: 'h' }),
+    ).rejects.toThrow()
+    expect((await db.repos.persons.get(testId('per', 2)))?.username).toBe('user2')
+  })
+})
+
 describe('relationships', () => {
   test('upserts and round-trips a relationship card', async () => {
     await db.repos.persons.create(person(1))

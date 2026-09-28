@@ -1,7 +1,6 @@
 // threads + thread_participants repository.
 
-import { KeithError } from '@keith/sdk'
-import { and, asc, desc, eq, gt, isNull, lte, type SQL, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, isNotNull, isNull, lte, type SQL, sql } from 'drizzle-orm'
 import type { Orm } from './orm.ts'
 import { messages, threadParticipants, threads } from './schema.ts'
 import type { ThreadRecord, ThreadsRepository } from './types.ts'
@@ -20,6 +19,7 @@ function toThread(row: ThreadRow): ThreadRecord {
     updatedAt: row.updatedAt,
     summaryThroughSeq: row.summaryThroughSeq,
     reflectedThroughSeq: row.reflectedThroughSeq,
+    purpose: row.purpose,
   }
 }
 
@@ -35,22 +35,8 @@ function qualified(table: string, column: { name: string }): SQL {
  */
 const lastSeqOfThread: SQL<number> = sql<number>`(select coalesce(max(${qualified('messages', messages.seq)}), 0) from ${messages} where ${qualified('messages', messages.threadId)} = ${qualified('threads', threads.id)})`
 
-function notImplemented(what: string): KeithError {
-  return new KeithError('INTERNAL', `${what} not implemented yet (P5-S1)`)
-}
-
 export function createThreadsRepository(db: Orm): ThreadsRepository {
   return {
-    // Phase 5 placeholders: P5-S1 implements them (JSDoc in types.ts) and adds `purpose`.
-    async addParticipant() {
-      throw notImplemented('threads.addParticipant')
-    },
-    async removeParticipant() {
-      throw notImplemented('threads.removeParticipant')
-    },
-    async formerParticipants() {
-      throw notImplemented('threads.formerParticipants')
-    },
     async create(t, participants) {
       db.transaction((tx) => {
         tx.insert(threads)
@@ -58,6 +44,7 @@ export function createThreadsRepository(db: Orm): ThreadsRepository {
             ...t,
             summaryThroughSeq: t.summaryThroughSeq ?? null,
             reflectedThroughSeq: t.reflectedThroughSeq ?? null,
+            purpose: t.purpose ?? null,
           })
           .run()
         if (participants.length > 0) {
@@ -102,6 +89,42 @@ export function createThreadsRepository(db: Orm): ThreadsRepository {
         .from(threadParticipants)
         .where(and(eq(threadParticipants.threadId, threadId), isNull(threadParticipants.leftAt)))
         .orderBy(asc(threadParticipants.joinedAt), asc(threadParticipants.personId))
+        .all()
+    },
+    // Phase 5: joining and leaving. One row per (thread, person); leaving sets `left_at`, and
+    // joining again clears it on the same row. Both are single conditional statements.
+    async addParticipant(threadId, personId, at) {
+      const result = db
+        .insert(threadParticipants)
+        .values({ threadId, personId, joinedAt: at, leftAt: null })
+        .onConflictDoUpdate({
+          target: [threadParticipants.threadId, threadParticipants.personId],
+          set: { joinedAt: at, leftAt: null },
+          setWhere: isNotNull(threadParticipants.leftAt),
+        })
+        .run()
+      return result.changes > 0
+    },
+    async removeParticipant(threadId, personId, at) {
+      const result = db
+        .update(threadParticipants)
+        .set({ leftAt: at })
+        .where(
+          and(
+            eq(threadParticipants.threadId, threadId),
+            eq(threadParticipants.personId, personId),
+            isNull(threadParticipants.leftAt),
+          ),
+        )
+        .run()
+      return result.changes > 0
+    },
+    async formerParticipants(threadId) {
+      return db
+        .select()
+        .from(threadParticipants)
+        .where(and(eq(threadParticipants.threadId, threadId), isNotNull(threadParticipants.leftAt)))
+        .orderBy(desc(threadParticipants.leftAt), asc(threadParticipants.personId))
         .all()
     },
     async touch(id, updatedAt) {

@@ -109,7 +109,7 @@ Built by `createThreadSummaries` (`memory/summary/`), under [ADR-0014](../decisi
 
 ## Deleting a person
 
-> Planned (phase 5, P5-S1): `PersonsRepository.remove`. The `keith person remove` command is built; until the repository lands it fails with "not implemented yet" and deletes nothing.
+Deleting a Person: `keith person remove` runs `PersonsRepository.remove` ([ADR-0018](../decisions/0018-deleting-a-person.md), [storage.md](storage.md#invite-links-and-group-invitations-phase-5)).
 
 `keith person remove <name>` ([ADR-0018](../decisions/0018-deleting-a-person.md)) asks for confirmation (or takes `--yes`), needs Keith stopped (it holds the home lock), refuses the owner, and suggests `keith backup` first. There is no undo. One storage transaction (`PersonsRepository.remove`) does the following.
 
