@@ -1,4 +1,4 @@
-import type { Entry, MessageEntry, NoticeEntry, ToolEntry } from '@keith/client'
+import { type Entry, type MessageEntry, type NoticeEntry, relayFrom, type ToolEntry } from '@keith/client'
 import { cn } from 'cn'
 import { UiBlockView } from '../blocks/ui-block.tsx'
 import { Markdown } from '../markdown.tsx'
@@ -7,10 +7,16 @@ import { Badge } from '../ui/badge.tsx'
 /** Skips tool-step rows without text or blocks (shared with the TUI through `@keith/client`). */
 export { isHiddenEntry } from '@keith/client'
 
-export function EntryView({ entry }: { entry: Entry }) {
+/**
+ * Phase 5: who wrote a message in a group thread. `author` is shown above a person's message (null
+ * for Keith's); `mine` keeps the signed-in person's messages on the right.
+ */
+export type Byline = { author: string | null; mine: boolean }
+
+export function EntryView({ entry, byline }: { entry: Entry; byline?: Byline | undefined }) {
   switch (entry.kind) {
     case 'message':
-      return <MessageView entry={entry} />
+      return <MessageView entry={entry} byline={byline} />
     case 'tool':
       return <ToolView entry={entry} />
     case 'notice':
@@ -24,19 +30,33 @@ export function EntryView({ entry }: { entry: Entry }) {
   }
 }
 
-function MessageView({ entry }: { entry: MessageEntry }) {
-  const mine = entry.role === 'user'
+function MessageView({ entry, byline }: { entry: MessageEntry; byline: Byline | undefined }) {
+  const user = entry.role === 'user'
+  const mine = user && (byline?.mine ?? true)
+  const author = user ? (byline?.author ?? null) : null
+  const via = entry.role === 'assistant' ? relayFrom(entry) : []
   return (
     <div
       data-slot="message"
       data-role={entry.role}
       data-message-id={entry.id}
       data-proactive={entry.proactive || undefined}
+      data-mine={user ? mine : undefined}
       className={cn('flex flex-col gap-1', mine ? 'items-end' : 'items-start')}
     >
-      {entry.proactive || entry.cancelled ? (
+      {author !== null ? (
+        <span data-slot="author" className="px-1 text-xs font-medium text-muted-foreground">
+          {author}
+        </span>
+      ) : null}
+      {entry.proactive || entry.cancelled || via.length > 0 ? (
         <div className="flex gap-1">
           {entry.proactive ? <Badge variant="secondary">Keith, on its own</Badge> : null}
+          {via.length > 0 ? (
+            <Badge data-slot="relay-from" variant="outline">
+              via {via.join(', ')}
+            </Badge>
+          ) : null}
           {entry.cancelled ? <Badge variant="outline">cancelled</Badge> : null}
         </div>
       ) : null}
@@ -44,12 +64,16 @@ function MessageView({ entry }: { entry: MessageEntry }) {
         <div
           className={cn(
             'max-w-[85%] rounded-2xl px-3.5 py-2',
-            mine ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground',
+            mine
+              ? 'bg-primary text-primary-foreground'
+              : user
+                ? 'bg-secondary text-secondary-foreground ring-1 ring-border'
+                : 'bg-muted text-foreground',
             entry.proactive && 'ring-1 ring-ring/40',
             entry.local && 'opacity-80',
           )}
         >
-          {mine ? (
+          {user ? (
             <p className="text-sm whitespace-pre-wrap">{entry.text}</p>
           ) : (
             <Markdown text={entry.text} />

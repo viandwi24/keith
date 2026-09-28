@@ -1,12 +1,15 @@
 import {
   type Auth,
+  authorName,
   type ChatState,
   type ConnectionStatus,
   connectionLabel,
   type Fetch,
   type StoredSession,
+  threadLabel,
   turnLabel,
 } from '@keith/client'
+import type { ThreadDto, ThreadId } from '@keith/protocol'
 import { cn } from 'cn'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useChat } from '../../hooks/use-chat.ts'
@@ -18,8 +21,10 @@ import { Alert, AlertDescription, AlertTitle } from '../ui/alert.tsx'
 import { Badge } from '../ui/badge.tsx'
 import { Button } from '../ui/button.tsx'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card.tsx'
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '../ui/sheet.tsx'
 import { Composer } from './composer.tsx'
-import { EntryView, isHiddenEntry } from './entries.tsx'
+import { type Byline, EntryView, isHiddenEntry } from './entries.tsx'
+import { ThreadList } from './thread-list.tsx'
 import { VoiceControls } from './voice-controls.tsx'
 
 const ACTION_ERRORS = {
@@ -28,8 +33,8 @@ const ACTION_ERRORS = {
 } as const
 
 /**
- * The main thread: history, streaming replies, tool lines, UI blocks, input, voice, connection
- * state.
+ * The open thread (history, streaming replies, tool lines, UI blocks, input, voice, connection
+ * state) and, phase 5, the thread list: a sidebar on wide screens, a sheet on narrow ones.
  */
 export function ChatScreen({
   baseUrl,
@@ -89,60 +94,122 @@ export function ChatScreen({
   }
 
   const online = state.connection.kind === 'online' && state.thread !== null
+  const me = state.person ?? session.person
+  const [sheetOpen, setSheetOpen] = useState(false)
+
+  const selectThread = (threadId: ThreadId) => {
+    setSheetOpen(false)
+    const result = client?.openThread(threadId)
+    if (result && !result.ok) console.warn('cannot open the thread', result.reason)
+  }
+
+  const threadList = (
+    <ThreadList
+      threads={state.threads}
+      currentId={state.thread?.id ?? null}
+      me={me}
+      disabled={state.connection.kind !== 'online'}
+      onSelect={selectThread}
+    />
+  )
 
   return (
     <BlockEnvContext.Provider value={env}>
-      <div className="mx-auto flex h-dvh max-w-3xl flex-col">
-        <header className="flex items-center gap-3 border-b px-4 py-3">
-          <div className="min-w-0 flex-1">
-            <h1 className="text-base font-semibold">Keith</h1>
-            <p className="truncate text-xs text-muted-foreground">
-              {state.person?.name ?? session.person.name}
-              {state.thread ? ` · ${state.thread.title}` : ''}
-            </p>
-          </div>
-          <ConnectionBadge status={state.connection} />
-          <Button type="button" variant="ghost" size="sm" onClick={signOut}>
-            Sign out
-          </Button>
-        </header>
+      <div className="flex h-dvh">
+        <aside data-slot="sidebar" className="hidden w-64 shrink-0 flex-col overflow-y-auto border-r md:flex">
+          <p className="px-4 pt-4 pb-1 text-xs font-medium text-muted-foreground">Threads</p>
+          {threadList}
+        </aside>
+        <div className="mx-auto flex h-dvh min-w-0 max-w-3xl flex-1 flex-col">
+          <header className="flex items-center gap-3 border-b px-4 py-3">
+            <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+              <SheetTrigger
+                render={<Button type="button" variant="outline" size="sm" className="md:hidden" />}
+              >
+                Threads
+              </SheetTrigger>
+              <SheetContent side="left" data-slot="thread-sheet">
+                <SheetHeader>
+                  <SheetTitle>Threads</SheetTitle>
+                </SheetHeader>
+                {threadList}
+              </SheetContent>
+            </Sheet>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-base font-semibold">Keith</h1>
+              <p className="truncate text-xs text-muted-foreground" data-slot="thread-label">
+                {me.name}
+                {state.thread ? ` · ${threadLabel(state.thread, me)}` : ''}
+              </p>
+            </div>
+            <ConnectionBadge status={state.connection} />
+            <Button type="button" variant="ghost" size="sm" onClick={signOut}>
+              Sign out
+            </Button>
+          </header>
 
-        <ConnectionBanner status={state.connection} onRetry={() => client?.reconnect()} />
+          {state.thread?.kind === 'group' ? <GroupHeader thread={state.thread} /> : null}
 
-        {authRequired ? (
-          <div className="p-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Sign in again</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <LoginForm onSubmit={signInAgain} submitLabel="Sign in and reconnect" initialUsername="" />
-              </CardContent>
-            </Card>
-          </div>
-        ) : null}
+          <ConnectionBanner status={state.connection} onRetry={() => client?.reconnect()} />
 
-        <Timeline state={state} onLoadOlder={() => void client?.loadOlder()} />
+          {authRequired ? (
+            <div className="p-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Sign in again</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <LoginForm onSubmit={signInAgain} submitLabel="Sign in and reconnect" initialUsername="" />
+                </CardContent>
+              </Card>
+            </div>
+          ) : null}
 
-        <footer className="flex flex-col gap-2 border-t px-4 py-3">
-          <TurnIndicator state={state} />
-          <VoiceControls
-            mic={mic}
-            unavailable={voice.unavailable}
-            online={online}
-            listening={state.turnState === 'listening'}
-            playing={playback.playing}
-          />
-          <Composer
-            online={online}
-            busy={state.turnState !== 'idle'}
-            onSend={(text) => client?.send(text) ?? { ok: false, reason: 'offline' }}
-            onCancel={() => client?.cancel()}
-          />
-        </footer>
+          <Timeline state={state} onLoadOlder={() => void client?.loadOlder()} />
+
+          <footer className="flex flex-col gap-2 border-t px-4 py-3">
+            <TurnIndicator state={state} />
+            <VoiceControls
+              mic={mic}
+              unavailable={voice.unavailable}
+              online={online}
+              listening={state.turnState === 'listening'}
+              playing={playback.playing}
+            />
+            <Composer
+              online={online}
+              busy={state.turnState !== 'idle'}
+              onSend={(text) => client?.send(text) ?? { ok: false, reason: 'offline' }}
+              onCancel={() => client?.cancel()}
+            />
+          </footer>
+        </div>
       </div>
     </BlockEnvContext.Provider>
   )
+}
+
+/** Phase 5: a group's title, purpose and participants, above its timeline. */
+function GroupHeader({ thread }: { thread: ThreadDto }) {
+  return (
+    <div data-slot="group-header" className="flex flex-col gap-0.5 border-b px-4 py-2">
+      <p className="text-sm font-medium">{thread.title}</p>
+      {thread.purpose ? <p className="text-xs text-muted-foreground">{thread.purpose}</p> : null}
+      <p data-slot="group-participants" className="text-xs text-muted-foreground">
+        {thread.participants.map((p) => p.name).join(', ')}
+      </p>
+    </div>
+  )
+}
+
+/** Phase 5: in a group, who wrote each person's message, and whether it was the signed-in person. */
+function bylineOf(state: ChatState, entry: ChatState['entries'][number]): Byline | undefined {
+  if (state.thread?.kind !== 'group' || entry.kind !== 'message' || entry.role !== 'user') return undefined
+  const id = entry.authorPersonId
+  return {
+    author: authorName(state, entry),
+    mine: id === undefined || id === state.person?.id,
+  }
 }
 
 function Timeline({ state, onLoadOlder }: { state: ChatState; onLoadOlder: () => void }) {
@@ -177,7 +244,7 @@ function Timeline({ state, onLoadOlder }: { state: ChatState; onLoadOlder: () =>
           <p className="py-8 text-center text-sm text-muted-foreground">No messages yet.</p>
         ) : null}
         {entries.map((entry) => (
-          <EntryView key={entry.key} entry={entry} />
+          <EntryView key={entry.key} entry={entry} byline={bylineOf(state, entry)} />
         ))}
       </div>
     </div>
