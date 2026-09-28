@@ -1494,7 +1494,7 @@ Rules:
 - **`input.cancel`** aborts the running turn's `AbortSignal`. The partial assistant text is persisted with `meta.cancelled = true`.
 - **Focus** is set to the node of each new input, and by `open` when the thread has no focus yet. Audio output goes to the focus node only. Text and UI go to every node attached to the Thread (I-7).
 - Each new user input is echoed to the *other* attached nodes as `message.user`. Two inputs are also echoed to the sending node: a `ui.action` click and a spoken input (its transcript comes from the core's STT, so the speaking node has no other copy).
-- **Queue details.** One turn runs per thread at a time. Inputs that arrive while a turn runs wait in a FIFO; when the turn ends, *all* waiting inputs become the next turn together. A queued input is echoed right away but persisted when its turn starts, so history reads `user → reply → next user` rather than two user messages before the reply.
+- **Queue details.** One turn runs per thread at a time. Inputs that arrive while a turn runs wait in a FIFO; when the turn ends, *all* waiting inputs become the next turn together. A queued input is echoed right away but persisted when its turn starts, so history reads `user → reply → next user` rather than two user messages before the reply. In a group thread, inputs first pass addressing, and inputs nobody addressed to the Mind are stored without a turn ([Group threads](#group-threads)).
 - **Focus fallback.** When the focus node detaches, focus is empty until the next input; a turn without focus uses the capabilities of the most recently attached node.
 - **History on open.** `open` returns the latest `historyLimit` visible messages (default 50, at most 200, 0 = none), oldest first. Hidden rows (tool rows and tool-step assistant rows) don't count toward the limit.
 - **Cancel all (shutdown).** `MindThreadManager.cancelAll()` aborts every running turn and resolves once each has persisted its cancelled reply; no new turn starts while it runs. After `stop()` no new turn starts at all.
@@ -1622,13 +1622,13 @@ The tools are registered only when `registerBuiltins` gets `reminders` (`{ servi
 
 ### Relays
 
-> Planned (phase 5, P5-C2): `meta.relayFrom` on the delivered message (the section-8 label is built, P5-C3). Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md).
+Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md).
 
 A relay passes one person's words to another through Keith (I-13, S-5). `RelayService` (`scheduler/relay.ts`, exposed as `Scheduling.relay`) decides and enqueues; the `relay.*` built-ins call it.
 
 - **Checks** (`RelayService.send`, in order): the sender and the recipient are the same person → `self`; the recipient doesn't exist or has no `main` thread → `unknown_recipient`; the sender is a guest and the recipient is not the owner, or the recipient's `relationships.blockedRelayFrom` names the sender → `not_allowed`. A block wins over every tier, the owner's included. A sender that doesn't exist is refused as `not_allowed` too (logged as a warning). The log records who relayed to whom and which rule refused, never the text.
 - **Delivery.** Otherwise it enqueues `{ personId: to, threadId: <their main>, kind: 'relay', authorPersonId: from, source: 'core', urgency: 'normal', content: <the text, verbatim> }`. The relay flushes like any delivery (I-11): now if the recipient is present and the thread idle, else on their next arrival. v1 relays go only to the recipient's main thread, never into a group.
-- **Attribution.** Section 8 labels the item with the sender's name (P5-C3). The delivery turn's assistant message stores `meta.relayFrom` (`{ personId, name }` per sender, in delivery order), so `message.completed` and history carry it and a node can show "via Tony" even if the model paraphrases (P5-C2).
+- **Attribution.** Section 8 labels the item with the sender's name (P5-C3). The delivery turn's assistant message stores `meta.relayFrom` (`{ personId, name }` per sender, in delivery order), so `message.completed` and history carry it and a node can show "via Tony" even if the model paraphrases. The same holds for a user turn that carries relays after an arrival. Several relays from one sender give one entry; a sender who no longer exists gives none.
 - **Answers** (`RELAY_MESSAGES`): "I'll pass that on to <name>.", "I don't know anyone called <name>.", and one generic refusal for a tier rule and a block alike: "I can't pass messages from you to <name>." Relaying to yourself answers "You can't relay to yourself."
 - **Blocks.** `relay.block { from }` / `relay.unblock { from }` change only the caller's own `blockedRelayFrom` (`RelayService.block` / `unblock`). The service reads the card (a missing card counts as empty, with `tone` and `notes` `''`), adds or removes the id, and upserts only when the list changed, keeping `tone` and `notes`; it answers whether it changed. `personId === from` changes nothing. The tools answer with `RELAY_MESSAGES`: blocked / already blocked, unblocked / not blocked, the unknown-name text, and "You can't block yourself." (unblocking yourself answers "not blocked"). The owner can change anyone's list with `keith person block` / `unblock`.
 - A relay writes no memory. It reaches later contexts only through the recipient's thread history. There are no `relay.*` events: a relay is a `delivery.enqueued` with `kind: 'relay'`.
@@ -1665,7 +1665,7 @@ The tiers come from [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group
 
 ## Group threads
 
-> Planned (phase 5, P5-C1, P5-C2, P5-D1): the whole section. Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md). Scenario: [S-6](../concept/scenarios.md#s-6-collaboration-a-group-thread-with-shared-state).
+> Planned (phase 5, P5-C1, P5-D1): membership and addressing. The turn rules below are built. Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md). Scenario: [S-6](../concept/scenarios.md#s-6-collaboration-a-group-thread-with-shared-state).
 
 A group thread (`kind: 'group'`, `slug` null) has several human participants (`thread_participants`), a `title` and an optional `purpose`. Participants and message authors are stored from phase 1.
 
@@ -1678,12 +1678,16 @@ A group thread (`kind: 'group'`, `slug` null) has several human participants (`t
 - A refusal by rule throws `KeithError('FORBIDDEN')` with `details.reason` (`GroupRefusalReason`), which the tools turn into tool errors (`THREAD_MESSAGES.refused`).
 - **After leaving**, the leaver has no access to the group: it leaves their thread list (`thread.removed`), and `thread.open` and history answer as for any thread they are not part of. The group keeps its whole history.
 
-**Turns** (thread manager, P5-C2):
+**Turns** (thread manager, `mind/thread-manager.ts`):
 
-- The thread manager caches each loaded thread's participants and follows `thread.participant_joined` / `thread.participant_left`.
-- A group input is echoed at once to the other attached nodes (`message.user`, as today). When the thread is idle, the thread manager asks `AddressingDetector.decide`. Not addressed: the message is stored and fans out, with no turn, no `thread.state` change and no LLM call. Addressed: the turn runs as today. Inputs that arrive during a turn are decided in order when it ends; if any is addressed, they all become the next turn.
-- With fewer than two current human participants every input is addressed (`single_human`).
-- A group turn's `runCtx.personId` is the author of its latest input, and `participants` are the current participants (tools filter by the lowest tier, memory reads admit only what every participant may see, I-4).
+- **Live participants.** The thread manager caches each loaded thread's current participants and follows `thread.participant_joined` / `thread.participant_left` (a thread not loaded yet reads storage when it loads). A leaver can't send input or open the thread (`FORBIDDEN`, as for any non-participant), and their inputs already queued stay queued: they were said.
+- **Echo.** A group input is echoed at once to the other attached nodes (`message.user`, as in direct threads).
+- **Addressing.** When the thread is idle and nothing is queued, the input is decided by `AddressingDetector.decide` (the input, up to 10 visible messages before it, the current participants' names). Not addressed: the message is stored at once, with no turn, no `thread.state` change and no LLM call. Addressed: the turn runs as in a direct thread. Inputs that arrive during a turn queue as usual; when it ends they are decided in order, and the first addressed one settles it: they all become the next turn. If none is addressed, they are stored without a turn. History order stays `user → reply → next user`.
+- **Deciding.** `input()` never waits for a decision. Decisions run in the thread's pump, one input after another, so an input that arrives while an earlier one is being decided waits behind it; the detector sees the earlier inputs of the same batch as recent history. `cancelAll` and `stop` abort a decision in progress. Each verdict is logged at `debug` with its `by`, never the text. A detector that throws (the contract says it doesn't) counts as not addressed.
+- With fewer than two current participants every input is addressed (`single_human`, the detector isn't called). Without `ThreadManagerDeps.addressing` every input is addressed (phase-4 behavior). Direct threads never ask the detector.
+- **Turn actor.** A group turn's `runCtx.personId` is the author of its latest input, and `participants` are the current participants (tools filter by the lowest tier, memory reads admit only what every participant may see, I-4). Delivery and briefing turns act as the thread's owner while they are a participant, else as the first current participant.
+- **Deliveries** (for example the result of a task started in the group) flush as in direct threads: idle, some participant present, no hold. An arrival hold, and the `auto` briefing, apply only to direct threads.
+- **`thread.opened`** for a group carries `purpose` (when set) and `formerParticipants` (people who left, most recent first; empty when nobody left).
 
 **Addressing** (`AddressingDetector`, `mind/addressing/`, P5-D1): a cheap rule pass first (single human, the Mind's name, a reply to the Mind's question, an open question after the Mind spoke, another human named first), then, for unsure inputs and only with `mind.group.addressing = "rules+utility"`, the `utility` model in the `foreground` lane (5 s timeout, addressed only at confidence ≥ 0.7). Still unsure means not addressed: the Mind doesn't interrupt humans. The verdict's `by` names the rule that decided.
 

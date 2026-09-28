@@ -14,6 +14,7 @@ import {
   PEPPER,
   PEPPER_PHONE,
   PHONE,
+  RHODEY,
   TONY,
 } from './testing/harness.ts'
 import { APOLOGY_TEXT } from './thread-manager.ts'
@@ -453,6 +454,55 @@ describe('deliveries', () => {
     await h.settle()
     expect(h.bus.named('turn.started').map((t) => t.kind)).toEqual(['user', 'delivery', 'user'])
     expect(h.llm.requests[1]?.system).toContain('Reactor breach')
+  })
+
+  test('I-13: a delivery turn carrying relays stores meta.relayFrom, one entry per sender, in order', async () => {
+    const h = await createHarness({ script: [fakeText('Two messages, sir.')] })
+    await h.addPerson(RHODEY, 'Rhodey', 'member')
+    const threadId = await tonyAway(h)
+    // Rhodey's relay is older, so it comes first in delivery order; Pepper sends two.
+    await h.deliveries.enqueue({
+      personId: TONY,
+      kind: 'relay',
+      authorPersonId: RHODEY,
+      content: 'On my way.',
+    })
+    await h.deliveries.enqueue({
+      personId: TONY,
+      kind: 'relay',
+      authorPersonId: PEPPER,
+      content: 'Kids asleep.',
+    })
+    await h.deliveries.enqueue({ personId: TONY, kind: 'relay', authorPersonId: PEPPER, content: 'Call me.' })
+    await h.deliveries.enqueue({ personId: TONY, kind: 'task_result', content: 'done' })
+    await h.open(TONY, LAPTOP, null)
+    await h.settle()
+    const senders = [
+      { personId: RHODEY, name: 'Rhodey' },
+      { personId: PEPPER, name: 'Pepper' },
+    ]
+    const [completed] = framesOfType(h, LAPTOP, 'message.completed')
+    expect(completed?.data.message.meta).toEqual({ proactive: true, relayFrom: senders })
+    expect(h.repos.all.messages.at(-1)).toMatchObject({
+      threadId,
+      meta: { proactive: true, relayFrom: senders },
+    })
+    const reopened = await h.open(TONY, PHONE)
+    expect(reopened.messages.at(-1)?.meta?.relayFrom).toEqual(senders)
+    await h.settle()
+  })
+
+  test('I-13: an arrival user turn that carries a relay stores meta.relayFrom too', async () => {
+    const h = await createHarness({ script: [fakeText('Morning, sir. Pepper says hi.')] })
+    const threadId = await tonyAway(h)
+    await h.deliveries.enqueue({ personId: TONY, kind: 'relay', authorPersonId: PEPPER, content: 'Hi!' })
+    await h.settle()
+    await h.open(TONY, LAPTOP, { awayMs: 8 * 3_600_000 })
+    await say(h, threadId, 'hello')
+    await h.settle()
+    const [completed] = framesOfType(h, LAPTOP, 'message.completed')
+    expect(completed?.data.message.meta).toEqual({ relayFrom: [{ personId: PEPPER, name: 'Pepper' }] })
+    h.tm.stop()
   })
 })
 

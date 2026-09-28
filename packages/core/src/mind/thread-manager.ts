@@ -1,5 +1,6 @@
 // Threads: turn state, queued input, cancellation, focus, streaming to attached nodes, delivery
-// flushes and arrival holds. See docs/architecture/core.md#threads-and-turn-state.
+// flushes, arrival holds, and group turns (addressing, live participants). See
+// docs/architecture/core.md#threads-and-turn-state and #group-threads.
 
 import {
   type CoreFrame,
@@ -51,6 +52,7 @@ import type { SpeechHandle, VoiceOutput } from '../voice/types.ts'
 import { lowestTier, toMessageDto } from './messages.ts'
 import type {
   AddressingDetector,
+  AddressingVerdict,
   Arrival,
   ContextBuilder,
   RunLoop,
@@ -128,6 +130,10 @@ type PendingBargeIn = { nodeId: NodeId; timer: ReturnType<typeof setTimeout> }
 
 type Runtime = {
   threadId: ThreadId
+  kind: ThreadRecord['kind']
+  /** Stands in as the actor of delivery and briefing turns while still a participant. */
+  ownerPersonId: PersonId | null
+  /** Current participants, kept live from `thread.participant_joined` / `_left` (phase 5). */
   participants: PersonId[]
   state: TurnState
   /** The node of the latest input (I-7). */
@@ -150,9 +156,17 @@ type Runtime = {
   /** Phase 3: the node whose VAD reported speech that no input has followed yet. */
   listening: NodeId | null
   bargeIn: PendingBargeIn | null
+  /** Aborts the addressing decision in progress (cancelAll, stop). */
+  deciding: AbortController | null
 }
 
 type Work = { kind: TurnKind; inputs: UserMessageRecord[]; deliveries: Delivery[] }
+
+/** `nextWork` answers this when it did work without a turn (stored non-addressed group input). */
+const AGAIN = 'again'
+
+/** How many visible messages before a group input the addressing detector sees. */
+const ADDRESSING_RECENT = 10
 
 type Outcome = 'ok' | 'cancelled' | 'failed'
 
@@ -178,15 +192,33 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
   let cancelling = 0
   let stopped = false
 
-  const unsubscribe = events.on('delivery.enqueued', (e) => {
-    track(
-      (async () => {
-        const rt = await runtimeFor(e.data.threadId)
-        rt.flushRequested = true
-        kick(rt)
-      })(),
-    )
-  })
+  const unsubscribers = [
+    events.on('delivery.enqueued', (e) => {
+      track(
+        (async () => {
+          const rt = await runtimeFor(e.data.threadId)
+          rt.flushRequested = true
+          kick(rt)
+        })(),
+      )
+    }),
+    // Live participants (phase 5): only threads already loaded; others read storage when they load.
+    events.on('thread.participant_joined', (e) => {
+      track(
+        withLoaded(e.data.threadId, (rt) => {
+          if (!rt.participants.includes(e.data.personId)) rt.participants.push(e.data.personId)
+        }),
+      )
+    }),
+    events.on('thread.participant_left', (e) => {
+      track(
+        withLoaded(e.data.threadId, (rt) => {
+          // Queued inputs of the leaver stay queued: they were said.
+          rt.participants = rt.participants.filter((p) => p !== e.data.personId)
+        }),
+      )
+    }),
+  ]
 
   // Plumbing
 
@@ -224,16 +256,29 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
     capabilities.set(nodeId, record?.capabilities ?? [])
   }
 
+  /** Runs `update` on the thread's runtime if it is loaded or loading; otherwise does nothing. */
+  async function withLoaded(threadId: ThreadId, update: (rt: Runtime) => void): Promise<void> {
+    const p = runtimes.get(threadId)
+    if (!p) return
+    const rt = await p.catch(() => null)
+    if (rt) update(rt)
+  }
+
   function runtimeFor(threadId: ThreadId): Promise<Runtime> {
     let p = runtimes.get(threadId)
     if (!p) {
       p = (async () => {
-        const participants = await repos.threads.participants(threadId)
+        const [record, participants] = await Promise.all([
+          repos.threads.get(threadId),
+          repos.threads.participants(threadId),
+        ])
         if (participants.length === 0) {
           throw new KeithError('NOT_FOUND', 'thread not found', { details: { threadId } })
         }
         const rt: Runtime = {
           threadId,
+          kind: record?.kind ?? 'direct',
+          ownerPersonId: record?.ownerPersonId ?? null,
           participants: participants.map((x) => x.personId),
           state: 'idle',
           focus: null,
@@ -249,6 +294,7 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
           jobs: [],
           listening: null,
           bargeIn: null,
+          deciding: null,
         }
         ready.set(threadId, rt)
         return rt
@@ -307,7 +353,8 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
 
   function applyArrival(rt: Runtime, arrival: Arrival | null): void {
     const { briefing, holdMs, graceMs } = config.mind.arrival
-    if (arrival === null || briefing === 'off') {
+    // An arrival hold (and the briefing) applies only to direct threads.
+    if (arrival === null || briefing === 'off' || rt.kind !== 'direct') {
       checkSoon(rt)
       return
     }
@@ -378,6 +425,7 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
           continue
         }
         const work = turnsBlocked() ? null : await nextWork(rt, preempt)
+        if (work === AGAIN) continue
         if (!work) {
           if (rt.dirty && !turnsBlocked()) continue
           return
@@ -393,7 +441,7 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
     }
   }
 
-  async function nextWork(rt: Runtime, preempt: boolean): Promise<Work | null> {
+  async function nextWork(rt: Runtime, preempt: boolean): Promise<Work | typeof AGAIN | null> {
     // No delivery or briefing while someone is speaking to the thread (B2).
     const canFlush = rt.hold === null && rt.listening === null && present(rt)
     if (rt.queue.length > 0) {
@@ -404,6 +452,11 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
         }
       }
       const inputs = rt.queue.splice(0)
+      if (rt.kind === 'group' && !(await anyAddressed(rt, inputs))) {
+        // People talking to each other: stored in order, with no turn and no state change.
+        for (const input of inputs) await append({ ...input, createdAt: clock.now() })
+        return AGAIN
+      }
       const withDeliveries = rt.arrivalDeliveries
       rt.arrivalDeliveries = false
       const deliveries = withDeliveries ? await deps.deliveries.pendingFor(rt.threadId) : []
@@ -422,6 +475,101 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
       if (pending.length > 0) return { kind: 'delivery', inputs: [], deliveries: pending }
     }
     return null
+  }
+
+  // Group turns (phase 5, docs/architecture/core.md#group-threads)
+
+  /**
+   * Decides a batch of group inputs in order and stops at the first addressed one: if any is
+   * addressed, they all become the next turn. Runs in the pump, so later inputs wait behind it and
+   * history order stays `user -> reply -> next user`; `input()` itself never waits for a decision.
+   */
+  async function anyAddressed(rt: Runtime, inputs: UserMessageRecord[]): Promise<boolean> {
+    const detector = deps.addressing
+    // With fewer than two people, or without a detector (phase 4), every input is addressed.
+    if (!detector || rt.participants.length < 2) {
+      for (const input of inputs) {
+        logVerdict(rt, input, { addressed: true, by: detector ? 'single_human' : 'default' })
+      }
+      return true
+    }
+    const before = await recentRecords(rt.threadId, ADDRESSING_RECENT)
+    const participantNames = (await personDtos(rt.participants)).map((p) => p.name)
+    for (const [i, input] of inputs.entries()) {
+      // `input()` always sets the author; a record without one can't be decided and is addressed.
+      if (input.authorPersonId === null) return true
+      const recent = [...before, ...inputs.slice(0, i)].slice(-ADDRESSING_RECENT)
+      const controller = new AbortController()
+      rt.deciding = controller
+      let verdict: AddressingVerdict
+      try {
+        verdict = await detector.decide({
+          threadId: rt.threadId,
+          input: { authorPersonId: input.authorPersonId, text: input.content },
+          recent,
+          participantNames,
+          signal: controller.signal,
+        })
+      } catch (error) {
+        // The contract says `decide` never throws; unsure means not addressed.
+        log.warn('addressing failed', { threadId: rt.threadId, error: String(error) })
+        verdict = { addressed: false, by: 'unsure' }
+      } finally {
+        rt.deciding = null
+      }
+      logVerdict(rt, input, verdict)
+      if (verdict.addressed) return true
+    }
+    return false
+  }
+
+  /** The verdict and the rule behind it, never the text. */
+  function logVerdict(rt: Runtime, input: UserMessageRecord, verdict: AddressingVerdict): void {
+    log.debug('addressing verdict', {
+      threadId: rt.threadId,
+      messageId: input.id,
+      addressed: verdict.addressed,
+      by: verdict.by,
+    })
+  }
+
+  /** The latest `limit` visible messages (as stored), oldest first. */
+  async function recentRecords(threadId: ThreadId, limit: number): Promise<MessageRecord[]> {
+    let out: MessageRecord[] = []
+    let before: MessageId | undefined
+    while (out.length < limit) {
+      const page = await repos.messages.page({
+        threadId,
+        before,
+        limit: limit - out.length,
+        roles: ['user', 'assistant'],
+      })
+      out = [...page.messages.filter((m) => toMessageDto(m) !== null), ...out]
+      const first = page.messages[0]
+      if (!page.hasMore || !first) break
+      before = first.id
+    }
+    return out
+  }
+
+  /** Delivery and briefing turns act as the thread's owner while a participant, else the first one. */
+  function proactiveActor(rt: Runtime): PersonId | undefined {
+    const owner = rt.ownerPersonId
+    return owner !== null && rt.participants.includes(owner) ? owner : rt.participants[0]
+  }
+
+  /** `meta.relayFrom`: one entry per relay sender, in delivery order (I-13). */
+  async function relaySenders(
+    deliveries: readonly Delivery[],
+  ): Promise<NonNullable<MessageMeta['relayFrom']>> {
+    const out: NonNullable<MessageMeta['relayFrom']> = []
+    for (const d of deliveries) {
+      const from = d.authorPersonId
+      if (d.kind !== 'relay' || from === null || out.some((r) => r.personId === from)) continue
+      const sender = await repos.persons.get(from)
+      if (sender) out.push({ personId: sender.id, name: sender.name })
+    }
+    return out
   }
 
   // Turns
@@ -510,7 +658,7 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
     const ui: MessageUiEntry[] = []
     let result: RunLoopResult | null = null
     let failure: unknown
-    const actor = work.inputs.at(-1)?.authorPersonId ?? rt.participants[0]
+    const actor = work.inputs.at(-1)?.authorPersonId ?? proactiveActor(rt)
     try {
       if (!actor) throw new KeithError('INTERNAL', 'thread has no participants', { details: { threadId } })
       result = await deps.runLoop({
@@ -559,6 +707,8 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
     if (proactive) meta.proactive = true
     if (cancelled) meta.cancelled = true
     if (spokenChars !== undefined) meta.spokenChars = spokenChars
+    const relayFrom = await relaySenders(work.deliveries)
+    if (relayFrom.length > 0) meta.relayFrom = relayFrom
     const record: AssistantMessageRecord = {
       id: messageId,
       threadId,
@@ -972,6 +1122,11 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
         state: rt.state,
         updatedAt: record.updatedAt,
       }
+      if (record.kind === 'group') {
+        if (typeof record.purpose === 'string') thread.purpose = record.purpose
+        const former = await repos.threads.formerParticipants(record.id)
+        thread.formerParticipants = await personDtos(former.map((f) => f.personId))
+      }
       events.emit('thread.opened', { threadId: record.id, personId: a.personId, nodeId: a.nodeId })
       applyArrival(rt, a.arrival)
       return { thread, messages }
@@ -1007,7 +1162,10 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
     async cancelAll() {
       cancelling++
       try {
-        for (const rt of ready.values()) rt.running?.controller.abort()
+        for (const rt of ready.values()) {
+          rt.running?.controller.abort()
+          rt.deciding?.abort()
+        }
         // Each pump ends once its turn persisted: no new turn starts while `cancelling`.
         while ([...ready.values()].some((rt) => rt.pump !== null)) {
           await Promise.all([...ready.values()].map((rt) => rt.pump?.catch(() => {})))
@@ -1020,8 +1178,9 @@ export function createThreadManager(deps: ThreadManagerDeps): MindThreadManager 
 
     stop() {
       stopped = true
-      unsubscribe()
+      for (const off of unsubscribers) off()
       for (const rt of ready.values()) {
+        rt.deciding?.abort()
         clearHold(rt)
         clearBargeIn(rt)
       }
