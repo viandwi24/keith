@@ -129,6 +129,44 @@ describe('web app voice', () => {
     expect(slot(view, 'mic-toggle').getAttribute('data-state')).toBe('off')
   })
 
+  test('an open mic follows a thread switch: the old stream ends, the next chunk streams to the group', async () => {
+    core = startFakeCore()
+    const group = core.addGroup({ title: 'Mission' })
+    const fake = fakeVoice()
+    const view = await signedIn(core, fake.env)
+    const fakeCore = core
+    await act(async () => {
+      fireEvent.click(slot(view, 'mic-toggle'))
+    })
+    await waitFor(() => {
+      if (slot(view, 'mic-toggle').getAttribute('data-state') !== 'on') throw new Error('mic not on')
+    })
+    const item = await waitFor(() => {
+      const el = view.container.querySelector<HTMLElement>(
+        `[data-slot="sidebar"] [data-thread-id="${group.id}"]`,
+      )
+      if (!el) throw new Error('no group yet')
+      return el
+    })
+    await act(async () => {
+      fireEvent.click(item)
+    })
+    await waitFor(() => slot(view, 'group-header'))
+    await waitUntil(() => fakeCore.received.some((f) => f.type === 'audio.end'), 3000, 'audio.end')
+    fake.mics[0]?.onChunk(new Int16Array(320))
+    await waitUntil(
+      () => fakeCore.received.filter((f) => f.type === 'audio.start').length === 2,
+      3000,
+      'a second audio.start',
+    )
+    const starts = fakeCore.received.filter((f) => f.type === 'audio.start')
+    expect(starts.map((f) => (f.type === 'audio.start' ? f.data.threadId : ''))).toEqual([
+      fakeCore.thread.id,
+      group.id,
+    ])
+    expect(slot(view, 'mic-toggle').getAttribute('data-state')).toBe('on')
+  })
+
   test('hold to talk: pressing stops playback and opens a stream, releasing ends it', async () => {
     core = startFakeCore()
     const fake = fakeVoice()
