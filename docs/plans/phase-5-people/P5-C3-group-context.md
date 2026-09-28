@@ -4,7 +4,7 @@ title: "Group context: author names in LlmMessage.name, every participant's card
 phase: 5
 wave: 2
 lane: C
-status: review
+status: done
 owner: agent-P5-C3
 depends: [P5-K1]
 owns:
