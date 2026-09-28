@@ -1,0 +1,74 @@
+# Phase 5: People + collaboration
+
+**Goal:** several people use one Keith. Each has a private relationship, they can pass messages through Keith, and they can work together in a group thread. It delivers S-4 (privacy), S-5 and S-6 (group part). See [model.md](../../concept/model.md) (I-3, I-4, I-13), [scenarios.md](../../concept/scenarios.md), [ADR-0017](../../decisions/0017-tier-rules-for-relays-and-group-threads.md) and [ADR-0018](../../decisions/0018-deleting-a-person.md) (both proposed; P5-K1 starts once they are accepted).
+
+| Wave | Task | Lane | Owns (summary) |
+|---|---|---|---|
+| 1 | [P5-K1 Contract additions and core interfaces](P5-K1-contracts.md) | K | contracts, `protocol/src`, sdk events, core `config`/`storage`/`mind`/`scheduler`/`builtins`/`server`/`cli` types and placeholders, fakes, client `state.ts` |
+| 2 | [P5-S1 Storage](P5-S1-storage.md) | S | `storage/{schema,db,persons,threads,invite-links,thread-invitations}.ts`, `core/drizzle` |
+| 2 | [P5-A1 People commands](P5-A1-people-cli.md) | A | `cli/person.ts`, `cli/person-testing.ts` |
+| 2 | [P5-N1 Server](P5-N1-server.md) | N | `server/**` (invite endpoint, `thread.updated` / `thread.removed`, group DTOs) |
+| 2 | [P5-B1 Relay](P5-B1-relay.md) | B | `scheduler/relay.ts`, `builtins/relay.ts` |
+| 2 | [P5-C1 Group membership](P5-C1-group-membership.md) | C | `mind/groups.ts`, `builtins/thread.ts` |
+| 2 | [P5-C2 Group turns](P5-C2-group-turns.md) | C | `mind/thread-manager.ts`, `mind/group-turns.test.ts`, `mind/testing` |
+| 2 | [P5-C3 Group context](P5-C3-group-context.md) | C | `mind/context-*`, `mind/messages.ts` |
+| 2 | [P5-D1 Addressing detector](P5-D1-addressing.md) | D | `mind/addressing/**` |
+| 2 | [P5-E1 Visibility everywhere](P5-E1-visibility-audit.md) | E | `memory/**`, `scheduler/tasks.ts`, `scheduler/testing`, `builtins/{task,memory}.ts` |
+| 2 | [P5-F1 Client library](P5-F1-client.md) | F | `packages/client/**` |
+| 3 | [P5-F2 Web group UI](P5-F2-web.md) | F | `plugins/web/app/**` |
+| 3 | [P5-F3 TUI group support](P5-F3-tui.md) | F | `apps/tui/**` |
+| 3 | [P5-I1 Integration](P5-I1-integration.md) | I | bootstrap, `packages/core/test`, fixes, docs |
+| 4 | [P5-I2 S-4, S-5, S-6 end to end](P5-I2-e2e.md) | I | `tests/e2e`, fixes, human run |
+
+The overview's lanes map as follows. Lane 0 is K. People (A) is split into storage (S), the commands (A) and the server (N), because three lanes need the new tables and both the CLI and the server touch invite links. Group threads (C) is split into three tasks by file: membership (C1), the thread manager (C2) and the context builder (C3). Clients (F) are split into the shared library (F1, wave 2) and the two apps (F2 web, F3 TUI, wave 3), which need F1's API. The lanes test against fakes built from P5-K1's interfaces (agent-workflow parallelism rule 2).
+
+## How the lanes connect
+
+- **P5-K1** fixes everything that crosses a lane:
+  - protocol: `ThreadDto.purpose` / `formerParticipants`, `MessageDto.meta.relayFrom`, the `thread.updated` / `thread.removed` frames, `POST /v1/auth/invite`;
+  - the `thread.participant_joined` / `thread.participant_left` events;
+  - `[mind.group]`, `auth.inviteTtlHours`, `server.publicUrl`;
+  - the storage members (`findByName`, `setTier`, `setCredentials`, `remove`, participants, invite links, thread invitations);
+  - `AddressingDetector`, `GroupThreads`, `RelayService`, and their factories and deps;
+  - the seven tool specs with ADR-0017's tiers, and the `keith person` command surface.
+
+  Every broken implementer gets a placeholder in the same task, and so does the one exhaustive frame switch in `@keith/client` (lesson from the [phase 0–3 audit](../phase-3-voice/hardening-audit.md)).
+- **Events carry membership.** C1 changes membership and emits the two participant events. C2 (the thread manager's cached participants) and N1 (the live thread-list frames) react to them. No lane calls another lane's code.
+- **Relays** are split by file:
+  - B1 decides and enqueues: I-13, the `relay` delivery authored by the sender.
+  - C3 labels the relay in section 8 of the delivery turn's context.
+  - C2 stamps `meta.relayFrom` on that turn's message.
+  - F1–F3 show it.
+- **Invitations** are ordinary deliveries with a Join / Decline card (C1). A click becomes `(clicked: Join)` input, and the invitee's model calls `thread.join` (D3). No new node frame.
+- **Addressing** (D1) sits behind `AddressingDetector`. C2 calls it for group inputs and acts on the verdict. Until P5-I1 wires the real one, the placeholder answers "addressed", which is today's behavior.
+- **People commands** (A1) run in the CLI process, outside the bus. The running core reads tiers and cards per turn, so only `keith person remove` needs Keith stopped (D9, ADR-0018).
+- **Integration (I1)** is the only task that touches `bootstrap.ts`, `packages/core/test/**` and the root `package.json`. It runs beside F2 and F3, whose `owns` it doesn't overlap. **I2** owns `tests/e2e/**`.
+- Storage migrations are generated by drizzle-kit in P5-S1, never hand-written (R-18).
+- Each lane removes its own `> Planned (phase 5, P5-…)` markers, which P5-K1 writes into the architecture docs.
+
+## Open decisions
+
+Defaults below are what the plan assumes. The owner accepts or changes them before P5-K1 starts. D1 and D2 are the proposed ADRs, because the lanes can't start without them.
+
+| # | Decision | Where | Default in the plan |
+|---|---|---|---|
+| D1 | Who may relay, start groups, invite, join; what a leaver keeps; who makes invite links | [ADR-0017](../../decisions/0017-tier-rules-for-relays-and-group-threads.md), proposed | Relay: owner and members to anyone, a guest only to the owner, and a recipient's block always wins, with a generic refusal. Groups: members and owners start and invite, anyone may be invited. A leaver loses access, and the group keeps the history. Only the owner makes invite links, and exactly one owner exists |
+| D2 | What deleting a person removes | [ADR-0018](../../decisions/0018-deleting-a-person.md), proposed | Their direct threads, subject memories, tokens, links, tasks and pending relays, **and their own messages in groups**. Memories and delivered relays they authored stay with the author cleared. Needs Keith stopped |
+| D3 | How an invitee accepts, and whether nodes get join/leave frames | P5-K1, P5-C1 | Conversationally, through `thread.join` / `thread.leave`, plus Join / Decline buttons on the invitation card. No new node → core frame. The sketch's `thread.invite` frame is dropped |
+| D4 | How a relay appears to the recipient | P5-K1, P5-C2, P5-C3 | A delivery turn in their main thread (Keith says it), with `meta.relayFrom` on the message. Not a verbatim user message authored by the sender in the recipient's thread |
+| D5 | Invite link mechanics | P5-K1, P5-A1, P5-N1 | 32 random bytes, SHA-256 at rest, single use, 72 h (`auth.inviteTtlHours`), `<publicUrl>/#invite=<code>` (a fragment, so it isn't logged), a new link revokes older unused ones, and accepting ends old sessions |
+| D6 | "A reply to its message" without a reply-to field | P5-D1 | No `replyTo` in the protocol in v1. "Reply" = the input follows the Mind's message that ended with a question. Unsure → not addressed |
+| D7 | Author names for the model | P5-C3 | `LlmMessage.name` **and** a `Name: ` content prefix, in group threads only, because not every provider honours `name` |
+| D8 | Addressing classifier | P5-D1 | `utility` model, foreground lane, 5 s timeout, addressed only at confidence ≥ 0.7. `mind.group.addressing = "rules+utility"` (or `"rules"`) |
+| D9 | `keith person` while Keith runs | P5-A1 | Everything except `remove` runs live. `remove` holds the home lock |
+| D10 | Group size and auto-join | P5-K1 | `maxParticipants = 8` (current plus pending), `autoJoin = false`, and auto-join never applies to guests |
+| D11 | Keeping the thread list live | P5-K1, P5-N1, P5-F1 | `thread.updated` / `thread.removed` on membership changes only. No unread counters in v1 |
+| D12 | New events | P5-K1 | Only `thread.participant_joined` and `thread.participant_left`. No `relay.*` (a relay is a `delivery.enqueued`), no `person.*` (the CLI is out of process) |
+| D13 | Resolving "pepper" to a person | P5-K1, P5-A1 | Person names are unique case-insensitively. `findByName` matches the name, then the username |
+| D14 | A group with one human left | P5-C2, P5-D1 | Every input is addressed (`single_human`) |
+| D15 | Relays into group threads | P5-B1 | Not in v1. A relay goes to the recipient's main thread |
+| D16 | Tasks started in a group | P5-E1 | They run for the group's current participants at start (lowest tier applies), have `thread` visibility, and report back to the group |
+
+**Reserved ADR numbers:** `0017` and `0018` for this plan. `0015` stays reserved (phase-4 sqlite-vec, not needed) and `0016` is earmarked for DeepSeek reasoning. Lane agents start at `0019`.
+
+**Exit:** S-4 (privacy), S-5 and S-6 (group part) pass in CI, and a human ran the P5-I2 steps with real people and a real model. No `> Planned (phase 5…)` marker is left in `docs/architecture`. The shared group workspace (S-6 step 5) is phase 6.

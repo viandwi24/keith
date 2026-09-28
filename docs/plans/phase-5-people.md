@@ -1,6 +1,6 @@
 # Phase 5: People + collaboration (overview)
 
-> Overview only. This is where the Tony / Pepper / Rhodey scenarios come fully alive.
+> Task files are in [phase-5-people/](phase-5-people/README.md). This overview is kept for history.
 
 **Goal:** several people use one Keith. Each has a private relationship, they can pass messages through Keith, and they can collaborate in a group thread (S-4 privacy, S-5, S-6).
 

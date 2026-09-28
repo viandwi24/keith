@@ -16,7 +16,7 @@ Only the **current and next phase** have task files. Later phases have a single 
 | 2 Web + plugin UI | [phase-2-web/](phase-2-web/README.md) | Task files |
 | 3 Voice | [phase-3-voice/](phase-3-voice/README.md) | Task files |
 | 4 Memory + proactivity | [phase-4-memory/](phase-4-memory/README.md) | Task files |
-| 5 People + collaboration | [phase-5-people.md](phase-5-people.md) | Overview |
+| 5 People + collaboration | [phase-5-people/](phase-5-people/README.md) | Task files |
 | 6 Workspace | [phase-6-workspace.md](phase-6-workspace.md) | Overview |
 | 7 System node (Rust) | [phase-7-system-node.md](phase-7-system-node.md) | Overview |
 | 8 Ecosystem | [phase-8-ecosystem.md](phase-8-ecosystem.md) | Overview |
