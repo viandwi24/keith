@@ -1387,8 +1387,6 @@ export interface RelayService {
 
 `createScheduling` builds the relay service with `createRelayService(deps: RelayServiceDeps)` (`scheduler/relay.ts`; deps `repos` (`persons`, `relationships`, `threads`), `deliveries` (`enqueue`), `log`) and exposes it as `Scheduling.relay`. See [Relays](#relays).
 
-> Planned (phase 5, P5-B1): every `RelayService` method throws `INTERNAL` "not implemented yet".
-
 ### Memory (`memory/types.ts`), implemented by `memory/` (P1-M1)
 
 ```ts
@@ -1624,15 +1622,15 @@ The tools are registered only when `registerBuiltins` gets `reminders` (`{ servi
 
 ### Relays
 
-> Planned (phase 5, P5-B1, P5-C2, P5-C3): the whole subsection. Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md).
+> Planned (phase 5, P5-C2, P5-C3): the **Attribution** item (the section-8 label and `meta.relayFrom`). Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md).
 
 A relay passes one person's words to another through Keith (I-13, S-5). `RelayService` (`scheduler/relay.ts`, exposed as `Scheduling.relay`) decides and enqueues; the `relay.*` built-ins call it.
 
-- **Checks** (`RelayService.send`, in order): the sender and the recipient are the same person → `self`; the recipient doesn't exist or has no `main` thread → `unknown_recipient`; the sender is a guest and the recipient is not the owner, or the recipient's `relationships.blockedRelayFrom` names the sender → `not_allowed`. A block wins over every tier, the owner's included.
+- **Checks** (`RelayService.send`, in order): the sender and the recipient are the same person → `self`; the recipient doesn't exist or has no `main` thread → `unknown_recipient`; the sender is a guest and the recipient is not the owner, or the recipient's `relationships.blockedRelayFrom` names the sender → `not_allowed`. A block wins over every tier, the owner's included. A sender that doesn't exist is refused as `not_allowed` too (logged as a warning). The log records who relayed to whom and which rule refused, never the text.
 - **Delivery.** Otherwise it enqueues `{ personId: to, threadId: <their main>, kind: 'relay', authorPersonId: from, source: 'core', urgency: 'normal', content: <the text, verbatim> }`. The relay flushes like any delivery (I-11): now if the recipient is present and the thread idle, else on their next arrival. v1 relays go only to the recipient's main thread, never into a group.
 - **Attribution.** Section 8 labels the item with the sender's name (P5-C3). The delivery turn's assistant message stores `meta.relayFrom` (`{ personId, name }` per sender, in delivery order), so `message.completed` and history carry it and a node can show "via Tony" even if the model paraphrases (P5-C2).
 - **Answers** (`RELAY_MESSAGES`): "I'll pass that on to <name>.", "I don't know anyone called <name>.", and one generic refusal for a tier rule and a block alike: "I can't pass messages from you to <name>." Relaying to yourself answers "You can't relay to yourself."
-- **Blocks.** `relay.block { from }` / `relay.unblock { from }` change only the caller's own `blockedRelayFrom` (`RelayService.block` / `unblock`, keeping `tone` and `notes`). The owner can change anyone's list with `keith person block` / `unblock`.
+- **Blocks.** `relay.block { from }` / `relay.unblock { from }` change only the caller's own `blockedRelayFrom` (`RelayService.block` / `unblock`). The service reads the card (a missing card counts as empty, with `tone` and `notes` `''`), adds or removes the id, and upserts only when the list changed, keeping `tone` and `notes`; it answers whether it changed. `personId === from` changes nothing. The tools answer with `RELAY_MESSAGES`: blocked / already blocked, unblocked / not blocked, the unknown-name text, and "You can't block yourself." (unblocking yourself answers "not blocked"). The owner can change anyone's list with `keith person block` / `unblock`.
 - A relay writes no memory. It reaches later contexts only through the recipient's thread history. There are no `relay.*` events: a relay is a `delivery.enqueued` with `kind: 'relay'`.
 
 The tools are registered only when `registerBuiltins` gets `relay` (`{ service, persons }`); names resolve through `persons.findByName` (a name or username, case-insensitive).
@@ -1663,7 +1661,7 @@ Registered with `tools.registerBuiltin()`. Their namespaces are reserved. `regis
 
 The tiers come from [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md). `builtins/relay.ts` and `builtins/thread.ts` also export the input schemas, the tool names and the answers (`RELAY_MESSAGES`, `THREAD_MESSAGES`).
 
-> Planned (phase 5, P5-B1, P5-C1): the `relay.*` and `thread.*` tool bodies answer a tool error "not implemented yet", and bootstrap doesn't pass `relay` or `groups` to `registerBuiltins` yet (P5-I1), so none of the seven is registered.
+> Planned (phase 5, P5-C1, P5-I1): the `thread.*` tool bodies answer a tool error "not implemented yet", and bootstrap doesn't pass `relay` or `groups` to `registerBuiltins` yet (P5-I1), so none of the seven is registered.
 
 ## Group threads
 
