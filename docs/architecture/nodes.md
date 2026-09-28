@@ -110,6 +110,17 @@ Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md).
 - The registry learns a node's person in `connect` and lists the node in `nodesOfPerson` only once it has got `welcome`, so no thread-list frame overtakes the `welcome`. Neither frame is a chat frame: a node without `chat.text@1` gets both.
 - Access doesn't change: `thread.open` and `GET /v1/threads/:id/messages` are for current participants only. A former participant gets `FORBIDDEN` / `404` like anyone else.
 
+## The TUI (`keith-tui`)
+
+The terminal node (`apps/tui`, [ADR-0010](../decisions/0010-tui-framework.md)) is a full Keith on its own (I-12). It uses `@keith/client` for the protocol and the state.
+
+- `keith-tui [--url <url>]` signs in (or reuses the stored session for that core) and opens the main thread. `keith-tui --logout` revokes and deletes the stored token.
+- `keith-tui --url <publicUrl> --invite <code>` (phase 5) shows the sign-up form: a username and a password, asked twice (at least 8 characters). It sends `POST /v1/auth/invite`, stores the session like a login and opens the main thread. A refused username shows the core's message and asks again. An invalid, used or expired code prints the web app's sentence ("This invite link is not valid any more. Ask the owner for a new one.") and exits 1. `--invite` without a value is an argument error (exit 2).
+- In the chat, `/threads` shows the numbered thread list above the input: `1 Main`, then the groups by their `threadLabel` (`Mission · Pepper, Rhodey`), most recently updated first, the open one marked `•`. The list is live: it follows `thread.updated` and `thread.removed`. `/open <n>` switches to thread n (`thread.close`, then `thread.open`), and Esc hides the list. Any other text, `/…` included, is a message for Keith.
+- The status bar shows the open thread's label. When the open group is removed (the person left it), the TUI falls back to Main with the notice "You are no longer in <title>.".
+- In a group, other people's lines are prefixed with their name (`Pepper: …`), and the person's own lines with `You`. An assistant line whose message carries `meta.relayFrom` is prefixed `(via Tony)`.
+- No unread counters (D11), and no commands to create or leave groups: the person asks Keith.
+
 ## Focus and presence
 
 - **Focus** (per Thread) = the node of the most recent input. Audio output goes there only. Text and UI go to all attached nodes (I-7).
