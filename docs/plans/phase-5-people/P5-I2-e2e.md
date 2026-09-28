@@ -4,7 +4,7 @@ title: "S-4 privacy, S-5 relay and S-6 group thread end to end"
 phase: 5
 wave: 4
 lane: I
-status: review
+status: done
 owner: agent-P5-I2
 depends: [P5-I1, P5-F2, P5-F3]
 owns:
