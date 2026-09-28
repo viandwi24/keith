@@ -4,7 +4,7 @@ title: "Integration: wire relays, group threads, addressing and people into boot
 phase: 5
 wave: 3
 lane: I
-status: review
+status: done
 owner: agent-P5-I1
 depends: [P5-S1, P5-A1, P5-N1, P5-B1, P5-C1, P5-C2, P5-C3, P5-D1, P5-E1, P5-F1]
 owns:
