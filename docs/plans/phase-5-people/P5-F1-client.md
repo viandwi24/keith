@@ -4,7 +4,7 @@ title: "@keith/client: thread list, switching threads, authors, relay marks, inv
 phase: 5
 wave: 2
 lane: F
-status: review
+status: done
 owner: agent-P5-F1
 depends: [P5-K1]
 owns:
