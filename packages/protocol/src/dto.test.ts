@@ -5,6 +5,8 @@ import {
   FileUploadResponse,
   fileUrl,
   HealthResponse,
+  INVITE_CODE_LENGTH,
+  InviteAcceptRequest,
   LoginRequest,
   LoginResponse,
   LogoutResponse,
@@ -54,6 +56,36 @@ describe('DTOs', () => {
     expect(MessageDto.safeParse({ ...message, authorPersonId: undefined }).success).toBe(false)
   })
 
+  test('ThreadDto: phase-5 group fields are optional, so a phase-4 thread still parses', () => {
+    expect(ThreadDto.safeParse(thread).success).toBe(true)
+    const group = {
+      ...thread,
+      kind: 'group',
+      title: 'Mission',
+      purpose: 'Plan the Expo launch.',
+      formerParticipants: [{ id: 'per_01J8ZQ3K4M5N6P7Q8R9S0T1V34', name: 'Happy', tier: 'guest' }],
+    }
+    expect(ThreadDto.safeParse(group).data).toMatchObject({
+      purpose: group.purpose,
+      formerParticipants: group.formerParticipants,
+    })
+    expect(ThreadDto.safeParse({ ...group, formerParticipants: [{ name: 'Happy' }] }).success).toBe(false)
+  })
+
+  test('MessageDto: meta.relayFrom names the senders (I-13)', () => {
+    const relayFrom = [{ personId: person.id, name: 'Tony' }]
+    const relayed = {
+      ...message,
+      role: 'assistant',
+      authorPersonId: null,
+      meta: { proactive: true, relayFrom },
+    }
+    expect(MessageDto.safeParse(relayed).data?.meta?.relayFrom).toEqual(relayFrom)
+    expect(MessageDto.safeParse({ ...relayed, meta: { relayFrom: [{ personId: person.id }] } }).success).toBe(
+      false,
+    )
+  })
+
   test('MessageDto: modality is a property of the message (I-6)', () => {
     expect(MessageDto.safeParse({ ...message, modality: 'audio' }).success).toBe(true)
     expect(MessageDto.safeParse({ ...message, modality: 'video' }).success).toBe(false)
@@ -83,6 +115,22 @@ describe('HTTP bodies', () => {
     expect(LoginRequest.safeParse({ username: '', password: 'pw' }).success).toBe(false)
     expect(LoginResponse.safeParse({ token: 't', person, expiresAt: 2 }).success).toBe(true)
     expect(LoginResponse.safeParse({ token: 't', person }).success).toBe(false)
+  })
+
+  test('invite accept (phase 5)', () => {
+    const code = 'a'.repeat(INVITE_CODE_LENGTH)
+    expect(InviteAcceptRequest.safeParse({ code, username: 'pepper', password: 'longenough' }).success).toBe(
+      true,
+    )
+    // A malformed code is still a valid body: it answers 401 like any wrong code (ADR-0017).
+    expect(
+      InviteAcceptRequest.safeParse({ code: 'short', username: 'pepper', password: 'longenough' }).success,
+    ).toBe(true)
+    expect(InviteAcceptRequest.safeParse({ code, username: 'pepper', password: 'short' }).success).toBe(false)
+    expect(InviteAcceptRequest.safeParse({ code, username: '', password: 'longenough' }).success).toBe(false)
+    expect(
+      InviteAcceptRequest.safeParse({ code: '', username: 'pepper', password: 'longenough' }).success,
+    ).toBe(false)
   })
 
   test('logout, me, threads', () => {

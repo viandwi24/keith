@@ -178,6 +178,10 @@ export function applyFrame(state: ChatState, frame: CoreFrame): ChatState {
     case 'audio.end':
     case 'audio.stop':
       return state
+    // Phase 5 thread-list frames. P5-F1 keeps the thread list from them; the open conversation doesn't change.
+    case 'thread.updated':
+    case 'thread.removed':
+      return state
   }
 }
 

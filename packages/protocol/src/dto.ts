@@ -34,8 +34,16 @@ export const ThreadDto = z.object({
   participants: z.array(PersonDto).min(1),
   state: TurnState,
   updatedAt: Timestamp,
+  /** Phase 5: what a group thread is for. Absent for direct threads. */
+  purpose: z.string().optional(),
+  /** Phase 5: people who left a group thread. Absent (or empty) otherwise. */
+  formerParticipants: z.array(PersonDto).optional(),
 })
 export type ThreadDto = z.infer<typeof ThreadDto>
+
+/** Phase 5: who a relayed message came from (`MessageDto.meta.relayFrom`). */
+export const RelaySender = z.object({ personId: PersonId, name: z.string() })
+export type RelaySender = z.infer<typeof RelaySender>
 
 export const MessageDto = z.object({
   id: MessageId,
@@ -55,6 +63,11 @@ export const MessageDto = z.object({
       proactive: z.boolean().optional(),
       /** Phase 3: a spoken reply cut by barge-in; `content` holds only this many characters. */
       spokenChars: z.number().int().nonnegative().optional(),
+      /**
+       * Phase 5: on an assistant message whose delivery turn carried relays, one entry per sender,
+       * in delivery order (I-13). `name` is the name the recipient saw.
+       */
+      relayFrom: z.array(RelaySender).optional(),
     })
     .optional(),
 })
@@ -84,6 +97,25 @@ export const LoginResponse = z.object({
   expiresAt: Timestamp,
 })
 export type LoginResponse = z.infer<typeof LoginResponse>
+
+/** Phase 5: length of an invite code: 32 random bytes as base64url, without padding. */
+export const INVITE_CODE_LENGTH = 43
+
+/** Phase 5: shortest password `POST /v1/auth/invite` accepts (the `keith setup` rule). */
+export const PASSWORD_MIN_CHARS = 8
+
+/**
+ * Phase 5: `POST /v1/auth/invite` request. Accepting an invite link sets the person's username and
+ * password. The response is a `LoginResponse`. A real `code` has `INVITE_CODE_LENGTH` base64url
+ * characters, but the schema accepts any short string, so a wrong code of any shape answers
+ * `401 UNAUTHORIZED` like a used or expired one (ADR-0017), never `400`.
+ */
+export const InviteAcceptRequest = z.object({
+  code: z.string().min(1).max(200),
+  username: z.string().min(1).max(200),
+  password: z.string().min(PASSWORD_MIN_CHARS).max(1000),
+})
+export type InviteAcceptRequest = z.infer<typeof InviteAcceptRequest>
 
 /** `POST /v1/auth/logout` response */
 export const LogoutResponse = z.object({ ok: z.literal(true) })

@@ -28,7 +28,7 @@ describe('contract doc examples parse (contracts/README.md rule 4)', () => {
   })
 })
 
-/** Frame types listed in a protocol.md table section whose Phase column is 1, 2 or 3. */
+/** Frame types listed in a protocol.md table section whose Phase column is 1, 2, 3 or 5. */
 function tableFrameTypes(markdown: string, heading: string): string[] {
   const section = markdown.split(`## ${heading}`)[1]?.split('\n## ')[0] ?? ''
   const types: string[] = []
@@ -36,13 +36,13 @@ function tableFrameTypes(markdown: string, heading: string): string[] {
     const cells = row.split('|').map((c) => c.trim())
     const phase = cells.at(-2)
     const first = cells[1]
-    if (!first || !['1', '2', '3'].includes(phase ?? '')) continue
+    if (!first || !['1', '2', '3', '5'].includes(phase ?? '')) continue
     for (const match of first.matchAll(/`([a-z.]+)`/g)) if (match[1]) types.push(match[1])
   }
   return types
 }
 
-describe('every phase-1/2/3 frame in the protocol tables has a schema', () => {
+describe('every phase-1/2/3/5 frame in the protocol tables has a schema', () => {
   test('node → core', async () => {
     const types = tableFrameTypes(await read(join(contracts, 'protocol.md')), 'Node → core frames')
     expect(types.length).toBeGreaterThan(0)

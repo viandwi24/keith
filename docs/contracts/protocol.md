@@ -21,9 +21,11 @@ The protocol between the core and every Node. Implemented as zod schemas in `@ke
 | `GET /v1/threads` | bearer | — | `{ threads: ThreadDto[] }` | 1 |
 | `GET /v1/threads/:id/messages?before=<msgId>&limit=<n≤200>` | bearer | — | `{ messages: MessageDto[], hasMore }` | 1 |
 | `POST /v1/files` · `GET /v1/files/:id` | bearer | multipart | `{ file: FileDto }` | 2 |
+| `POST /v1/auth/invite` | none | `InviteAcceptRequest { code, username, password }` | `LoginResponse { token, person: PersonDto, expiresAt }` | 5 |
 
 - `messages`: `limit` is 1..200 and defaults to 50. The page holds the `limit` messages just before `before` (or the latest ones when `before` is omitted), **oldest first**. `hasMore` is true when older messages exist.
 - `FileDto` and the files endpoints are specified under [Files](#files) (additive, phase 2, task P2-K1).
+- `POST /v1/auth/invite` is specified under [Invite links](#invite-links) (additive, phase 5, task P5-K1).
 
 Errors: HTTP status + `{ error: { code, message } }`. Codes are listed at the end of this document. A request body or query that fails validation gets `400` with `INVALID_REQUEST`.
 
@@ -32,18 +34,29 @@ Errors: HTTP status + `{ error: { code, message } }`. Codes are listed at the en
 ```ts
 type PersonDto  = { id: string; name: string; tier: 'owner' | 'member' | 'guest' }
 type ThreadDto  = { id: string; kind: 'direct' | 'group'; title: string;
-                    participants: PersonDto[]; state: TurnState; updatedAt: number }
+                    participants: PersonDto[]; state: TurnState; updatedAt: number;
+                    purpose?: string;                       // phase 5, group threads only
+                    formerParticipants?: PersonDto[] }      // phase 5, group threads only
 type MessageDto = { id: string; threadId: string; role: 'user' | 'assistant';
                     authorPersonId: string | null;          // null = the Mind
                     modality: 'text' | 'audio'; content: string;
                     ui?: UiBlock[];                         // blocks attached to this message
                     createdAt: number;
                     meta?: { cancelled?: boolean; proactive?: boolean;
-                             spokenChars?: number } }             // phase 3, see below
+                             spokenChars?: number;                // phase 3, see below
+                             relayFrom?: { personId: string; name: string }[] } }  // phase 5
 type TurnState  = 'idle' | 'listening' | 'thinking' | 'speaking'
 ```
 
 `meta.spokenChars` (phase 3, additive, task P3-K1): set on an assistant reply that was spoken and cut by barge-in. It is the number of characters whose audio was fully sent, and `content` holds exactly that prefix. It comes with `cancelled: true`.
+
+Phase 5, additive (task P5-K1):
+
+- `ThreadDto.purpose`: what a group thread is for, as its creator said. Absent for direct threads and for a group without one.
+- `ThreadDto.formerParticipants`: people who left a group thread. Absent or empty otherwise. They have no access to the thread any more ([ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md)). A node may show them, e.g. to name the author of an old message.
+- `MessageDto.meta.relayFrom`: set on an assistant message whose delivery turn carried relays ([model.md](../concept/model.md) I-13), one entry per sender, in delivery order. `name` is the name the recipient saw, so it survives a rename or the sender's deletion. A node shows it (e.g. "via Tony"), because the model may paraphrase the relay.
+
+Both `ThreadDto` fields and `relayFrom` are optional, so phase-4 nodes and cores stay compatible.
 
 `tool` role messages are internal and never sent to nodes. Tool activity reaches nodes as `tool.activity` frames.
 
@@ -60,6 +73,20 @@ type FileDto = { id: string /* fil_… */; name: string; mime: string; size: num
 - `POST /v1/files`: `multipart/form-data` with one part named `file`, at most `FILE_MAX_BYTES` (10 MiB). Response `{ file: FileDto }`. Too large or missing part → `400 INVALID_REQUEST`.
 - `GET /v1/files/:id`: the bytes, with `content-type` = the stored `mime`. `404 NOT_FOUND` when the file doesn't exist or the person may not read it (the core defines who may, see [storage.md](../architecture/storage.md)).
 - UI blocks reference files by the core-relative URL `/v1/files/<id>` (`fileUrl(id)` in `@keith/protocol`).
+
+## Invite links
+
+Phase 5, additive (task P5-K1). Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md).
+
+```ts
+type InviteAcceptRequest = { code: string; username: string; password: string }
+```
+
+- The owner creates an invite link on the host (`keith person add` / `keith person invite`). It is `<publicUrl>/#invite=<code>`, where `code` is 32 random bytes as base64url (43 characters, `INVITE_CODE_LENGTH`). The code is a URL fragment, so it never reaches a server log. A node that opens such a URL reads the fragment, removes it, and asks for a username and a password.
+- `POST /v1/auth/invite` (auth none) accepts the link: it sets the person's username and password, ends their existing sessions, and answers `LoginResponse`, like a login. Each link works once.
+- `username` follows the `keith setup` rule (1..200 characters), and `password` has at least 8 characters (`PASSWORD_MIN_CHARS`).
+- A wrong, used or expired code answers `401 UNAUTHORIZED`, the same answer for all three. The schema accepts a code of any shape (1..200 characters), so a malformed code also answers `401`.
+- A username taken by someone else, or a body that fails validation, answers `400 INVALID_REQUEST`. The link stays unused.
 
 ## Envelope
 
@@ -101,7 +128,7 @@ type Frame = {
 | `welcome` | `{ nodeId, person: PersonDto \| null, protocol: 1, server: { name, version } }` | 1 |
 | `thread.opened` | `{ thread: ThreadDto, messages: MessageDto[] }` | 1 |
 | `thread.state` | `{ threadId, state: TurnState }` | 1 |
-| `message.user` | `{ message: MessageDto }` (a user input or a relay; which nodes get it: [Delivery rules](#delivery-rules)) | 1 |
+| `message.user` | `{ message: MessageDto }` (a user input; which nodes get it: [Delivery rules](#delivery-rules)). A relay is not a `message.user`: it arrives as a delivery turn whose message carries `meta.relayFrom` | 1 |
 | `message.started` | `{ threadId, messageId, proactive: boolean }` | 1 |
 | `message.delta` | `{ threadId, messageId, text }` | 1 |
 | `message.completed` | `{ message: MessageDto }` | 1 |
@@ -112,6 +139,8 @@ type Frame = {
 | `ping` | `{}` | 1 |
 | `audio.start` / `audio.end` | `{ threadId, messageId, streamId, codec: AudioCodec, sampleRate }` / `{ streamId }`. The core starts / finishes speaking `messageId` on this node (the focus node only). Chunks are binary frames of kind 2 | 3 |
 | `audio.stop` | `{ streamId }` (barge-in or cancel: stop playback now and drop queued chunks of the stream) | 3 |
+| `thread.updated` | `{ thread: ThreadDto }`. A group thread was created, or its participants changed. Sent to every connected attended node of every current participant, whether or not the node has the thread open, so a new group appears in the thread list | 5 |
+| `thread.removed` | `{ threadId }`. The node's person left the thread. The node closes it and drops it from its list | 5 |
 
 **Proactive messages (I-11):** `message.started` with `proactive: true` can arrive at any time without any node input. Nodes must render it like any assistant message.
 
@@ -120,7 +149,8 @@ type Frame = {
 Additive clarifications, task P3-K2. They say which node gets which frame; no payload changes.
 
 - **`message.user` echo.** A user input is sent as `message.user` to every node attached to the thread (it has the thread open) except the node that sent it, because that node already shows what it typed. Two inputs also go to the sender, because it has no other way to show them: a **spoken** input (`modality: 'audio'`), whose transcript comes from the core's STT, and the input the core runs for a **`ui.action` click** (e.g. `(clicked: Book)`).
-- **`chat.text@1`.** Only a node that declared `chat.text@1` in `hello` may send `input.text`; any other node gets `error { FORBIDDEN }`. A node without `chat.text@1` receives no `message.user`, `message.started`, `message.delta`, `message.completed` or `tool.activity` frames. Every other frame it may receive as before (`thread.opened` and its history, `thread.state`, `notice`, `error`, `ping`; `ui.render` only with `ui.render@1`, audio only with `audio.out@1`).
+- **`chat.text@1`.** Only a node that declared `chat.text@1` in `hello` may send `input.text`; any other node gets `error { FORBIDDEN }`. A node without `chat.text@1` receives no `message.user`, `message.started`, `message.delta`, `message.completed` or `tool.activity` frames. Every other frame it may receive as before (`thread.opened` and its history, `thread.state`, `thread.updated`, `thread.removed`, `notice`, `error`, `ping`; `ui.render` only with `ui.render@1`, audio only with `audio.out@1`).
+- **`thread.updated` / `thread.removed`** (phase 5, task P5-K1). They are not chat frames, and they don't need the thread to be open. `thread.updated` goes to every connected attended node of every current participant of the group, when the group is created and when a participant joins or leaves. `thread.removed` goes to every connected attended node of a person who left the group, and those nodes get no more frames of that thread. Nothing else sends them in v1 (no unread counters).
 
 ### Notices
 
@@ -159,6 +189,27 @@ No other `notice` is sent in v1. A node must accept `notice` at any time, since 
 ```json frame
 { "v": 1, "type": "thread.state", "id": "01J8ZQ3K4M5N6P7Q8R9S0T1V34", "ts": 1790000001010,
   "data": { "threadId": "thr_01J8ZQ3K4M5N6P7Q8R9S0T1V31", "state": "thinking" } }
+```
+
+```json frame
+{ "v": 1, "type": "thread.updated", "id": "01J8ZQ3K4M5N6P7Q8R9S0T1V60", "ts": 1790000010000,
+  "data": { "thread": { "id": "thr_01J8ZQ3K4M5N6P7Q8R9S0T1V61", "kind": "group", "title": "Mission",
+            "participants": [ { "id": "per_01J8ZQ3K4M5N6P7Q8R9S0T1V2Z", "name": "Tony", "tier": "owner" },
+                              { "id": "per_01J8ZQ3K4M5N6P7Q8R9S0T1V62", "name": "Pepper", "tier": "member" } ],
+            "state": "idle", "updatedAt": 1790000010000, "purpose": "Plan the Expo launch.", "formerParticipants": [] } } }
+```
+
+```json frame
+{ "v": 1, "type": "thread.removed", "id": "01J8ZQ3K4M5N6P7Q8R9S0T1V63", "ts": 1790000020000,
+  "data": { "threadId": "thr_01J8ZQ3K4M5N6P7Q8R9S0T1V61" } }
+```
+
+```json frame
+{ "v": 1, "type": "message.completed", "id": "01J8ZQ3K4M5N6P7Q8R9S0T1V64", "ts": 1790000030000,
+  "data": { "message": { "id": "msg_01J8ZQ3K4M5N6P7Q8R9S0T1V65", "threadId": "thr_01J8ZQ3K4M5N6P7Q8R9S0T1V66",
+            "role": "assistant", "authorPersonId": null, "modality": "text",
+            "content": "Tony asked me to tell you he'll be late.", "createdAt": 1790000030000,
+            "meta": { "proactive": true, "relayFrom": [ { "personId": "per_01J8ZQ3K4M5N6P7Q8R9S0T1V2Z", "name": "Tony" } ] } } } }
 ```
 
 ## Audio (phase 3)
@@ -214,7 +265,7 @@ A binary frame is at most 64 KiB (`AUDIO_FRAME_MAX_BYTES`), header included. Sen
 
 | Code | Meaning |
 |---|---|
-| `UNAUTHORIZED` | HTTP: missing, unknown or expired bearer token, or a failed login |
+| `UNAUTHORIZED` | HTTP: missing, unknown or expired bearer token, a failed login, or a wrong, used or expired invite code |
 | `FORBIDDEN` | The node may not do this: a frame for a thread it has not opened, a thread the person is not a participant of, `audio.start` without `audio.in@1`, `input.text` without `chat.text@1` |
 | `NOT_FOUND` | Unknown (or not visible to the caller) thread, message, block, file or route |
 | `INVALID_REQUEST` | An HTTP body or query failed validation |
@@ -233,8 +284,8 @@ An error of a running turn (`RATE_LIMITED`, `PROVIDER_ERROR`, `INTERNAL`) goes t
 |---|---|
 | `FrameEnvelope`, `makeFrame`, `makeCoreFrame`, `makeNodeFrame`, `FrameParseResult` | `src/envelope.ts` |
 | `NodeFrame`, `parseNodeFrame`, one schema per node frame (`HelloFrame`, …, `AudioStartFrame`, `AudioEndFrame`) | `src/frames/node-to-core.ts` |
-| `CoreFrame`, `parseCoreFrame`, one schema per core frame (`WelcomeFrame`, …, `AudioOutStartFrame`, `AudioOutEndFrame`, `AudioStopFrame`) | `src/frames/core-to-node.ts` |
-| `PersonDto`, `ThreadDto`, `MessageDto`, `TurnState`, `Tier`, HTTP bodies (`LoginRequest`, `MessagesQuery`, …) | `src/dto.ts` |
+| `CoreFrame`, `parseCoreFrame`, one schema per core frame (`WelcomeFrame`, …, `AudioOutStartFrame`, `AudioOutEndFrame`, `AudioStopFrame`, `ThreadUpdatedFrame`, `ThreadRemovedFrame`) | `src/frames/core-to-node.ts` |
+| `PersonDto`, `ThreadDto`, `MessageDto`, `RelaySender`, `TurnState`, `Tier`, HTTP bodies (`LoginRequest`, `InviteAcceptRequest`, `MessagesQuery`, …), `INVITE_CODE_LENGTH`, `PASSWORD_MIN_CHARS` | `src/dto.ts` |
 | `ID_PREFIXES`, `prefixedId`, `ThreadId`, `MessageId`, … | `src/ids.ts` |
 | `KNOWN_CAPABILITIES`, `Capability`, `parseCapability` | `src/capabilities.ts` |
 | `AudioCodec`, `AudioStreamId`, `SampleRate`, `AUDIO_FRAME_KIND`, `AudioFrame`, `encodeAudioFrame`, `decodeAudioFrame` | `src/audio.ts` |

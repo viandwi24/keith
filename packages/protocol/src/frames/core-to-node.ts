@@ -30,7 +30,7 @@ export const ThreadStateFrame = frameSchema(
 )
 export type ThreadStateFrame = z.infer<typeof ThreadStateFrame>
 
-/** User input from another node, or a relay. */
+/** User input from another node (see the delivery rules in protocol.md). */
 export const MessageUserFrame = frameSchema('message.user', z.object({ message: MessageDto }))
 export type MessageUserFrame = z.infer<typeof MessageUserFrame>
 
@@ -112,7 +112,18 @@ export type AudioOutEndFrame = z.infer<typeof AudioOutEndFrame>
 export const AudioStopFrame = frameSchema('audio.stop', z.object({ streamId: AudioStreamId }))
 export type AudioStopFrame = z.infer<typeof AudioStopFrame>
 
-/** Every frame the core may send to a node (phases 1–3). */
+/**
+ * Phase 5: a group thread was created, or its participants changed. Sent to every connected
+ * attended node of every current participant, whether or not the node has the thread open.
+ */
+export const ThreadUpdatedFrame = frameSchema('thread.updated', z.object({ thread: ThreadDto }))
+export type ThreadUpdatedFrame = z.infer<typeof ThreadUpdatedFrame>
+
+/** Phase 5: the node's person left the thread. The node closes it and drops it from its list. */
+export const ThreadRemovedFrame = frameSchema('thread.removed', z.object({ threadId: ThreadId }))
+export type ThreadRemovedFrame = z.infer<typeof ThreadRemovedFrame>
+
+/** Every frame the core may send to a node (phases 1–3 and 5). */
 export const CoreFrame = z.discriminatedUnion('type', [
   WelcomeFrame,
   ThreadOpenedFrame,
@@ -129,6 +140,8 @@ export const CoreFrame = z.discriminatedUnion('type', [
   AudioOutStartFrame,
   AudioOutEndFrame,
   AudioStopFrame,
+  ThreadUpdatedFrame,
+  ThreadRemovedFrame,
 ])
 export type CoreFrame = z.infer<typeof CoreFrame>
 export type CoreFrameType = CoreFrame['type']
@@ -149,6 +162,8 @@ export const CORE_FRAME_SCHEMAS = {
   'audio.start': AudioOutStartFrame,
   'audio.end': AudioOutEndFrame,
   'audio.stop': AudioStopFrame,
+  'thread.updated': ThreadUpdatedFrame,
+  'thread.removed': ThreadRemovedFrame,
 } as const satisfies Record<CoreFrameType, z.ZodType>
 
 export const CORE_FRAME_TYPES = Object.keys(CORE_FRAME_SCHEMAS) as CoreFrameType[]

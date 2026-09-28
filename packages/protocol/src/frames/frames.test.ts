@@ -84,6 +84,17 @@ const coreSamples: CoreSamples = {
   'audio.start': { threadId, messageId, streamId, codec: 'pcm16', sampleRate: 24_000 },
   'audio.end': { streamId },
   'audio.stop': { streamId },
+  'thread.updated': {
+    thread: {
+      ...thread,
+      id: 'thr_01J8ZQ3K4M5N6P7Q8R9S0T1V61',
+      kind: 'group',
+      title: 'Mission',
+      purpose: 'Plan the Expo launch.',
+      formerParticipants: [{ id: 'per_01J8ZQ3K4M5N6P7Q8R9S0T1V62', name: 'Happy', tier: 'guest' }],
+    },
+  },
+  'thread.removed': { threadId },
 }
 const samples = { ...nodeSamples, ...coreSamples }
 
@@ -141,6 +152,47 @@ describe('audio frames (phase 3)', () => {
       ok: true,
       frame: { data: { message: { meta: { cancelled: true, spokenChars: 12 } } } },
     })
+  })
+})
+
+describe('phase-5 frames and fields', () => {
+  test('thread.updated carries a group ThreadDto with purpose and former participants', () => {
+    expect(core('thread.updated', coreSamples['thread.updated'])).toMatchObject({
+      ok: true,
+      frame: { data: { thread: { kind: 'group', purpose: 'Plan the Expo launch.' } } },
+    })
+  })
+  test('thread.updated and thread.opened still accept a phase-4 ThreadDto without the new fields', () => {
+    expect(core('thread.updated', { thread }).ok).toBe(true)
+    expect(core('thread.opened', { thread, messages: [] }).ok).toBe(true)
+  })
+  test('thread.removed needs a thread id', () => {
+    expect(core('thread.removed', {})).toMatchObject({ ok: false, code: 'INVALID_FRAME' })
+    expect(core('thread.removed', { threadId: messageId })).toMatchObject({
+      ok: false,
+      code: 'INVALID_FRAME',
+    })
+  })
+  test('thread.updated and thread.removed are core → node only', () => {
+    expect(node('thread.removed', { threadId })).toMatchObject({ ok: false, code: 'UNKNOWN_FRAME' })
+    expect(node('thread.updated', coreSamples['thread.updated'])).toMatchObject({
+      ok: false,
+      code: 'UNKNOWN_FRAME',
+    })
+  })
+  test('meta.relayFrom round-trips on a message, in order', () => {
+    const relayFrom = [
+      { personId: person.id, name: 'Tony' },
+      { personId: 'per_01J8ZQ3K4M5N6P7Q8R9S0T1V62', name: 'Happy' },
+    ]
+    expect(
+      core('message.completed', { message: { ...message, meta: { proactive: true, relayFrom } } }),
+    ).toMatchObject({
+      ok: true,
+      frame: { data: { message: { meta: { relayFrom } } } },
+    })
+    const bad = { ...message, meta: { relayFrom: [{ personId: threadId, name: 'Tony' }] } }
+    expect(core('message.completed', { message: bad })).toMatchObject({ ok: false, code: 'INVALID_FRAME' })
   })
 })
 

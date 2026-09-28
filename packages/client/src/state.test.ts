@@ -119,6 +119,16 @@ describe('state reducer', () => {
     expect(after).toEqual(before)
   })
 
+  test('phase-5 thread.updated and thread.removed leave the open conversation as it is', () => {
+    const before = opened()
+    const after = apply(
+      before,
+      frame('thread.updated', { thread: { ...thread, id: otherThread, kind: 'group', title: 'Mission' } }),
+      frame('thread.removed', { threadId: otherThread }),
+    )
+    expect(after).toEqual(before)
+  })
+
   test('tool.activity is one line per tool call, updated in place', () => {
     const base = { threadId, messageId, toolCallId: 'c1', name: 'web.search' } as const
     const state = apply(
