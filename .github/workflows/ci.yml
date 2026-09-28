@@ -26,3 +26,7 @@ jobs:
       # S-3 semantic (reflection, restart, memory.recall, I-4) and the S-1 reminder, five runs in a row (P4-I2).
       - run: for i in 1 2 3 4 5; do bun test tests/e2e/s3-semantic.test.ts || exit 1; done
       - run: for i in 1 2 3 4 5; do bun test tests/e2e/s1-reminder.test.ts || exit 1; done
+      # S-4 privacy, S-5 relay and S-6 group thread (with a light browser check), five runs in a row (P5-I2).
+      - run: for i in 1 2 3 4 5; do bun test tests/e2e/s4-privacy.test.ts || exit 1; done
+      - run: for i in 1 2 3 4 5; do bun test tests/e2e/s5-relay.test.ts || exit 1; done
+      - run: for i in 1 2 3 4 5; do bun test tests/e2e/s6-group.test.ts || exit 1; done
