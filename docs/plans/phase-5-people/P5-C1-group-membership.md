@@ -4,7 +4,7 @@ title: "Group threads: start, invite, join and leave, with invitations as delive
 phase: 5
 wave: 2
 lane: C
-status: review
+status: done
 owner: agent-P5-C1
 depends: [P5-K1]
 owns:
