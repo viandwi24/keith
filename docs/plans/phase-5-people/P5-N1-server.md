@@ -4,7 +4,7 @@ title: "Server: invite sign-up endpoint, live thread list frames, group thread D
 phase: 5
 wave: 2
 lane: N
-status: review
+status: done
 owner: agent-P5-N1
 depends: [P5-K1]
 owns:
