@@ -6,6 +6,7 @@
 
 import type { InviteAcceptRequest } from '@keith/protocol'
 import type { KeithConfig } from '../config/types.ts'
+import { sha256Hex } from '../shared/index.ts'
 import type { Clock, PersonDto } from '../shared/types.ts'
 import type { AuthTokenRecord, PersonRecord, Repositories } from '../storage/types.ts'
 import { toPersonDto } from './dto.ts'
@@ -47,7 +48,7 @@ export type AuthDeps = {
 
 /** SHA-256 hex of the UTF-8 string. Used for auth tokens and invite codes alike. */
 export function hashToken(token: string): string {
-  return new Bun.CryptoHasher('sha256').update(token).digest('hex')
+  return sha256Hex(token)
 }
 
 export function generateToken(): string {

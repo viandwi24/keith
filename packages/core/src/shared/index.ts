@@ -1,4 +1,5 @@
 export { systemClock } from './clock.ts'
+export { sha256Hex } from './hash.ts'
 export { createIds, type IdsDeps } from './ids.ts'
 export {
   type AcquireHomeLockOptions,

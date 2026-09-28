@@ -64,6 +64,8 @@ Phase 1: the Thread's history and the Task result are persisted and available af
 
 **Test (phase 1):** two Persons created by fixture send inputs at the same time, and both turns stream concurrently. **Test (phase 5):** a memory with `subject` visibility about Tony never appears in Pepper's context.
 
+**Test (phase 5, integration):** `packages/core/test/people.test.ts` on the real core and storage. `keith person add Pepper` runs next to a running Keith and prints an invite link; `POST /v1/auth/invite` with its code signs her in once (a second use is `401`), into the main thread the command created. `keith person tier Pepper guest` while Keith runs takes effect on her next turn: her tool list loses the `member` tools (`reminder.*`, `thread.start_group`, `thread.invite`) without a restart. `keith person remove Pepper` refuses while Keith runs; with Keith stopped it deletes her direct thread, the memories about her, her tokens and her own messages in a group, and after a restart Tony still opens that group without her line. `packages/core/src/memory/audit.test.ts` checks every read path (recall, core, index, the memory and task tools, the digest) for four people, direct and group threads, and a participant who left through `threads.removeParticipant`.
+
 ## S-5 Relay between people
 
 *"Tell Pepper I'll be late." Pepper's phone: "Tony says he'll be late."*
@@ -72,6 +74,8 @@ Phase 1: the Thread's history and the Task result are persisted and available af
 2. The core checks I-13: tier allows, and Pepper's Relationship doesn't block Tony.
 3. A Delivery authored by Tony is queued for Pepper's `main` Thread and surfaced with attribution.
 4. Pepper can answer ("Tell him no problem"), which relays back the same way.
+
+**Test (phase 5, integration):** `packages/core/test/relay.test.ts` on the real core. Tony's model calls `relay.send({ to: "pepper" })`. Pepper's attached node gets a proactive delivery turn: its context labels the item `(relay from Tony)` and says to name the sender, and its `message.completed` has `meta.relayFrom` = Tony. After Pepper's model calls `relay.block({ from: "Tony" })`, Tony's next relay answers the generic refusal and enqueues nothing.
 
 ## S-6 Collaboration: a group thread with shared state
 
@@ -92,6 +96,8 @@ Phase 1: the Thread's history and the Task result are persisted and available af
 - **Addressing.** A rule-based detector (name mention, reply-to, direct question) runs first. A `utility`-model classifier is the fallback. When unsure, the Mind does not interrupt humans.
 - **Tone.** In a group, the Mind uses the most formal tone among participants unless it is addressing one person.
 - **Leaving.** A participant who leaves keeps the history up to that point. Memories with `thread` visibility stay readable to the remaining participants.
+
+**Test (phase 5, integration):** `packages/core/test/groups.test.ts` on the real core, with `fake:chat` and `fake:utility`. Tony's model calls `thread.start_group`; his node gets `thread.updated` for the new group, and Pepper and Rhodey each get an invitation delivery with Join / Decline. A Join click becomes `(clicked: Join)`, their model calls `thread.join`, and every participant's node gets `thread.updated`. In the group, Pepper and Rhodey talking to each other ("Rhodey, …", "Pepper, …") makes no chat request; "Keith, status?" makes one, whose user messages carry each author's `name`. A line the rules are unsure about asks `fake:utility` once, and its "no" makes no turn. Rhodey leaves: his node gets `thread.removed`, and his `thread.open` and input for the group are `FORBIDDEN`, while the others see him in `formerParticipants`. Tony invites him back, and after joining he sees the whole history.
 
 ## S-7 Switch device and modality mid-conversation
 

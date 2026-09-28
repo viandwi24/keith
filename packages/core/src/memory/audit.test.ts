@@ -25,7 +25,7 @@ import type {
   Viewer,
   Visibility,
 } from '../shared/types.ts'
-import { createTestDb, markParticipantLeft, type TestDb } from '../storage/testing.ts'
+import { createTestDb, type TestDb } from '../storage/testing.ts'
 import { MemoryStore } from './service.ts'
 import { FakeEventBus, fixedId } from './testing/fakes.ts'
 import { isVisible, taskTarget, type VisibilityFacts } from './visibility.ts'
@@ -240,7 +240,7 @@ async function createWorld(opts: { taskStatus?: Task['status'] } = {}): Promise<
       t.members,
     )
   }
-  expect(markParticipantLeft(db, WORKSHOP, RHODEY, 10)).toBe(true)
+  expect(await repos.threads.removeParticipant(WORKSHOP, RHODEY, 10)).toBe(true)
 
   for (const [i, m] of MEMORIES.entries()) {
     const row: Memory = {
@@ -434,7 +434,7 @@ describe('audit: leaving a group (S-6)', () => {
     const staleMission = { participants: [TONY, PEPPER, RHODEY] }
     expect(await w.memory.recall({ text: 'threadmission', viewer: rhodey })).toHaveLength(1)
 
-    expect(markParticipantLeft(w.db, MISSION, RHODEY, 20)).toBe(true)
+    expect(await w.db.repos.threads.removeParticipant(MISSION, RHODEY, 20)).toBe(true)
 
     expect(await w.memory.recall({ text: 'threadmission', viewer: rhodey })).toEqual([])
     expect(await w.memory.recall({ text: 'threadmission', viewer: staleMission })).toEqual([])
@@ -449,7 +449,7 @@ describe('audit: leaving a group (S-6)', () => {
 
   test('I-4: the remaining Mission participants still admit its thread memories after Rhodey left', async () => {
     const w = await createWorld()
-    expect(markParticipantLeft(w.db, MISSION, RHODEY, 20)).toBe(true)
+    expect(await w.db.repos.threads.removeParticipant(MISSION, RHODEY, 20)).toBe(true)
     for (const participants of [[TONY], [PEPPER], [TONY, PEPPER]]) {
       expect(await w.memory.recall({ text: 'threadmission', viewer: { participants } })).toHaveLength(1)
     }

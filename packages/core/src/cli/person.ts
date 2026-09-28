@@ -12,7 +12,7 @@ import { isKeithError, KeithError } from '@keith/sdk'
 import { PERSON_NAME_MAX_CHARS } from '../builtins/relay.ts'
 import { keithPaths, parseConfig } from '../config/index.ts'
 import type { KeithConfig, KeithPaths } from '../config/types.ts'
-import { createIds, systemClock, withHomeLock } from '../shared/index.ts'
+import { createIds, sha256Hex, systemClock, withHomeLock } from '../shared/index.ts'
 import type { Clock, Ids, PersonId, Tier } from '../shared/types.ts'
 import { openDb } from '../storage/index.ts'
 import type { PersonRecord, PersonRemoval, RelationshipRecord, Repositories } from '../storage/types.ts'
@@ -114,7 +114,7 @@ export type Invite = {
 
 /** SHA-256 of the code's UTF-8 bytes, hex (what `invite_links.code_hash` stores and P5-N1 computes). */
 export function hashInviteCode(code: string): string {
-  return new Bun.CryptoHasher('sha256').update(code).digest('hex')
+  return sha256Hex(code)
 }
 
 /** `server.publicUrl` without a trailing slash, or `http://<host>:<port>`. */

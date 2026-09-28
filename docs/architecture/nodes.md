@@ -94,7 +94,7 @@ Frames from one node, text and binary, are handled in order, so a chunk never ov
 Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md).
 
 - The owner adds a member or a guest on the host with `keith person add <name> [--tier member|guest]` ([config.md](config.md#keith-person)). It creates the person without a username or password, their relationship card and their main thread, and prints an **invite link**, `<publicUrl>/#invite=<code>`, plus `keith-tui --url <publicUrl> --invite <code>`. Only the owner makes invite links.
-- The code is 32 random bytes, base64url (43 characters). Only its SHA-256 hash is stored (`invite_links`), like auth tokens. A link works once and expires after `auth.inviteTtlHours` (default 72). A new link for a person (`keith person invite`) revokes their older unused ones; it doubles as a password reset.
+- The code is 32 random bytes, base64url (43 characters). Only its SHA-256 hash is stored (`invite_links`), like auth tokens: `keith person` and the endpoint hash with the same function (`sha256Hex`, `shared/hash.ts`). A link works once and expires after `auth.inviteTtlHours` (default 72). A new link for a person (`keith person invite`) revokes their older unused ones; it doubles as a password reset.
 - The code sits in the URL fragment, so it never reaches a server log. The web app reads `#invite=<code>`, removes it from the address bar, and asks for a username and a password (twice). The TUI takes `--invite <code>`.
 - The node sends `POST /v1/auth/invite { code, username, password }` ([protocol.md](../contracts/protocol.md#invite-links)). The server (`server/auth.ts`, `acceptInvite`):
   1. hashes the password first, so an unknown code costs as long as a right one;
