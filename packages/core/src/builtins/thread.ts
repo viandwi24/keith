@@ -1,14 +1,14 @@
 // Built-in tools `thread.start_group`, `thread.invite`, `thread.join` and `thread.leave`
 // (reserved namespace `thread`, phase 5). Registered through `tools.registerBuiltin()` when
 // `BuiltinDeps.groups` is given. Rules: ADR-0017; see docs/architecture/core.md#group-threads.
-// The bodies are placeholders: P5-C1 implements them with these names, schemas, tiers and answers.
 
 import { ThreadId } from '@keith/protocol'
-import { defineTool, type Tool, type ToolResult } from '@keith/sdk'
+import { defineTool, isKeithError, type Tool, type ToolResult } from '@keith/sdk'
 import { z } from 'zod'
 import type { KeithConfig } from '../config/types.ts'
 import type { GroupRefusalReason, GroupThreads } from '../mind/types.ts'
-import type { PersonsRepository } from '../storage/types.ts'
+import type { PersonId } from '../shared/types.ts'
+import type { PersonRecord, PersonsRepository, ThreadsRepository } from '../storage/types.ts'
 
 /** Longest person name the tools accept (the `keith person add` limit). */
 const PERSON_NAME_MAX_CHARS = 80
@@ -17,6 +17,8 @@ export type ThreadToolsDeps = {
   service: GroupThreads
   /** Resolves participant names (a name or a username, case-insensitive). */
   persons: Pick<PersonsRepository, 'findByName'>
+  /** The thread's title for the `thread.join` / `thread.leave` answers, and whether the caller is in it. */
+  threads: Pick<ThreadsRepository, 'get' | 'participants'>
   /** `mind.group.maxParticipants`, for the limit answer. */
   config: Pick<KeithConfig, 'mind'>
 }
@@ -101,12 +103,45 @@ export const ThreadLeaveInput = z.object({
   ),
 })
 
-function notImplemented(): ToolResult {
-  return { content: 'thread tools are not implemented yet (P5-C1).', error: true }
+function toolError(content: string): ToolResult {
+  return { content, error: true }
+}
+
+/**
+ * Turns a refusal (`FORBIDDEN` with a `GroupRefusalReason`) or an unknown thread (`NOT_FOUND`) into
+ * a tool error. Anything else is rethrown.
+ */
+function refusal(error: unknown, maxParticipants: number): ToolResult {
+  if (isKeithError(error, 'NOT_FOUND')) return toolError(THREAD_MESSAGES.noSuchThread)
+  if (isKeithError(error, 'FORBIDDEN')) {
+    const reason = error.details?.reason as GroupRefusalReason | undefined
+    if (reason !== undefined && reason in THREAD_MESSAGES.refused) {
+      const answer = THREAD_MESSAGES.refused[reason]
+      return toolError(typeof answer === 'function' ? answer(maxParticipants) : answer)
+    }
+  }
+  throw error
 }
 
 /** The `thread.*` built-ins, bound to GroupThreads. */
-export function createThreadTools(_deps: ThreadToolsDeps): Tool[] {
+export function createThreadTools(deps: ThreadToolsDeps): Tool[] {
+  const max = (): number => deps.config.mind.group.maxParticipants
+
+  /** Resolves every name, or answers the first unknown one. */
+  async function resolve(names: string[]): Promise<PersonRecord[] | ToolResult> {
+    const found: PersonRecord[] = []
+    for (const name of names) {
+      const person = await deps.persons.findByName(name)
+      if (!person) return toolError(THREAD_MESSAGES.unknown(name))
+      found.push(person)
+    }
+    return found
+  }
+
+  function namesOf(ids: PersonId[], people: PersonRecord[]): string[] {
+    return ids.map((id) => people.find((p) => p.id === id)?.name ?? id)
+  }
+
   const startGroup = defineTool({
     name: 'thread.start_group',
     description:
@@ -114,28 +149,75 @@ export function createThreadTools(_deps: ThreadToolsDeps): Tool[] {
       'They get an invitation and join when they accept.',
     input: ThreadStartGroupInput,
     minTier: 'member',
-    async run() {
-      return notImplemented()
+    async run(input, ctx) {
+      const people = await resolve(input.participants)
+      if (!Array.isArray(people)) return people
+      try {
+        const r = await deps.service.start({
+          creatorId: ctx.person.id,
+          inviteeIds: people.map((p) => p.id),
+          title: input.title,
+          purpose: input.purpose && input.purpose !== '' ? input.purpose : null,
+        })
+        return {
+          content: THREAD_MESSAGES.started({
+            title: r.thread.title,
+            threadId: r.thread.id,
+            invited: namesOf(r.invited, people),
+            joined: namesOf(r.joined, people),
+          }),
+        }
+      } catch (error) {
+        return refusal(error, max())
+      }
     },
   })
+
   const invite = defineTool({
     name: 'thread.invite',
     description: 'Invite more people to this group thread.',
     input: ThreadInviteInput,
     minTier: 'member',
-    async run() {
-      return notImplemented()
+    async run(input, ctx) {
+      if (ctx.threadId === null) return toolError(THREAD_MESSAGES.refused.not_group)
+      const people = await resolve(input.participants)
+      if (!Array.isArray(people)) return people
+      try {
+        const r = await deps.service.invite({
+          threadId: ctx.threadId,
+          inviterId: ctx.person.id,
+          inviteeIds: people.map((p) => p.id),
+        })
+        return {
+          content: THREAD_MESSAGES.invited({
+            invited: namesOf(r.invited, people),
+            joined: namesOf(r.joined, people),
+            skipped: namesOf(r.skipped, people),
+          }),
+        }
+      } catch (error) {
+        return refusal(error, max())
+      }
     },
   })
+
   const join = defineTool({
     name: 'thread.join',
     description: 'Accept an invitation to a group thread for the person you are talking to.',
     input: ThreadJoinInput,
     minTier: 'guest',
-    async run() {
-      return notImplemented()
+    async run(input, ctx) {
+      try {
+        const joined = await deps.service.join({ threadId: input.threadId, personId: ctx.person.id })
+        if (!joined) return toolError(THREAD_MESSAGES.noInvitation)
+      } catch (error) {
+        return refusal(error, max())
+      }
+      const thread = await deps.threads.get(input.threadId)
+      return { content: THREAD_MESSAGES.joined(thread?.title ?? input.threadId) }
     },
   })
+
   const leave = defineTool({
     name: 'thread.leave',
     description:
@@ -143,9 +225,21 @@ export function createThreadTools(_deps: ThreadToolsDeps): Tool[] {
       'Afterwards they no longer see the group.',
     input: ThreadLeaveInput,
     minTier: 'guest',
-    async run() {
-      return notImplemented()
+    async run(input, ctx) {
+      const threadId = input.threadId ?? ctx.threadId
+      if (threadId === null) return toolError(THREAD_MESSAGES.noSuchThread)
+      const thread = await deps.threads.get(threadId)
+      if (!thread) return toolError(THREAD_MESSAGES.noSuchThread)
+      const wasIn = (await deps.threads.participants(threadId)).some((p) => p.personId === ctx.person.id)
+      try {
+        const done = await deps.service.leave({ threadId, personId: ctx.person.id })
+        if (!done) return toolError(THREAD_MESSAGES.notInThread)
+      } catch (error) {
+        return refusal(error, max())
+      }
+      return { content: wasIn ? THREAD_MESSAGES.left(thread.title) : THREAD_MESSAGES.declined(thread.title) }
     },
   })
+
   return [startGroup, invite, join, leave]
 }

@@ -1253,7 +1253,7 @@ The ThreadManager maps `RunLoopEvent`s to `message.delta`, `tool.activity` and `
 - `createGroupThreads(deps: GroupThreadsDeps): GroupThreads` (`mind/groups.ts`). Deps: `config` (`mind`), `repos` (`persons`, `threads`, `threadInvitations`), `deliveries` (`enqueue`), `events` (`emit`), `ids`, `clock`, `log`.
 - `ThreadManagerDeps.addressing?: AddressingDetector`. Without it every group input is addressed (the phase-4 behavior).
 
-> Planned (phase 5, P5-D1, P5-C1): `createAddressing` is a placeholder whose `decide` answers `{ addressed: true, by: 'default' }`, and every `createGroupThreads` method throws `INTERNAL`. Bootstrap doesn't build either yet (P5-I1).
+> Planned (phase 5, P5-D1): `createAddressing` is a placeholder whose `decide` answers `{ addressed: true, by: 'default' }`. Bootstrap doesn't build it or `createGroupThreads` yet (P5-I1).
 
 ### Voice (`voice/types.ts`), implemented by `voice/` (P3-A1)
 
@@ -1472,7 +1472,7 @@ The only order that has no cycles. `bootstrap.ts` follows it:
 11. plugin host (needs registries, server http/ws, the delivery sink, the data stores) → load → `setup` → `start`, then `checkVoiceProviders`: every `voice.vad/stt/tts` id must name a registered provider (`CONFIG_INVALID` otherwise)
 12. `scheduling.start()` (recovers tasks, starts the tick, subscribes `fireDue`), then the reflection and summary jobs `start()`, server `listen()` → emit `core.started`
 
-> Planned (phase 5, P5-I1): step 8 also builds `createAddressing(...)` and `createGroupThreads(...)` and passes `addressing` to the ThreadManager; step 10 passes `relay: { service: scheduling.relay, persons }` and `groups: { service: groups, persons, config }` to `registerBuiltins`, which registers the `relay.*` and `thread.*` tools only when they are given.
+> Planned (phase 5, P5-I1): step 8 also builds `createAddressing(...)` and `createGroupThreads(...)` and passes `addressing` to the ThreadManager; step 10 passes `relay: { service: scheduling.relay, persons }` and `groups: { service: groups, persons, threads, config }` to `registerBuiltins`, which registers the `relay.*` and `thread.*` tools only when they are given.
 
 Shutdown runs the other way: presence flush, server stop, `threads.stop()` then `threads.cancelAll()` (each running turn persists its partial reply), presence, the reflection and summary jobs (unsubscribed, running passes aborted; an aborted pass writes nothing), scheduling, memory, plugins, event bus, database, log file, and the home lock last. A start that fails tears down what it built, lock included; the memory jobs stop before scheduling there too.
 
@@ -1661,21 +1661,26 @@ Registered with `tools.registerBuiltin()`. Their namespaces are reserved. `regis
 
 The tiers come from [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md). `builtins/relay.ts` and `builtins/thread.ts` also export the input schemas, the tool names and the answers (`RELAY_MESSAGES`, `THREAD_MESSAGES`).
 
-> Planned (phase 5, P5-C1, P5-I1): the `thread.*` tool bodies answer a tool error "not implemented yet", and bootstrap doesn't pass `relay` or `groups` to `registerBuiltins` yet (P5-I1), so none of the seven is registered.
+> Planned (phase 5, P5-I1): bootstrap doesn't pass `relay` or `groups` to `registerBuiltins` yet, so none of the seven is registered.
 
 ## Group threads
 
-> Planned (phase 5, P5-C1, P5-D1): membership and addressing. The turn rules below are built. Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md). Scenario: [S-6](../concept/scenarios.md#s-6-collaboration-a-group-thread-with-shared-state).
+> Planned (phase 5, P5-D1): addressing. Membership and the turn rules below are built. Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md). Scenario: [S-6](../concept/scenarios.md#s-6-collaboration-a-group-thread-with-shared-state).
 
 A group thread (`kind: 'group'`, `slug` null) has several human participants (`thread_participants`), a `title` and an optional `purpose`. Participants and message authors are stored from phase 1.
 
-**Membership** (`GroupThreads`, `mind/groups.ts`, P5-C1):
+**Membership** (`GroupThreads`, `mind/groups.ts`):
 
-- `start` (`thread.start_group`): the creator must be `member` or higher. It creates the group with the creator as its only participant (`thread.participant_joined { invitedBy: null }`), then invites the others as `invite` does.
-- `invite` (`thread.invite`): only a current participant with tier `member` or higher, only in a group, only while current participants plus pending invitations stay within `mind.group.maxParticipants` (default 8). The creator has no special rights after creation. People already in the group or invited are `skipped`. Each new invitee gets a `pending` `thread_invitations` row and an `invitation` delivery in their main thread (authored by the inviter), whose content names the inviter, the title, the purpose and the thread id, with a card with **Join** and **Decline** buttons (a click becomes `(clicked: Join)` input, and the invitee's model calls `thread.join`). With `mind.group.autoJoin = true`, an invitee with tier `member` or higher joins at once and the delivery is a notice without buttons. Guests always accept.
-- `join` (`thread.join`): needs a `pending` invitation; it becomes `accepted`, the person a participant, and `thread.participant_joined { invitedBy }` is emitted.
-- `leave` (`thread.leave`): a current participant leaves (`left_at` set, `thread.participant_left`). On a pending invitation it declines it (no event). Leaving a direct thread is refused. Nobody can remove another participant in v1.
-- A refusal by rule throws `KeithError('FORBIDDEN')` with `details.reason` (`GroupRefusalReason`), which the tools turn into tool errors (`THREAD_MESSAGES.refused`).
+- `start` (`thread.start_group`): the creator must be `member` or higher (`tier`). The invitee list must be non-empty (`no_invitees`), must not name the creator (`self`), must name only known persons (`unknown_person`) and at most `maxParticipants − 1` of them (`limit`); duplicates count once. It creates the group (`slug` null, `ownerPersonId` = creator, `title`, `purpose`) with the creator as its only participant (`thread.participant_joined { invitedBy: null }`), then invites the others as `invite` does.
+- `invite` (`thread.invite`): only in a group (`not_group`), only by a current participant (`not_participant`) with tier `member` or higher (`tier`), only while current participants plus pending invitations plus the new invitees stay within `mind.group.maxParticipants` (default 8, `limit`). The creator has no special rights after creation. People already in the group or invited are `skipped`. Each new invitee gets an `invitation` delivery in their main thread (authored by the inviter, `urgency: 'normal'`), then a `pending` `thread_invitations` row that stores the delivery id.
+  - The content names the inviter, the title, the purpose and the thread id, and says how to answer: `Tony invites you to the group thread "Mission" (thr_…): <purpose>. Say whether you want to join.`
+  - Its `ui` is a `card` (`id: group_invitation`) with the same text and an `actions` block with **Join** and **Decline**. A click becomes `(clicked: Join)` input ([ui.md](ui.md#interactivity)), and the invitee's model calls `thread.join` (or `thread.leave` to decline) with the id from the content.
+  - With `mind.group.autoJoin = true`, an invitee with tier `member` or higher joins at once (`joined`): the delivery says `Tony added you to the group thread "Mission" (thr_…)…` and its card has no buttons, the row is stored `accepted`, and `thread.participant_joined { invitedBy }` is emitted. Guests always accept.
+  - A former participant keeps an `accepted` row, which `threadInvitations.create` doesn't replace, so inviting them again answers `skipped` (known limitation until the storage contract allows it).
+- `join` (`thread.join`): needs a `pending` invitation, else false. It becomes `accepted`, the person a participant (`threads.addParticipant`), and `thread.participant_joined { invitedBy }` is emitted.
+- `leave` (`thread.leave`): a current participant leaves (`left_at` set, `thread.participant_left`). On a pending invitation it declines it (no event). Otherwise false. Leaving a direct thread is refused (`not_group`). Nobody can remove another participant in v1.
+- Every event is emitted after the storage write. An unknown thread throws `KeithError('NOT_FOUND')`. A refusal by rule throws `KeithError('FORBIDDEN')` with `details.reason` (`GroupRefusalReason`).
+- **Tools** (`builtins/thread.ts`, `ThreadToolsDeps`: `service`, `persons` (`findByName`), `threads` (`get`, `participants`), `config`): names resolve with `persons.findByName` (name, then username, case-insensitive); an unknown name answers `THREAD_MESSAGES.unknown`. `thread.invite` works in the current thread, `thread.leave` defaults to it. `thread.start_group` answers the new thread's id and title and who was invited or added; `thread.join` answers the title, so the model can tell the person where to find it; `thread.leave` answers "Left …" or "Declined …". Refusals and unknown threads come back as tool errors with the `THREAD_MESSAGES` wording, never as thrown errors.
 - **After leaving**, the leaver has no access to the group: it leaves their thread list (`thread.removed`), and `thread.open` and history answer as for any thread they are not part of. The group keeps its whole history.
 
 **Turns** (thread manager, `mind/thread-manager.ts`):
