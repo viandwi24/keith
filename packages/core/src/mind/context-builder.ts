@@ -20,7 +20,7 @@ import {
   skillsSection,
   summarySection,
 } from './context-sections.ts'
-import { lowestTier, toLlmMessages } from './messages.ts'
+import { authorName, lowestTier, toLlmMessages } from './messages.ts'
 import type { ContextBuilder } from './types.ts'
 
 export type ContextBuilderDeps = {
@@ -29,7 +29,10 @@ export type ContextBuilderDeps = {
   /** Reads the persona text (`persona.md`). Called once per turn so edits apply without a restart. */
   persona: () => Promise<string>
   clock: Clock
-  /** `threads` gives the summary and its cursor. */
+  /**
+   * `threads` gives the summary, its cursor, and the kind, title and purpose of a group.
+   * `persons` gives the cards and the names of message and relay/invitation authors.
+   */
   repos: Pick<Repositories, 'persons' | 'relationships' | 'messages' | 'threads'>
   memory: MemoryService
   commitments: Pick<CommitmentService, 'openFor'>
@@ -51,6 +54,13 @@ export function createContextBuilder(deps: ContextBuilderDeps): ContextBuilder {
         deps.repos.threads.get(a.threadId),
       ])
       const window = await messagesWindow(deps, a.threadId, thread)
+      const group = thread?.kind === 'group' ? thread : null
+      const names = await loadNames(deps, cards, [
+        ...(group ? window.filter((r) => r.role === 'user').map((r) => r.authorPersonId) : []),
+        ...a.deliveries
+          .filter((d) => d.kind === 'relay' || d.kind === 'invitation')
+          .map((d) => d.authorPersonId),
+      ])
       const skills = deps.skills.list().map((s) => s.skill)
       const sections = [
         personaSection(persona, config.mind.name),
@@ -59,7 +69,16 @@ export function createContextBuilder(deps: ContextBuilderDeps): ContextBuilder {
           timezone: config.mind.timezone,
           capabilities: a.focusCapabilities,
         }),
-        participantsSection(cards),
+        participantsSection(
+          cards,
+          group
+            ? {
+                title: group.title,
+                purpose: group.purpose ?? null,
+                answering: a.kind === 'user' ? answering(window, names) : null,
+              }
+            : null,
+        ),
         coreMemoriesSection(core),
         memoryIndexSection(index),
         digestSection(digest),
@@ -69,6 +88,7 @@ export function createContextBuilder(deps: ContextBuilderDeps): ContextBuilder {
           a.deliveries,
           a.kind,
           skills.map((s) => s.name),
+          names,
         ),
         skillsSection(skills),
       ]
@@ -77,7 +97,7 @@ export function createContextBuilder(deps: ContextBuilderDeps): ContextBuilder {
         .map((t) => t.tool.name)
       return {
         system: sections.filter((s): s is string => s !== null).join('\n\n'),
-        messages: toLlmMessages(window),
+        messages: toLlmMessages(window, { group: group !== null, names }),
         tools,
       }
     },
@@ -119,6 +139,32 @@ async function loadCards(deps: ContextBuilderDeps, ids: PersonId[]): Promise<Par
       return { person, relationship }
     }),
   )
+}
+
+/**
+ * Names by person id: the participants' names from their cards, plus the `extra` ids (authors of
+ * group messages in the window, and of relay and invitation deliveries) read with `persons.get`.
+ * An id that no longer exists is left out, so it reads as `Someone`.
+ */
+async function loadNames(
+  deps: ContextBuilderDeps,
+  cards: ParticipantCard[],
+  extra: (PersonId | null)[],
+): Promise<Map<PersonId, string>> {
+  const names = new Map<PersonId, string>(cards.map((c) => [c.person.id, c.person.name]))
+  const missing = [...new Set(extra)].filter((id): id is PersonId => id !== null && !names.has(id))
+  const records = await Promise.all(missing.map((id) => deps.repos.persons.get(id)))
+  for (const r of records) if (r) names.set(r.id, r.name)
+  return names
+}
+
+/** The author of the latest user message in the window: whose input the turn answers. */
+function answering(window: MessageRecord[], names: ReadonlyMap<PersonId, string>): string | null {
+  for (let i = window.length - 1; i >= 0; i--) {
+    const r = window[i]
+    if (r?.role === 'user') return authorName(r.authorPersonId, names)
+  }
+  return null
 }
 
 /** A `persona` reader for `persona.md`. A missing file reads as empty (the section falls back to a default line). */

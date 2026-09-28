@@ -1535,22 +1535,22 @@ Builds `{ system, messages, tools }` for a Viewer. The system prompt is assemble
 
 1. **Persona:** `~/.keith/persona.md` (see [config.md](config.md)).
 2. **Now:** current date/time and timezone, plus the focus node's capabilities (so the model knows whether it can show UI or is being heard).
-3. **Participants:** each participant's relationship card (name, tier, tone, notes).
+3. **Participants:** each participant's relationship card (name, tier, tone, notes). In a group thread (phase 5) the section also has the thread's title and `purpose`, every current participant's card (`viewer.participants`), one line naming whose message the turn answers (the author of the latest user message, in `user` turns only), the tone rule from S-6 ("Several people read this thread. Use the most formal tone among the participants unless you are answering one person directly.") and "People talk to each other here too. Answer only what is addressed to you, and keep it short." A direct thread's section is unchanged.
 4. **Core memories:** `MemoryService.core(viewer)`.
 5. **Memory index:** `MemoryService.index(viewer)`, so the model knows recall is worth trying.
 6. **Awareness digest:** `MemoryService.digest(...)`, 5 lines at most.
 7. **Open commitments** in this Thread.
    - **Thread summary (phase 4):** `# Earlier in this thread` with `threads.summary` ([memory.md](memory.md#thread-summary)). Left out when the thread has no summary.
-8. **Pending deliveries:** only in delivery turns and arrival turns, with instructions to phrase them naturally. When a skill named `morning_briefing` is registered, the briefing and arrival instructions add "If the skills index lists `morning_briefing`, load it first." (the builder passes the registered skill names to the section).
+8. **Pending deliveries:** only in delivery turns and arrival turns, with instructions to phrase them naturally. When a skill named `morning_briefing` is registered, the briefing and arrival instructions add "If the skills index lists `morning_briefing`, load it first." (the builder passes the registered skill names to the section). Phase 5: a `relay` item reads "(relay from <sender name>)" and adds an instruction to pass it on here, saying who it is from; an `invitation` item reads "(invitation from <inviter name>)" before its content (which holds the thread id) and adds an instruction to ask whether they want to join, call `thread.join` with the id when they agree and `thread.leave` with it when they decline. The builder reads those authors' names with `persons.get`; an author who no longer exists reads as "Someone".
 9. **Skills index:** name + one-line description of every registered skill (full text loads through `skill.load`).
 
 **Messages:** without a summary cursor (`threads.summary_through_seq` is null), the last `mind.context.recentMessages` stored rows (default 40). The window counts every row, including the tool-step assistant rows and `tool` rows that nodes don't see, so a turn with many tool steps leaves fewer visible messages in it.
 
 **Window rule with a summary.** The messages are the rows with `seq > summaryThroughSeq`, but at least `recentMessages` and at most `recentMessages + memory.summary.minMessages` (the latest ones in both cases). The summary job folds rows once `minMessages` of them have left the `recentMessages` window, so while it keeps up no row falls between the summary and the window. Fewer rows after the cursor than `recentMessages` (the setting grew) means some overlap with the summary; more than the upper bound (the job fell behind or is off) means a gap until it catches up. The replay rules for orphan tool rows apply to this window as well.
 
-**Tools:** every tool in the registry, built-ins included, where `tool.minTier` is at or below the lowest participant tier (owner > member > guest) and `tool.requires ⊆` the focus node's capabilities.
+**Author names (phase 5, D7).** In a group thread (`threads.kind = 'group'`), `toLlmMessages(records, { group: true, names })` gives each `user` message `LlmMessage.name` = its author's name **and** a `<name>: ` content prefix, because not every provider honours `name`. Names come from the participants' cards, plus `persons.get` for authors who left the group. An author who no longer exists (their group messages are deleted with them, ADR-0018) or a null author reads as "Someone". Assistant and tool messages carry no name. Direct threads replay exactly as before.
 
-> Planned (phase 5, P5-C3): **group threads and relays in the context.** In a group thread, each `user` message gets `LlmMessage.name` = its author's name **and** a `<name>: ` content prefix (not every provider honours `name`). Section 3 holds every current participant's card, the thread's title and `purpose`, whose message the turn answers, and the tone rule from S-6 ("use the most formal tone among the participants unless you are answering one person directly"). In section 8, a `relay` item reads "(relay from <sender name>) <text>" and an `invitation` item reads "(invitation from <inviter name>) <content>", each with an instruction. Direct threads are unchanged.
+**Tools:** every tool in the registry, built-ins included, where `tool.minTier` is at or below the lowest participant tier (owner > member > guest) and `tool.requires ⊆` the focus node's capabilities.
 
 ## Scheduler
 
@@ -1622,7 +1622,7 @@ The tools are registered only when `registerBuiltins` gets `reminders` (`{ servi
 
 ### Relays
 
-> Planned (phase 5, P5-C2, P5-C3): the **Attribution** item (the section-8 label and `meta.relayFrom`). Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md).
+> Planned (phase 5, P5-C2): `meta.relayFrom` on the delivered message (the section-8 label is built, P5-C3). Rules: [ADR-0017](../decisions/0017-tier-rules-for-relays-and-group-threads.md).
 
 A relay passes one person's words to another through Keith (I-13, S-5). `RelayService` (`scheduler/relay.ts`, exposed as `Scheduling.relay`) decides and enqueues; the `relay.*` built-ins call it.
 
