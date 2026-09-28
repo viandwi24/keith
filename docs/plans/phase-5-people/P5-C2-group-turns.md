@@ -4,8 +4,8 @@ title: "Group turns: human-to-human fan-out without an LLM turn, addressing, liv
 phase: 5
 wave: 2
 lane: C
-status: todo
-owner: null
+status: in-progress
+owner: agent-P5-C2
 depends: [P5-K1]
 owns:
   - packages/core/src/mind/thread-manager.ts

@@ -4,8 +4,8 @@ title: "@keith/client: thread list, switching threads, authors, relay marks, inv
 phase: 5
 wave: 2
 lane: F
-status: todo
-owner: null
+status: in-progress
+owner: agent-P5-F1
 depends: [P5-K1]
 owns:
   - packages/client/**

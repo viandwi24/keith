@@ -4,8 +4,8 @@ title: "People: keith person add, invite links, tiers, cards, blocks and removal
 phase: 5
 wave: 2
 lane: A
-status: todo
-owner: null
+status: in-progress
+owner: agent-P5-A1
 depends: [P5-K1]
 owns:
   - packages/core/src/cli/person.ts

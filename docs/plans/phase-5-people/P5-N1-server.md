@@ -4,8 +4,8 @@ title: "Server: invite sign-up endpoint, live thread list frames, group thread D
 phase: 5
 wave: 2
 lane: N
-status: todo
-owner: null
+status: in-progress
+owner: agent-P5-N1
 depends: [P5-K1]
 owns:
   - packages/core/src/server/**

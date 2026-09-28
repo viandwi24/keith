@@ -4,8 +4,8 @@ title: "Group threads: start, invite, join and leave, with invitations as delive
 phase: 5
 wave: 2
 lane: C
-status: todo
-owner: null
+status: in-progress
+owner: agent-P5-C1
 depends: [P5-K1]
 owns:
   - packages/core/src/mind/groups.ts

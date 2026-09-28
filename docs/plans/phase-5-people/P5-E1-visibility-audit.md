@@ -4,8 +4,8 @@ title: "Visibility everywhere: group viewers across recall, core, digest, reflec
 phase: 5
 wave: 2
 lane: E
-status: todo
-owner: null
+status: in-progress
+owner: agent-P5-E1
 depends: [P5-K1]
 owns:
   - packages/core/src/memory/**

@@ -4,8 +4,8 @@ title: "Group context: author names in LlmMessage.name, every participant's card
 phase: 5
 wave: 2
 lane: C
-status: todo
-owner: null
+status: in-progress
+owner: agent-P5-C3
 depends: [P5-K1]
 owns:
   - packages/core/src/mind/context-builder.ts

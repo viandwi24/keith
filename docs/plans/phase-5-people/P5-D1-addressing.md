@@ -4,8 +4,8 @@ title: "Addressing detector: rules first, utility-model fallback, don't interrup
 phase: 5
 wave: 2
 lane: D
-status: todo
-owner: null
+status: in-progress
+owner: agent-P5-D1
 depends: [P5-K1]
 owns:
   - packages/core/src/mind/addressing/**

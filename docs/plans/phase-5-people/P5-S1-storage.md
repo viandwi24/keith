@@ -4,8 +4,8 @@ title: "Storage: invite links, group invitations, participants and person remova
 phase: 5
 wave: 2
 lane: S
-status: todo
-owner: null
+status: in-progress
+owner: agent-P5-S1
 depends: [P5-K1]
 owns:
   - packages/core/src/storage/schema.ts

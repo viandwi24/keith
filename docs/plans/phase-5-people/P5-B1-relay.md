@@ -4,8 +4,8 @@ title: "Relay: relay.send with I-13 checks, relay.block and relay.unblock"
 phase: 5
 wave: 2
 lane: B
-status: todo
-owner: null
+status: in-progress
+owner: agent-P5-B1
 depends: [P5-K1]
 owns:
   - packages/core/src/scheduler/relay.ts
