@@ -1,0 +1,19 @@
+{
+  "name": "@keith/driver-sdk",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "typescript": "catalog:"
+  },
+  "exports": "./src/index.ts",
+  "version": "0.1.0",
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "bun test --pass-with-no-tests"
+  },
+  "dependencies": {
+    "@keith/contracts": "workspace:*",
+    "zod": "catalog:"
+  }
+}

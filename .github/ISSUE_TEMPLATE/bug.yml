@@ -1,0 +1,17 @@
+name: Bug
+description: Report something that behaves wrongly
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes: { label: What happened, description: Short steps to reproduce }
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes: { label: What you expected }
+  - type: input
+    id: version
+    attributes: { label: Keith version, placeholder: 0.3.0 (sha abc1234) }
+  - type: dropdown
+    id: part
+    attributes: { label: Part, options: [Core, Node, TUI, Web UI] }

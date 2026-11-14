@@ -1,0 +1,9 @@
+{
+  "manifestVersion": 1,
+  "name": "sandbox",
+  "version": "0.1.0",
+  "entry": "dist/index.js",
+  "capabilities": [{ "id": "sandbox.run", "schemaVersion": 1 }],
+  "platforms": ["darwin", "linux"],
+  "needs": []
+}

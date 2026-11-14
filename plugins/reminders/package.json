@@ -1,0 +1,21 @@
+{
+  "name": "@keith/plugin-reminders",
+  "type": "module",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "bun test --pass-with-no-tests"
+  },
+  "exports": {
+    ".": "./plugin.ts"
+  },
+  "dependencies": {
+    "@keith/contracts": "workspace:*",
+    "@keith/host": "workspace:*",
+    "react": "catalog:"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:"
+  }
+}

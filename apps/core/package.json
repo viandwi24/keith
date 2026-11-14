@@ -1,0 +1,52 @@
+{
+  "name": "@keith/core",
+  "scripts": {
+    "dev": "bun run --hot src/main.ts",
+    "start": "bun src/main.ts",
+    "check-types": "tsc --noEmit",
+    "test": "bun test",
+    "db:migrate": "bun src/migrate.ts",
+    "token:reset": "bun src/token-reset.ts",
+    "eval:news": "bun evals/news/run.ts",
+    "link": "bun link",
+    "eval:guest": "bun evals/guest/run.ts",
+    "eval:presence": "bun evals/presence/run.ts",
+    "eval:agenda": "bun evals/agenda/run.ts",
+    "eval:room": "bun evals/room/run.ts",
+    "eval:persona": "bun evals/persona/run.ts",
+    "eval:dreaming": "bun evals/dreaming/run.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/deepseek": "catalog:",
+    "@ai-sdk/openai": "catalog:",
+    "@keith/acl": "workspace:*",
+    "@keith/cli": "workspace:*",
+    "@keith/client": "workspace:*",
+    "@keith/contracts": "workspace:*",
+    "@keith/db": "workspace:*",
+    "@keith/host": "workspace:*",
+    "@keith/plugin-notes": "workspace:*",
+    "@keith/plugin-reminders": "workspace:*",
+    "@keith/ui": "workspace:*",
+    "@openrouter/ai-sdk-provider": "catalog:",
+    "@orpc/server": "catalog:",
+    "ai": "catalog:",
+    "eharness": "catalog:",
+    "hono": "catalog:",
+    "ink": "catalog:",
+    "react": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "@types/react": "catalog:",
+    "ink-testing-library": "catalog:",
+    "typescript": "catalog:"
+  },
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "bin": {
+    "keith-core": "src/cli.ts"
+  }
+}

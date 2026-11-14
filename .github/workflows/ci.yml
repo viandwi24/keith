@@ -1,0 +1,44 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version-file: package.json } # reads packageManager
+      - run: bun install --frozen-lockfile
+      - name: PR title (Conventional Commits)
+        if: github.event_name == 'pull_request'
+        env: { TITLE: "${{ github.event.pull_request.title }}" }
+        run: echo "$TITLE" | bunx commitlint
+      - name: Pushed commits (Conventional Commits)
+        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+        env: { FROM: "${{ github.event.before }}", TO: "${{ github.sha }}" }
+        run: bunx commitlint --from "$FROM" --to "$TO"
+      - run: bun run check # lint, typecheck, test, imports, check-size, exports
+      - run: bun audit --audit-level=high # Bun's built-in vulnerability check
+
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write # comments findings on PRs
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # personal account: no GITLEAKS_LICENSE needed

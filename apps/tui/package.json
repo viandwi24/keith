@@ -1,0 +1,34 @@
+{
+  "name": "@keith/tui",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "@types/react": "catalog:",
+    "ink-testing-library": "catalog:",
+    "typescript": "catalog:"
+  },
+  "scripts": {
+    "start": "bun src/cli.tsx",
+    "dev": "bun --watch src/cli.tsx",
+    "check-types": "tsc --noEmit",
+    "test": "bun test",
+    "link": "bun link"
+  },
+  "dependencies": {
+    "@ai-sdk/react": "catalog:",
+    "@keith/cli": "workspace:*",
+    "@keith/client": "workspace:*",
+    "@keith/contracts": "workspace:*",
+    "@keith/ui": "workspace:*",
+    "ai": "catalog:",
+    "eharness": "catalog:",
+    "ink": "catalog:",
+    "react": "catalog:",
+    "zod": "catalog:"
+  },
+  "version": "0.1.0",
+  "bin": {
+    "keith": "src/cli.tsx"
+  }
+}

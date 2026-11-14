@@ -1,0 +1,27 @@
+{
+  "name": "@keith/node",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "typescript": "catalog:"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "bun test",
+    "start": "bun src/main.ts",
+    "dev": "bun --watch src/main.ts",
+    "link": "bun link"
+  },
+  "dependencies": {
+    "@keith/cli": "workspace:*",
+    "@keith/contracts": "workspace:*",
+    "@keith/driver-sandbox": "workspace:*",
+    "@keith/driver-sdk": "workspace:*",
+    "zod": "catalog:"
+  },
+  "version": "0.1.0",
+  "bin": {
+    "keith-node": "src/main.ts"
+  }
+}

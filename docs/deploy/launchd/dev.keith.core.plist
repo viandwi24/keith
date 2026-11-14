@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Keith core as a macOS launchd agent (per user). Replace /Users/you with your home folder and the
+  bun and checkout paths with yours (`which bun`). Run `keith-core setup` once before loading it.
+
+    cp dev.keith.core.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.keith.core.plist
+    launchctl kickstart -k gui/$(id -u)/dev.keith.core     # restart
+    launchctl bootout gui/$(id -u)/dev.keith.core          # stop and unload
+-->
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>dev.keith.core</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>/Users/you/.bun/bin/bun</string>
+      <string>/Users/you/keith/apps/core/src/cli.ts</string>
+      <string>start</string>
+      <string>--no-setup-check</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/you/keith</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>HOME</key>
+      <string>/Users/you</string>
+      <key>PATH</key>
+      <string>/Users/you/.bun/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+      <key>KEITH_DATA_DIR</key>
+      <string>/Users/you/.keith/data</string>
+      <!-- Provider keys are saved by `keith-core setup`; add KEITH_PORT, KEITH_HOST or
+           KEITH_PUBLIC_URL here only to override what setup stored. -->
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/you/.keith/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/you/.keith/launchd.err.log</string>
+  </dict>
+</plist>

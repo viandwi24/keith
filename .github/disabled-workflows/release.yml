@@ -1,0 +1,37 @@
+# PARKED: GitHub runs only files in .github/workflows/, so this workflow does not run here.
+# Keith has no releases yet. For the first release, move this file to .github/workflows/release.yml
+# (docs/decisions/0001-branch-license-visibility.md, "Amendment: public repository").
+name: release
+on:
+  push:
+    branches: [main]
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  version:
+    # Opens or updates the "Version Packages" PR. Versions only: packages are private, nothing is published.
+    # The PR is created with GITHUB_TOKEN, so GitHub does not start CI on it. A PAT or GitHub App token
+    # would be needed for that; until then, check the PR's CI by hand or merge it after `bun run check`.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # commit the version bump to the release branch
+      pull-requests: write # open or update the PR
+    steps:
+      # persist-credentials stays on: changesets/action pushes its branch with the checkout credentials.
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version-file: package.json } # reads packageManager
+      - run: bun install --frozen-lockfile
+      - name: Version Packages PR
+        uses: changesets/action@v1
+        with:
+          version: bunx changeset version
+          title: "chore(repo): version packages"
+          commit: "chore(repo): version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

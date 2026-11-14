@@ -1,0 +1,18 @@
+{
+  "name": "@keith/cli",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "typescript": "catalog:"
+  },
+  "version": "0.1.0",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/fake-io.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "bun test --pass-with-no-tests"
+  }
+}

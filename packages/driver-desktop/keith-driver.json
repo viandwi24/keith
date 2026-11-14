@@ -1,0 +1,13 @@
+{
+  "manifestVersion": 1,
+  "name": "desktop",
+  "version": "0.1.0",
+  "entry": "dist/index.js",
+  "capabilities": [
+    { "id": "desktop.info", "schemaVersion": 1 },
+    { "id": "desktop.screenshot", "schemaVersion": 1 },
+    { "id": "desktop.input", "schemaVersion": 1 }
+  ],
+  "platforms": ["darwin"],
+  "needs": ["screen-recording", "accessibility"]
+}

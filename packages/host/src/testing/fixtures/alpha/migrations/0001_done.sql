@@ -1,0 +1,1 @@
+ALTER TABLE `plg_alpha_items` ADD `done` integer DEFAULT 0 NOT NULL;

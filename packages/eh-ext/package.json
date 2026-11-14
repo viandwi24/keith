@@ -1,0 +1,15 @@
+{
+  "name": "@keith/eh-ext",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "typescript": "catalog:"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "bun test --pass-with-no-tests"
+  },
+  "exports": "./src/index.ts",
+  "version": "0.1.0"
+}

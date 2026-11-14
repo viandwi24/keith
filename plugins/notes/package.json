@@ -1,0 +1,21 @@
+{
+  "name": "@keith/plugin-notes",
+  "type": "module",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "bun test --pass-with-no-tests"
+  },
+  "dependencies": {
+    "@keith/contracts": "workspace:*",
+    "@keith/host": "workspace:*",
+    "react": "catalog:"
+  },
+  "exports": {
+    ".": "./plugin.ts"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:"
+  }
+}

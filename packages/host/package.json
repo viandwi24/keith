@@ -1,0 +1,33 @@
+{
+  "name": "@keith/host",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "@types/react": "catalog:",
+    "typescript": "catalog:"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/index.ts",
+    "./schema": "./src/schema.ts",
+    "./storage": "./src/storage/index.ts",
+    "./tui": "./src/tui/index.ts",
+    "./views": "./src/views.ts"
+  },
+  "version": "0.1.0",
+  "dependencies": {
+    "@keith/acl": "workspace:*",
+    "@keith/contracts": "workspace:*",
+    "@keith/ui": "workspace:*",
+    "chalk": "catalog:",
+    "drizzle-orm": "catalog:",
+    "ink": "catalog:",
+    "react": "catalog:",
+    "zod": "catalog:"
+  }
+}

@@ -1,0 +1,17 @@
+name: Feature
+description: Propose something new
+labels: [feature]
+body:
+  - type: textarea
+    id: problem
+    attributes: { label: Problem it solves }
+    validations: { required: true }
+  - type: textarea
+    id: who
+    attributes:
+      label: Who uses it
+      description: A real person or screen that needs this now. No user, no feature.
+    validations: { required: true }
+  - type: textarea
+    id: alternatives
+    attributes: { label: Alternatives considered }

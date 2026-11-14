@@ -1,0 +1,34 @@
+# Keith core as a systemd service. Put it in /etc/systemd/system/ (system) or
+# ~/.config/systemd/user/ (user; then `loginctl enable-linger <user>` to run without a login).
+# Replace User, the bun path and the checkout path. Run `keith-core setup` once as that user first.
+#
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now keith-core
+#   journalctl -u keith-core -f
+[Unit]
+Description=Keith core
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=keith
+WorkingDirectory=/home/keith/keith
+Environment=HOME=/home/keith
+Environment=KEITH_DATA_DIR=/home/keith/.keith/data
+# Optional overrides of what `keith-core setup` stored:
+# Environment=KEITH_PORT=7420
+# Environment=KEITH_PUBLIC_URL=https://keith.example.ts.net
+# Secrets (KEITH_SECRET_KEY, provider keys) belong in a root-only file, not in this unit:
+# EnvironmentFile=/etc/keith/core.env
+ExecStart=/home/keith/.bun/bin/bun /home/keith/keith/apps/core/src/cli.ts start --no-setup-check
+Restart=on-failure
+RestartSec=5
+# The owner socket and data folder must stay private to this user.
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

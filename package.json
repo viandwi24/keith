@@ -1,0 +1,79 @@
+{
+  "name": "keith",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@biomejs/biome": "2.6.3",
+    "@changesets/cli": "3.0.3",
+    "@commitlint/cli": "21.2.4",
+    "@commitlint/config-conventional": "21.2.4",
+    "@types/bun": "catalog:",
+    "typescript": "catalog:"
+  },
+  "license": "CC-BY-NC-SA-4.0",
+  "workspaces": {
+    "packages": [
+      "apps/*",
+      "packages/*",
+      "plugins/*"
+    ],
+    "catalog": {
+      "zod": "4.6.7",
+      "ai": "7.0.153",
+      "eharness": "0.14.1",
+      "typescript": "7.0.2",
+      "@types/bun": "1.4.4",
+      "hono": "4.13.14",
+      "ink": "8.0.0",
+      "react": "19.3.1",
+      "@types/react": "19.3.0",
+      "ink-testing-library": "4.0.0",
+      "drizzle-orm": "0.45.4",
+      "drizzle-kit": "0.31.11",
+      "@openrouter/ai-sdk-provider": "3.1.0",
+      "@orpc/contract": "1.16.1",
+      "@orpc/server": "1.16.1",
+      "@orpc/client": "1.16.1",
+      "@ai-sdk/react": "4.0.157",
+      "@ai-sdk/openai": "4.0.102",
+      "@ai-sdk/deepseek": "3.0.73",
+      "chalk": "6.0.1"
+    }
+  },
+  "engines": {
+    "bun": ">=1.4.2"
+  },
+  "packageManager": "bun@1.4.2",
+  "scripts": {
+    "prepare": "git config core.hooksPath .githooks",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "check-types": "bun run --filter '*' check-types && tsc --noEmit -p .",
+    "test": "bun test --path-ignore-patterns='.ref/**' --path-ignore-patterns='.claude/worktrees/**'",
+    "test:changed": "bun test --path-ignore-patterns='.ref/**' --changed=origin/main",
+    "check-size": "bun scripts/check-size.ts",
+    "check-exports": "bun scripts/check-exports.ts",
+    "ref:sync": "bun scripts/ref-sync.ts",
+    "dev": "bun run --filter '@keith/core' --filter '@keith/node' --filter '@keith/tui' dev",
+    "check": "bun run lint && bun run check-types && bun run test && bun run check-imports && bun run check-size && bun run check-exports",
+    "check-imports": "bun scripts/check-imports.ts",
+    "db:migrate": "bun run --filter @keith/core db:migrate",
+    "eval:news": "bun apps/core/evals/news/run.ts",
+    "smoke": "bun scripts/smoke.ts",
+    "manual:core": "bun scripts/manual.ts core",
+    "manual:tui": "bun scripts/manual.ts tui",
+    "manual:node": "bun scripts/manual.ts node",
+    "manual:setup": "bun scripts/manual.ts setup",
+    "manual:admin": "bun scripts/manual.ts admin",
+    "link": "bun run --cwd apps/core link && bun run --cwd apps/node link && bun run --cwd apps/tui link",
+    "plugin:db:generate": "bun scripts/plugin-db-generate.ts",
+    "eval:guest": "bun apps/core/evals/guest/run.ts",
+    "eval:presence": "bun apps/core/evals/presence/run.ts",
+    "eval:agenda": "bun apps/core/evals/agenda/run.ts",
+    "manual:clock": "bun run scripts/manual-clock.ts",
+    "eval:room": "bun apps/core/evals/room/run.ts",
+    "eval:persona": "bun apps/core/evals/persona/run.ts",
+    "eval:dreaming": "bun apps/core/evals/dreaming/run.ts"
+  },
+  "version": "0.0.0"
+}

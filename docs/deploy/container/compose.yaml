@@ -1,0 +1,25 @@
+# UNTESTED recipe: see README.md in this folder.
+# docker compose -f docs/deploy/container/compose.yaml up -d
+services:
+  keith-core:
+    build:
+      context: ../../..
+      dockerfile: docs/deploy/container/Dockerfile
+    restart: unless-stopped
+    ports:
+      # Publish on the host's loopback or tailnet address only, never on 0.0.0.0 of a public host.
+      - "127.0.0.1:7420:7420"
+    volumes:
+      - keith-data:/data
+    environment:
+      KEITH_OWNER_NAME: Owner
+      KEITH_PROVIDER: openrouter
+      # The address clients type. Its host joins the Host allowlist (here: published on loopback).
+      KEITH_PUBLIC_URL: http://127.0.0.1:7420
+      # KEITH_ALLOWED_HOSTS: keith.example.ts.net
+      # Provider key from the host environment (or an .env file next to this file):
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?set OPENROUTER_API_KEY}
+      # Secret key (32 bytes base64, `openssl rand -base64 32`) from the host environment:
+      KEITH_SECRET_KEY: ${KEITH_SECRET_KEY:?set KEITH_SECRET_KEY}
+volumes:
+  keith-data:

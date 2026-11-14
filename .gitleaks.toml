@@ -1,0 +1,12 @@
+# Secret scanning for Keith. Default gitleaks rules, plus a narrow allowlist.
+title = "keith"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Example env file and test fixtures only"
+paths = [
+  '''(^|/)\.env\.example$''',
+  '''(^|/)fixtures/''',
+]

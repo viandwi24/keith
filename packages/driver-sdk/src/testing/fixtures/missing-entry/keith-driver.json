@@ -1,0 +1,8 @@
+{
+  "manifestVersion": 1,
+  "name": "fixture",
+  "version": "0.1.0",
+  "entry": "dist/index.js",
+  "capabilities": [{ "id": "fixture.ping", "schemaVersion": 1 }],
+  "platforms": ["darwin", "linux"]
+}

@@ -1,0 +1,16 @@
+.ref/
+node_modules/
+data/
+.env*
+!.env.example
+coverage/
+*.tsbuildinfo
+.DS_Store
+.claude/worktrees/
+.data/
+docs/flow-review/
+packages/driver-*/dist/
+refs/
+*.log
+*.tgz
+.claude/settings.local.json

@@ -1,0 +1,1 @@
+DROP TABLE `presence_client_context`;
