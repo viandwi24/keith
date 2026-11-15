@@ -30,8 +30,14 @@ over the repos and registers its removal part (`removal.ts`, "Settings, audit, e
 - `heartbeat`: an id the caller does not own, or an unknown id, is `NOT_FOUND`. A heartbeat sooner than 5 seconds after the last
   one of the same client is ignored (nothing is written). `active: true` writes `client.active` (the repo keeps one a minute).
 - `goodbye` writes `client.disconnected` and the client is offline at once (no wait for `clientTimeoutMs`): it leaves the online clients, the "Where the person is now" block and `client_call`'s choice. Offline is derived from the signal, so no column is stored: a client is online when its last heartbeat is within the timeout and no goodbye is at or after that heartbeat (`isClientOnline`, `compute.ts`). A heartbeat or register after the goodbye brings it back. `remove` deletes the client (audited `client.removed`); an unknown or foreign id is `NOT_FOUND`.
-- `setStatus`: busy with minutes (1 to 1440, 24 hours when omitted) or free (`/free`, nothing kept). A busy status is the first
-  overlay source (`manual`); its end is the status `until`. Audited `presence.status.set` (`busy`, `minutes`; never the note).
+- `setStatus`: a stated status (ADR-0034 §5) or free (`/free`, `busy: false`, nothing kept). The kind is `busy` (default; do not
+  disturb) or `out` (away from the desk, reachable on a phone or chat). `from` (epoch ms, at most 7 days ahead; default now) is the
+  start, `until` the end, or `minutes` (1 to 1440) from the start; with neither the status lasts 24 hours. A `busy` status lasts 24
+  hours at most, an `out` status 7 days; an end that is not after the start, or already past, is `BAD_REQUEST`. A status whose `from`
+  is in the future does nothing until then (the timer recomputes it); one whose `until` passed is cleared (retention prunes the
+  row). A `busy` status is the first overlay source (`manual`); `out` is read separately (`outOf`). Audited `presence.status.set`
+  (`busy`, `kind`, `minutes`; never the note). `status()` answers `{ busy, note, until, kind, from }`: `busy` is true only while a
+  busy status holds now, `kind` names the stored status (a scheduled one too), null when none.
 - `recordActivity` (the thalamus `chat.validate` hook, P27.2.3) writes one `activity` signal. A failure is warned, never thrown.
 - `recomputeAll` runs every `CoreTiming.presenceEveryMs` and at boot over every person. A change of state emits
   `brain.parietal.presence` once on the person's front session; the first computation has `previous: null`. Every register,
@@ -56,7 +62,9 @@ over the repos and registers its removal part (`removal.ts`, "Settings, audit, e
 - `SignalTypeSchema`: `client.connected`, `client.disconnected`, `client.active`, `device.location`, `node.event`, `activity`.
   `device.location` is listed; the core refuses it until a mobile client exists.
 - `PresenceStateSchema`: `active`, `idle`, `away`, `busy`, `offline`. `PresenceSchema`: `personId`, `state`, `reachableOn`
-  (online client ids, most recently active first), `activeClient`, `note` (at most 200), `asOf`.
+  (online client ids, most recently active first), `activeClient`, `note` (at most 200), `asOf`, and optional `where` (`PresenceWhereSchema`: `desk`,
+  `mobile`, `out`, `unknown`) and `until` (epoch ms of the status that holds). `PresenceStatusSetSchema`: `busy` (false clears), optional
+  `kind` (`busy`, `out`), `note`, `minutes` (1 to 1440), `from`, `until` (epoch ms); `PresenceStatusViewSchema` adds `kind` and `from`.
 - `DisclosureLevelSchema`: `none`, `state`, `detail`. `DisclosureAudienceSchema`: `owner`, `@users`, `group:<id>`.
   `DisclosureRowSchema` and `DisclosureSetSchema`: `{ audience, level }`.
 - `PresenceStatusSetSchema`: `{ busy, note?, minutes? }` (minutes 1 to 1440). `PresenceStatusViewSchema`: `{ busy, note, until }`.
@@ -148,14 +156,25 @@ Pure function `computePresence` (`compute.ts`):
 ```
 online     = clients whose last_seen_at >= now - clientTimeoutMs and whose newest client.disconnected (if any) is older than last_seen_at (a goodbye takes it offline at once; a later heartbeat brings it back)
 lastActive = max(last_active_at of online clients, newest activity signal)
-overlay    = first of [manual status not expired, ...registered overlay sources]   -> busy + note + until
+overlay    = first of [manual busy status that has started and not expired, ...registered overlay sources]   -> busy + note + until
+out        = stated `out` status that has started and not expired                                       -> note + until
 state      = overlay ? busy
+           : out ? away
            : lastActive >= now - activeWindowMs ? active
            : online.length > 0 ? (lastActive >= now - awayAfterMs ? idle : away)
            : offline
 reachableOn  = online client ids, most recently active first
 activeClient = state is active (or busy with recent activity) ? online client with the newest last_active_at : null
+note, until  = those of the overlay, else of `out` (until only when it has an end)
+where        = whereOf(client in use, out): `out` while a stated `out` holds; else `mobile` when the client in use is kind `mobile`,
+               reports device `phone`, or reached the core over `public`; else `desk` when it is kind `tui` or `web` on `local-socket`,
+               `loopback` or `lan`; else `unknown`. The client in use is `activeClient`, else the newest online client of an `idle`
+               person; an `away` or `offline` person has none (`tailscale` or an unknown network is `unknown`)
 ```
+
+`where` is a hint derived from facts, never a place: it is not shown as one, and a wrong hint costs a less suitable route, never a lost
+message (ADR-0034). `Presence` carries it (`where`, optional, so an older reader keeps working) with `until`. A busy agenda overlay
+cannot say "away", so only a stated `out` makes `where` `out`. The planner reads `parietal.presence(person).where` (P37.4).
 
 It is recomputed on every signal and every `presenceEveryMs`. A change of state emits `brain.parietal.presence` on the person's front
 session. A dead client times out after 60 seconds.
@@ -197,13 +216,40 @@ the control is the released line.
 nothing). The tool calls `disclosedFor(viewer, subject)` only for a resolved person and an active viewer; a guest has no tool path.
 Code: `modules/parietal/tool.ts` (`presenceTool`, `presenceToolOf`, `resolvePerson`, tests in `tool.test.ts`).
 
+### The `presence_status_set` tool (ADR-0034 §5, ADR-0036)
+
+`modules/parietal/status-tool.ts` (`presenceStatusSetToolOf`), added by the same plugin (`presenceTool`) when the parietal service is
+passed, so the front agent has it with no change to its plugin list. Input `{ kind: 'busy' | 'out' | 'clear', from?, until?, note? }`:
+`from` and `until` are an ISO time with a zone offset (`2026-11-14T15:00:00+07:00`) or a number of minutes from now (a time with no
+zone is refused with a hint); `note` at most 200 characters. It changes the status of the turn's principal only (`ctx.principal`,
+never an argument; a guest or no principal is refused) through `setStatus`, so every rule above applies; a refusal comes back as
+`{ ok: false, reason }`. Answer `{ ok: true, status: 'busy' | 'out' | 'cleared', from, until }` (ISO times). Audited
+`presence.status.set` with `{ subject, busy, kind, minutes }`, never the note. Disclosure is unchanged: `lineOf` shows a stated `out`
+as `away` (a member at the `state` level reads "not available" and never the note). `/busy` and `/free` stay.
+Tests: `status.test.ts`.
+
 Isolation proof (ADR-0020 §2): a scripted-model test where a member asks about the owner and about another member at each level, and
 the stored session of the viewer holds no raw field (client ids, labels, signal times).
 
+**Consent and undo (ADR-0036).** `presence` is `{ risk: 'read', source: 'trusted' }`; `presence_status_set` is `{ risk: 'write', reversible: true, source: 'trusted' }`: in a
+clean conversation it runs with no approval; after outside content it waits in conversation (`amygdala.md`, "Consent"). `PresenceStatusToolOptions.undo` (an `UndoLog`)
+and `parietal.status` let the tool record the status before the change; the undo sets it back (`busy: false` when there was none, otherwise kind, note, `from` and
+`until` as they were) and writes the same `presence.status.set` audit row. `client_call` is `{ risk: 'write', source: 'trusted' }` (the person's own signed-in app).
+Tests: `parietal/status.test.ts`.
+
 ## Routing (P25 seam)
 
-`modules/parietal/planner.ts` (`createPresencePlanner({ parietal, front, push? })`) implements the `RoutePlanner` of `delivery.md`,
-composed in `compose-delivery.ts` in place of the single front route. `plan(person, needs)`:
+`modules/parietal/planner.ts` (`createPresencePlanner({ parietal, front, push? })`, `push(person, needs)` returns the person's push routes) implements the `RoutePlanner` of `delivery.md`,
+composed in `compose-delivery.ts` in place of the single front route. `plan(person, needs)` first applies the reach ladder (ADR-0034 §6) to `presence(person).state` and `needs.urgency` (`high` is urgent):
+
+| State | `normal` wake | `high` |
+| --- | --- | --- |
+| `active`, `idle` (desk or mobile) | the routes below | the routes below |
+| `busy` | `{ hold: { reason: 'busy', until? } }` (`until` = the status end) | the routes below, the front route asks the agent to open with why it interrupts |
+| `away`, `offline` | `{ hold: { reason: 'away' \| 'out' \| 'offline' } }` (`out` when `where` is `out`) | the same as busy |
+
+A `note` delivery and one with `needs.immediate` are never held (routes below). A hold is kept by the delivery service and released as the return digest
+(`delivery.md` "Hold and digest"). The routes of a reachable (or urgent) person:
 
 - No capability needed (the default wake): `[front]`.
 - `needs.capabilities` non-empty and each one deliverable (`notify`; `open.view` and `location.share` have no delivery input yet):
@@ -211,15 +257,19 @@ composed in `compose-delivery.ts` in place of the single front route. `plan(pers
   capabilities include every requested one. Each route is one `callClient` per capability, with the delivery's text (`notify`
   `{ text }`, clipped to 500). A route is `unavailable` when its client does not ack, so the next route is tried. With
   `fanout: 'all'` every such client is asked (P29).
-- `push` routes (none yet; web and mobile clients are later plans) come after the client routes.
+- `push` routes (the Web Push of `push.md`, `compose-delivery.ts`): asked for only when `pushWanted(presence, needs)` is true and the person has a subscription (an
+  empty list otherwise). `pushWanted`: an urgent delivery (`needs.urgency: 'high'`, the urgent bypass) always; a `note` never (stored quietly); any other when the
+  person is `away` or `offline`, or `where` is `mobile` or `out` (a non-desk path, ADR-0034 §6). A person at a desk (`active` or `idle`, `where` `desk` or
+  `unknown`) is reached by the clients and the front session, so no push. A held delivery (a `hold` plan) has no routes and so no push; the return digest is
+  the way back. The push route is a companion (`delivery.md`, "Service"): it sits after the client routes and before the front session and never replaces it.
 - The front-session route is always last, so the message is stored in the person's chat. A capability no client of the person
-  has leaves only the `push` routes and the front session.
-- Route ids are `client:<clientId>`. The feed record text is clipped to 200 characters; the chat keeps the full text.
+  has leaves only the `push` routes and the front session. A plain wake (no capability) is `[...push, front]`.
+- Route ids are `client:<clientId>`, `push` and `front`. The feed record text is clipped to 200 characters; the chat keeps the full text.
 
 ## Settings, audit, errors
 
 - No new core settings: the constants live in `CoreTiming`.
-- Audit kinds: `client.registered` (first time only), `client.removed`, `presence.status.set`, `presence.disclosure.set`
+- Audit kinds: `client.registered` (first time only), `client.removed`, `presence.status.set` (also written by the `presence_status_set` tool), `presence.disclosure.set`
   (`{ subject, audience, level }`, the subject is the person who changed their setting), `settings.client-context` (history only: written before the
   switch was removed, Nov 12, 2026, and still summarised by `audit.mine`; no code writes it now), `presence.read` (the owner's raw read),
   `acl.owner-access` (a `detail` read). Never a signal's content,
@@ -246,7 +296,8 @@ Decision: ADR-0033 §5, §6 (and the amendment). Code: `modules/parietal/context
   host name is not a place, and this is not a location): ...` and one line each for the app (kind, label, host, OS, device), the network and the local
   time in the client's zone. When no online client announced `location.share`, one line says no location sensor is online, that the answer comes from
   what the host, the network and the time zone show (a time zone may name its region), that no city, address or building is named as a fact, and
-  that the exact place is not known (ADR-0033 amendment, Nov 13, 2026). No online client: no block. The texts are cleaned (control characters, quotes and angle brackets removed; the host at 60, the label at 40).
+  that the exact place is not known (ADR-0033 amendment, Nov 13, 2026). A sixth line carries the `where` hint when it is not `unknown`
+  (`WHERE_HINT`): worded as a guess ("probably at a computer", "probably on a phone", "said they are out"), never a place. No online client: no block. The texts are cleaned (control characters, quotes and angle brackets removed; the host at 60, the label at 40).
 - **No setting.** The block is always written for the active client (ADR-0033 amendment, Nov 12, 2026: client context is always on, there is no switch).
 - **Scope.** A person's block holds only that person's clients. A member's clients never reach the owner's reminder, and the block is never in the
   system prompt (test: `wernicke-broca/client-context.test.ts`).

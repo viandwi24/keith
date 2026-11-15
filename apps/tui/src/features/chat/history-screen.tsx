@@ -1,11 +1,12 @@
 // `/history`: the person's previous chat generations, newest first, in a compact frame (docs/specs/chat-context.md, "TUI").
 // It reads `chat.generations` once on open and changes nothing; `esc` closes it and returns to where it was opened from.
+
+import { type HistoryRow, historyRowsOf } from '@keith/app-model'
 import type { KeithClient } from '@keith/client'
 import { GUTTER, ScreenFrame, type StatusInfo, Txt } from '@keith/ui'
 import { Box } from 'ink'
 import { useEffect, useState } from 'react'
 import { useGuardedInput as useInput } from '../activity/index.ts'
-import { type HistoryRow, historyRowsOf } from './history-state.ts'
 
 export interface HistoryScreenProps {
   client: Pick<KeithClient, 'chatContext'>

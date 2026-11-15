@@ -25,6 +25,16 @@ export interface WatchPendingOptions {
   /** The lifetime in force now (ms); the wait event carries `expiresAt` = now + this. */
   ttlMs?: () => number
   now?: () => number
+  /**
+   * Called for each approval that appears, after its wait event was written (the request of a conversation is voiced from here,
+   * `consent-voice.ts`). Fire and forget: a failure or a rejection never touches the feed.
+   */
+  onApproval?: (fresh: {
+    sessionId: string
+    approvalId: string
+    toolName: string
+    agentId: string | null
+  }) => void | Promise<void>
 }
 
 export function watchPending(
@@ -60,6 +70,20 @@ export function watchPending(
         continue
       }
       emit(inner, 'brain.amygdala.wait', sessionId, input.agentId ?? null, payload, warn)
+      try {
+        void Promise.resolve(
+          options.onApproval?.({
+            sessionId,
+            approvalId: approval.id,
+            toolName: approval.toolName,
+            agentId: input.agentId ?? null,
+          }),
+        ).catch((error: unknown) =>
+          warn?.(`amygdala: ${error instanceof Error ? error.message : error}`),
+        )
+      } catch (error) {
+        warn?.(`amygdala: ${error instanceof Error ? error.message : error}`)
+      }
     }
   }
 

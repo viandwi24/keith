@@ -78,3 +78,20 @@ describe('built-in persona templates', () => {
     )
   })
 })
+
+describe('addressing and the butler (ADR-0034 §2)', () => {
+  test('the butler uses the name until the person chooses, then sir or madam', () => {
+    const { addressing, attitude, tone } = templateToBody('butler')
+    expect(addressing).toMatch(/name in the profile until the person says/)
+    expect(addressing).toMatch(/"sir" or "madam"/)
+    expect(tone).toContain('Formal and composed')
+    expect(attitude).toMatch(/Calm when the person is upset/)
+    expect(attitude).toMatch(/at most one line of humour, after the facts/)
+    expect(attitude).toMatch(/never argues/)
+  })
+
+  test('friend uses the first name and professional the name', () => {
+    expect(templateToBody('friend').addressing).toMatch(/^By first name/)
+    expect(templateToBody('professional').addressing).toMatch(/^By the name in the profile/)
+  })
+})

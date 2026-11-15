@@ -165,6 +165,11 @@ export async function memberSteps(c: MemberContext): Promise<void> {
       c.output,
     )
     assert(mine?.extra?.waitingFor === 'owner', `ana's item: ${JSON.stringify(mine)}`)
+    // a decision between two people is never consent in one conversation (ADR-0036 §5): the tier is `device`
+    assert(
+      mine?.extra?.consent === 'device',
+      `ana's item has no device tier: ${JSON.stringify(mine)}`,
+    )
     const answer = (credential: string, approved: boolean) =>
       fetch(`${coreUrl}/attention/${mine?.id}/answer`, {
         method: 'POST',

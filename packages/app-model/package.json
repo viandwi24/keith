@@ -1,0 +1,24 @@
+{
+  "name": "@keith/app-model",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "typescript": "catalog:"
+  },
+  "version": "0.1.0",
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "bun test --pass-with-no-tests"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./manage": "./src/manage/index.ts"
+  },
+  "dependencies": {
+    "@keith/contracts": "workspace:*",
+    "@keith/client": "workspace:*",
+    "ai": "catalog:",
+    "@keith/ui": "workspace:*"
+  }
+}

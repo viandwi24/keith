@@ -5,7 +5,7 @@
 import { ROOM_TEXT_MAX } from '@keith/contracts'
 import type { EventRecord, RoomRecord, RoomsRepo } from '@keith/db'
 import { type Tool, tool } from 'ai'
-import { definePlugin, type HarnessContext, type HarnessPlugin } from 'eharness'
+import { definePlugin, type HarnessContext, type HarnessPlugin, untrustedContent } from 'eharness'
 import { z } from 'zod'
 import {
   HANDOFF_REPLY,
@@ -144,7 +144,7 @@ export function createRoomTools(deps: RoomToolDeps): Record<string, (ctx: Harnes
         description:
           'Post a line in the room as Keith. Use it for an announcement to one person ("to Ana: ..."); your final answer of a turn is posted the same way.',
         inputSchema: SayInput,
-        metadata: { risk: 'write' },
+        metadata: { risk: 'write', source: 'trusted' },
         execute: async ({ text }: z.infer<typeof SayInput>) => {
           const speaker = speakerOf(deps, ctx)
           const seq = await deps.transport.sayLine(speaker.roomId, 'keith', text)
@@ -157,7 +157,7 @@ export function createRoomTools(deps: RoomToolDeps): Record<string, (ctx: Harnes
         description:
           'The presence of each member of the room, as far as each one shares it with the person who is speaking. A member who shares nothing is "not shared". Never guess a state.',
         inputSchema: z.object({}),
-        metadata: { risk: 'read' },
+        metadata: { risk: 'read', source: 'trusted' },
         execute: async () => {
           const speaker = speakerOf(deps, ctx)
           const members = deps.rooms.members(speaker.roomId).filter((m) => m.status === 'active')
@@ -175,7 +175,20 @@ export function createRoomTools(deps: RoomToolDeps): Record<string, (ctx: Harnes
         description:
           'The recent lines of the room, oldest first, within the room window. Pass minutes to look back less far than the window.',
         inputSchema: ActivityInput,
-        metadata: { risk: 'read' },
+        metadata: { risk: 'read', source: 'outside' },
+        // what other people said in the room is free text: inside an untrusted-content frame; who and when stay outside it
+        toModelOutput: ({ output }: { output: { lines: RoomLine[] } }) => ({
+          type: 'json' as const,
+          value: {
+            lines: output.lines.map((line) => ({
+              ...line,
+              text: untrustedContent(line.text ?? '', {
+                source: 'room',
+                name: line.speakerName ?? line.speaker ?? 'room',
+              }),
+            })),
+          },
+        }),
         execute: async ({ minutes }: z.infer<typeof ActivityInput>) => {
           const speaker = speakerOf(deps, ctx)
           const at = now()
@@ -206,7 +219,7 @@ export function createRoomTools(deps: RoomToolDeps): Record<string, (ctx: Harnes
         description:
           'Leave the room now. You can only leave for yourself; you cannot remove anyone with this tool.',
         inputSchema: LeaveInput,
-        metadata: { risk: 'write' },
+        metadata: { risk: 'write', source: 'trusted' },
         execute: async () => {
           const speaker = speakerOf(deps, ctx)
           deps.service.leave({ by: speaker.personId, via: 'tcp' }, speaker.roomId)
@@ -219,7 +232,7 @@ export function createRoomTools(deps: RoomToolDeps): Record<string, (ctx: Harnes
         description:
           'Ask the initiator or the owner to confirm removing a member from the room. You remove nobody: the request waits for that person to confirm it. Only the initiator or the owner may ask.',
         inputSchema: RequestRemoveInput,
-        metadata: { risk: 'write' },
+        metadata: { risk: 'write', source: 'trusted' },
         execute: async ({ person }: z.infer<typeof RequestRemoveInput>) => {
           const speaker = speakerOf(deps, ctx)
           if (!(await mayRequest(speaker))) return refuseRequest(speaker, ROOM_REQUEST_REMOVE_TOOL)
@@ -237,7 +250,7 @@ export function createRoomTools(deps: RoomToolDeps): Record<string, (ctx: Harnes
         description:
           'Ask the initiator or the owner to confirm ending the room for everyone. You end nothing: the request waits for that person to confirm it. Only the initiator or the owner may ask.',
         inputSchema: RequestEndInput,
-        metadata: { risk: 'write' },
+        metadata: { risk: 'write', source: 'trusted' },
         execute: async () => {
           const speaker = speakerOf(deps, ctx)
           if (!(await mayRequest(speaker))) return refuseRequest(speaker, ROOM_REQUEST_END_TOOL)
@@ -254,7 +267,7 @@ export function createRoomTools(deps: RoomToolDeps): Record<string, (ctx: Harnes
         description:
           "Hand the speaker's own personal request to the speaker's own chat with Keith: a note, a memory, a task, a file or anything else that is theirs and not the room's. Pass only what the speaker asked, in their words. It is done in that person's own chat, never here. The result tells you the line to answer in the room.",
         inputSchema: HandoffInput,
-        metadata: { risk: 'write' },
+        metadata: { risk: 'write', source: 'trusted' },
         execute: async ({ request }: z.infer<typeof HandoffInput>) => {
           const speaker = speakerOf(deps, ctx)
           const seq = deps.turnSeqs.of(speaker.roomId)

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
+import { visibleWidth } from './ansi-width.ts'
 import { BrainTrace, LIST_ROWS, LIST_WIDTH, MAX_SAMPLES, REGIONS } from './brain-trace.ts'
-import { ESC, stripAnsi, visibleWidth } from './color.ts'
+import { ESC, stripAnsi } from './color.ts'
 import { BRAIN_COLORS, DARK, LIGHT, PLAIN } from './fixtures.ts'
 
 const busy = () => {

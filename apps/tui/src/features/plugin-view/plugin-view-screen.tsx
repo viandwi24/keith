@@ -1,4 +1,4 @@
-import type { KeithClient } from '@keith/client'
+import { isHome, isLeave, type KeithClient, keyBytes } from '@keith/client'
 import {
   GUTTER,
   Notice,
@@ -12,7 +12,6 @@ import {
 import { Box } from 'ink'
 import { useEffect } from 'react'
 import { useGuardedInput as useInput, useLink } from '../activity/index.ts'
-import { isHome, isLeave, keyBytes } from './key-bytes.ts'
 import { usePluginView } from './use-plugin-view.ts'
 import { endText, TIMEOUT_TEXT, viewDepth } from './view-text.ts'
 

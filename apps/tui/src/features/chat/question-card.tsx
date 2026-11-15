@@ -1,6 +1,6 @@
+import type { QuestionItem, Settled } from '@keith/app-model'
 import { Dialog, dialogInner, G, GUTTER, KeyHints, Notice, Txt } from '@keith/ui'
 import { Box } from 'ink'
-import type { QuestionItem, Settled } from './question-state.ts'
 
 export interface QuestionCardProps {
   item: QuestionItem

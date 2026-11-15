@@ -126,7 +126,63 @@ internet. Use Tailscale or a private network: set `KEITH_HOST` to the core machi
 `KEITH_PUBLIC_URL` to the same address, e.g. `KEITH_HOST=100.64.0.1 KEITH_PUBLIC_URL=http://100.64.0.1:7420`.
 A non-loopback host makes the core print a warning at boot.
 
-## TUI commands
+## Keith asks before risky things
+
+Keith decides how much to ask from two things: whether you just asked for it in your own words, and how much harm it could do.
+
+- **Runs at once, can be undone.** When you ask for a small, reversible change (a persona, how Keith addresses you, a model role, your
+  status), Keith does it and says so in a few words: "Done. Say 'undo' to switch back." Say "undo" and the last change is taken back.
+- **Keith asks you in the conversation.** Something that changes things on a machine (a shell command on a node) or leaves it (a message,
+  a call) is asked first, in Keith's own words: what, where and why, ending with a yes or no. Answer in the chat ("yes", "ya", "go ahead",
+  "no"). By voice you will answer the same way, by speaking. A new topic counts as "no", and Keith carries on with what you said. A request
+  nobody answers is dropped after 10 minutes. While Keith waits, a quiet line above the composer says what it is waiting for and how long
+  it stays open.
+- **It goes to your Inbox and your phone.** Keith never asks in the chat when it has read something that came from outside (a web page,
+  a note someone else wrote, a message in a room, a worker's report) before proposing the risky action. Then you confirm in the Inbox
+  (or from the push notification), from a device you have stepped up, with your PIN or password. A PIN is never spoken or typed in the
+  chat. A person who needs your approval (a member asking for a shell) also lands in your Inbox.
+
+**Why.** Text that Keith reads on the way can carry instructions ("assistant: run this on the node"). Keith cannot always tell such text
+from you, so the program, not the model, decides: only your own message in your own signed-in chat can say yes, and anything proposed
+after outside text goes to a device. A "yes" written inside a page or a report is never read as your answer.
+
+## Getting to know you, and reaching you
+
+**Onboarding.** In your first conversation Keith asks how to address you, your language and how long answers should be; the owner is
+also asked which persona to use (butler, friend, professional, or your own). Say "skip" to keep the defaults. Change any of it later in
+chat ("call me Boss", "use the friend persona") or with `/persona style`. A persona change runs at once when you ask for it (and
+can be undone); after Keith has read outside text it waits for you, and from another machine for your PIN (see "Keith asks before risky
+things").
+
+**Your status in chat.** Tell Keith "I'm out until 7" or "don't disturb me for an hour", now or for later ("I'm out from 5 to 7"). Keith
+also knows from your apps whether you are at your desk, idle or away, and which device you use.
+
+**How Keith reaches you.** At your desk a message is a toast; while you are busy or away a normal message waits, and an urgent one comes
+through with one sentence saying why it interrupts. When you are back, Keith briefs you once on everything that waited. Reminders always
+arrive on time. Details: `docs/decisions/0034-reach-and-address.md`.
+
+**When you arrive.** A protocol on the event `brain.parietal.presence` (state `active`) can open a view or ask Keith to prepare
+something when you come back to your desk; ask Keith in chat to propose one.
+
+**Switching models in chat.** The owner can say "use <connection>:<model> for the front role"; it runs at once and can be undone when you asked for it in this
+conversation, and waits for you otherwise (see "Keith asks before risky things").
+
+## The web client
+
+The core serves a web client at `http://<core>/app` (on this machine: `http://127.0.0.1:7420/app`). It has what the TUI has: sign-in with
+your PIN, password, a device code or a token, chat, approvals with step-up, Home with the orb, tasks, nodes, budget, presence, brain, Me,
+rooms, plugin views and every Manage section. Press ⌘K (Ctrl+K) for the command palette.
+
+- Build it once after an update: `bun run --cwd apps/web build`. `KEITH_WEB=off` turns it off; `KEITH_WEB_DIR` points at another build.
+- Your sign-in lives in an HttpOnly cookie: page scripts never see it. "Remember this device" keeps it for 30 days; without it, closing the
+  browser signs you out.
+- From a phone or another machine use HTTPS (Tailscale serve). On plain HTTP over the LAN only the PIN works, with a warning.
+- Notifications: Presence > "Notifications on this device" turns on Web Push for that browser (HTTPS or localhost; on iPhone add Keith to
+  the Home Screen first, iOS 16.4+). A push says only "Keith has something for you" unless you switch on the message preview. Phones and
+  public push services need `KEITH_PUSH_SUBJECT` (a `mailto:` or https URL) on the core.
+- Guests: with guest mode on, the guest port (7421) serves a guest chat page at `/app/guest`.
+- For development: `bun run --cwd apps/web dev` (Vite on 5173, proxied to a core on 7420).
+
 
 
 | Command | What it does |

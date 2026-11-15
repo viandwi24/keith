@@ -67,6 +67,8 @@ export const list = defineOperation({
 
 export const cancel = defineOperation({
   name: 'cancel',
+  // the person's own data: what it returns is not outside text (ADR-0036 §3)
+  source: 'trusted',
   description:
     'Cancel a reminder. The person who created it, the person it is for, and the owner can cancel it. When the owner cancels a reminder between two other people, both are told and the owner is audited.',
   input: z.object({ id }),
@@ -110,6 +112,8 @@ export const cancel = defineOperation({
 
 export const update = defineOperation({
   name: 'update',
+  // the person's own data: what it returns is not outside text (ADR-0036 §3)
+  source: 'trusted',
   description:
     'Change the text and/or the time of a reminder you created for yourself (give the new text, and/or exactly one of at, inMinutes or cron to move it). A reminder for another person cannot be changed: cancel it and create a new one, which the owner reviews.',
   input: z

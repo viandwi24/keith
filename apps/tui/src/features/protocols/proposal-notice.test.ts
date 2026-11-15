@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
+import { reminderDefinition } from '@keith/app-model/manage'
 import type { ProtocolProposal } from '@keith/contracts'
-import { reminderDefinition } from '../manage/protocols/protocols-reminder.ts'
 import { freshProposals, proposalLine } from './proposal-notice.ts'
 
 const proposal = (over: Partial<ProtocolProposal>): ProtocolProposal => ({

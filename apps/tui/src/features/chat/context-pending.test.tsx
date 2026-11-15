@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import { CONTEXT_HOLD_TEXT } from '@keith/app-model'
 import { chatReady, frameUntil, typeLine } from '../../testing/ink.ts'
 import { setupApp, stopCores } from '../../testing/setup-app.tsx'
-import { CONTEXT_HOLD_TEXT } from './context-pending.ts'
 
 afterEach(stopCores)
 

@@ -336,7 +336,7 @@ describe('activity and the manual status', () => {
     expect(view).toMatchObject({ busy: true, note: 'in a meeting' })
     expect(service.presence('ana')).toMatchObject({ state: 'busy', note: 'in a meeting' })
     clock.now += 31 * MIN
-    expect(service.status('ana')).toEqual({ busy: false, note: null, until: null })
+    expect(service.status('ana')).toMatchObject({ busy: false, note: null, until: null })
     expect(service.presence('ana').state).not.toBe('busy')
   })
 
@@ -355,7 +355,7 @@ describe('activity and the manual status', () => {
     presenceDisclosureRepo(sqlite).set('ana', '@users', 'state')
     const mine = service.mine('ana')
     expect(mine.clients.map((c) => c.id)).toEqual([uuid(1)])
-    expect(mine.status).toEqual({ busy: false, note: null, until: null })
+    expect(mine.status).toMatchObject({ busy: false, note: null, until: null, kind: null })
     // the owner audience and @users always appear; a stored level wins over the default, a group has none
     expect(mine.disclosure).toEqual([
       { audience: 'owner', level: 'detail' },

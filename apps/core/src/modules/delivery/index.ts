@@ -8,11 +8,21 @@ export {
   type DeliveryOptions,
   type DeliveryRoute,
   outcomeOf,
+  type RouteHold,
+  type RoutePlan,
   type RoutePlanner,
   type RouteResult,
   requestOf,
   TICK_LIMIT,
 } from './delivery.ts'
+export {
+  createDigest,
+  type Digest,
+  type DigestOptions,
+  digestId,
+  digestText,
+  HELD_MAX_MS,
+} from './digest.ts'
 export { singleRoutePlanner } from './planner.ts'
 export { deliveryRemoval } from './removal.ts'
 export {
@@ -20,4 +30,5 @@ export {
   type FrontRouteOptions,
   INJECT_KEY_MAX,
   injectKey,
+  interruptingRoute,
 } from './route-front.ts'

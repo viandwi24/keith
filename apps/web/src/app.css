@@ -1,0 +1,392 @@
+/* Global look of the web client. Colour tokens (`--k-*`) come from `@keith/ui/tokens` (features/shell/tokens.ts); the rules
+   below only derive from them, so no colour literal lives here. */
+:root {
+  --font-ui: "Manrope", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --radius: 0.5rem;
+  --border: var(--k-border);
+  --surface: color-mix(in srgb, var(--k-text) 4%, var(--k-bg));
+  --surface-strong: color-mix(in srgb, var(--k-text) 9%, var(--k-bg));
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--k-bg);
+  color: var(--k-text);
+  font-family: var(--font-ui);
+  font-size: 1rem;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--k-accent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--k-accent);
+  outline-offset: 2px;
+}
+
+.k-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* controls */
+.k-input {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  font: inherit;
+  color: var(--k-text);
+  background: var(--k-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.k-input::placeholder {
+  color: var(--k-text-muted);
+}
+.k-input[aria-invalid="true"] {
+  border-color: var(--k-danger);
+}
+
+.k-button {
+  font: inherit;
+  padding: 0.55rem 1rem;
+  color: var(--k-text);
+  background: var(--surface-strong);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.k-button:hover:not(:disabled) {
+  border-color: var(--k-text-muted);
+}
+.k-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.k-button.primary {
+  color: var(--k-bg);
+  background: var(--k-accent);
+  border-color: var(--k-accent);
+  font-weight: 600;
+}
+.k-button.link {
+  margin-top: 1rem;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--k-text-muted);
+  text-decoration: underline;
+}
+
+/* bits-ui tabs */
+.k-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  background: var(--k-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.k-tab {
+  flex: 1;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.4rem 0.6rem;
+  color: var(--k-text-muted);
+  background: none;
+  border: none;
+  border-radius: calc(var(--radius) - 2px);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.k-tab[data-state="active"] {
+  color: var(--k-accent);
+  background: var(--surface-strong);
+  font-weight: 600;
+}
+
+/* bits-ui overlays, dialog, drawer and menu (rendered in a portal, so global) */
+.k-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: color-mix(in srgb, var(--k-bg) 70%, transparent);
+}
+.k-dialog {
+  position: fixed;
+  z-index: 41;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(30rem, calc(100vw - 2rem));
+  padding: 1.5rem;
+  background: var(--k-bg);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 2);
+}
+.k-dialog-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+.k-dialog-body {
+  margin: 0 0 1.25rem;
+  color: var(--k-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.k-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.k-drawer {
+  position: fixed;
+  z-index: 41;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(22rem, 90vw);
+  overflow-y: auto;
+  background: var(--k-bg);
+  border-left: 1px solid var(--border);
+}
+
+.avatar {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--k-accent);
+  background: var(--surface-strong);
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.k-menu {
+  z-index: 60;
+  min-width: 13rem;
+  padding: 0.4rem;
+  background: var(--k-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.k-menu-head {
+  display: grid;
+  padding: 0.5rem 0.6rem;
+  font-size: 0.9rem;
+}
+.k-menu-head span {
+  color: var(--k-text-muted);
+  font-size: 0.8rem;
+}
+.k-menu-label {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.75rem;
+  color: var(--k-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.k-menu-sep {
+  height: 1px;
+  margin: 0.3rem 0;
+  background: var(--border);
+}
+.k-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: calc(var(--radius) - 2px);
+  font-size: 0.9rem;
+  cursor: pointer;
+  outline: none;
+}
+.k-menu-item[data-highlighted] {
+  background: var(--surface-strong);
+}
+.k-menu-check {
+  width: 1rem;
+  color: var(--k-accent);
+  font-family: var(--font-mono);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:root,
+  html:root *,
+  html:root *::before,
+  html:root *::after {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+    transition-duration: 0.01ms;
+    scroll-behavior: auto;
+  }
+}
+
+/* screens: page frame, tables, badges and notes shared by the Tasks, Nodes, Budget, Presence, Brain, Me, Rooms and Help pages */
+.k-page {
+  max-width: 62rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+}
+.k-page > h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+.k-page h2 {
+  margin: 1.5rem 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.k-sub {
+  margin: 0 0 1rem;
+  color: var(--k-text-muted);
+  font-size: 0.9rem;
+}
+.k-muted {
+  color: var(--k-text-muted);
+}
+.k-note {
+  margin: 0.75rem 0;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.k-note.error {
+  color: var(--k-danger);
+  border-color: var(--k-danger);
+}
+.k-note.warning {
+  color: var(--k-warning);
+  border-color: var(--k-warning);
+}
+.k-tablewrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.k-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.k-table th,
+.k-table td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+.k-table tr:last-child td {
+  border-bottom: none;
+}
+.k-table th {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--k-text-muted);
+  background: var(--surface);
+}
+.k-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.k-table .mono,
+.k-mono {
+  font-family: var(--font-mono);
+}
+.k-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.05rem 0.5rem;
+  font-size: 0.78rem;
+  color: var(--k-text-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.k-badge.success {
+  color: var(--k-success);
+  border-color: var(--k-success);
+}
+.k-badge.warning {
+  color: var(--k-warning);
+  border-color: var(--k-warning);
+}
+.k-badge.danger {
+  color: var(--k-danger);
+  border-color: var(--k-danger);
+}
+.k-badge.info {
+  color: var(--k-info);
+  border-color: var(--k-info);
+}
+.k-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+}
+.k-chip {
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0.25rem 0.7rem;
+  color: var(--k-text-muted);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.k-chip[aria-pressed="true"] {
+  color: var(--k-accent);
+  background: var(--surface-strong);
+  border-color: var(--k-accent);
+}
+.k-field {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0 0 0.9rem;
+}
+.k-field > label,
+.k-field > legend {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.k-hint {
+  font-size: 0.8rem;
+  color: var(--k-text-muted);
+}
+.k-error-text {
+  font-size: 0.82rem;
+  color: var(--k-danger);
+}
+.k-link-back {
+  display: inline-block;
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
+}

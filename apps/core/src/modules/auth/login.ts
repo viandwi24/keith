@@ -10,7 +10,7 @@ import {
   LoginRequestSchema,
   StepUpRequestSchema,
 } from '@keith/contracts'
-import type { CredentialsRepo, IdentifiersRepo, SecretsRepo } from '@keith/db'
+import type { CredentialsRepo, IdentifiersRepo, SecretsRepo, TokensRepo } from '@keith/db'
 import type { Audit } from '../audit/index.ts'
 import { formatCredential, hashSecret, newCredentialId, newSecret } from './credentials.ts'
 import { createFlowRoutes } from './flow.ts'
@@ -28,6 +28,8 @@ import { DEFAULT_POLICY } from './policy.ts'
 import { sessionTerms } from './session-terms.ts'
 import { createThrottle } from './throttle.ts'
 import type { Principal } from './tokens.ts'
+import { createWebRoutes } from './web-routes.ts'
+import { createCookieIssuer, withSetCookie } from './web-session.ts'
 import type { LanNets } from './zone.ts'
 
 /** A step-up lasts this long from the moment the PIN or password is confirmed (fixed, not sliding). */
@@ -41,6 +43,8 @@ export { DEFAULT_LOGIN_LABEL }
 export interface AuthRoutesOptions {
   secrets: SecretsRepo
   credentials: CredentialsRepo
+  /** Legacy tokens: `POST /auth/web/adopt` can turn one into the cookie. */
+  tokens?: TokensRepo
   hasher: Hasher
   audit: Audit
   /** `access.proxy`, read per request (a setting). */
@@ -66,6 +70,10 @@ export interface AuthRoutes {
   flow(request: Request, peer: Peer, flowId: string): Promise<Response>
   /** `principal` is the one the thalamus middleware resolved for this request (or undefined). */
   stepUp(request: Request, peer: Peer, principal: Principal | undefined): Promise<Response>
+  /** `POST /auth/web/adopt`: a credential in the body becomes the session cookie (docs/specs/auth.md, "Browser sessions"). */
+  webAdopt(request: Request, peer: Peer): Promise<Response>
+  /** `POST /auth/web/logout`: revoke the session behind the call and clear the cookie. */
+  webLogout(request: Request, peer: Peer, principal: Principal | undefined): Promise<Response>
 }
 
 const INVALID = (): Response => answer(401, { error: 'invalid_credentials' })
@@ -92,7 +100,16 @@ export function createAuthRoutes(options: AuthRoutesOptions): AuthRoutes {
     password,
     tokenMethod,
   ])
+  const cookies = createCookieIssuer(options.credentials, now)
+  const web = createWebRoutes({
+    credentials: options.credentials,
+    tokens: options.tokens,
+    audit,
+    cookies,
+    now,
+  })
   const flows = createFlowRoutes({
+    cookies,
     registry,
     identifiers: options.identifiers,
     audit,
@@ -169,6 +186,8 @@ export function createAuthRoutes(options: AuthRoutesOptions): AuthRoutes {
 
     identify: flows.identify,
     flow: flows.answer,
+    webAdopt: web.adopt,
+    webLogout: web.logout,
 
     async login(request, peer) {
       const checked = gate(request, peer, 'auth.login')
@@ -278,6 +297,8 @@ export function createAuthRoutes(options: AuthRoutesOptions): AuthRoutes {
         const id = newCredentialId()
         const assurance = kind === 'password' ? 2 : (own.assurance ?? 0)
         const methods = own.methods ?? [own.kind]
+        // a remembered session stays remembered after the rotation
+        const remember = cookies.remembered(own.id)
         const rotated = options.credentials.rotate(
           own.id,
           {
@@ -299,7 +320,14 @@ export function createAuthRoutes(options: AuthRoutesOptions): AuthRoutes {
           via: peer.via,
           detail: { ...detail, elevatedUntil, rotatedTo: id },
         })
-        return answer(200, { elevatedUntil, credential: formatCredential(id, secret) })
+        const credential = formatCredential(id, secret)
+        if (parsed.data.deliver === 'cookie') {
+          return withSetCookie(
+            answer(200, { elevatedUntil, cookie: true }),
+            cookies.issue(request, credential, remember),
+          )
+        }
+        return answer(200, { elevatedUntil, credential })
       }
       if (!options.credentials.setElevated(own.id, elevatedUntil)) return INVALID()
       audit.record({

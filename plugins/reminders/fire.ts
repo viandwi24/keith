@@ -145,6 +145,8 @@ export async function onSchedule(
       name: 'reminder',
       text: frame(row, { creator: creator.name, recipient: recipient.name }),
       data: { reminder: id },
+      // a reminder is for this time: it reaches the person even while they are busy or away (never held for the digest)
+      immediate: true,
       // the run id: a retry, or a fire resumed after a restart, is answered by the delivery service once
       id: fire.fireId,
       // the creator wrote the text, so only the creator is told; once per reminder and UTC day

@@ -1,16 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import {
-  clipAnsi,
-  ESC,
-  fade,
-  hexToRgb,
-  paint,
-  quantize16,
-  quantize256,
-  sgr,
-  stripAnsi,
-  visibleWidth,
-} from './color.ts'
+import { clipAnsi, visibleWidth } from './ansi-width.ts'
+import { ESC, fade, hexToRgb, paint, quantize16, quantize256, sgr, stripAnsi } from './color.ts'
 
 describe('colour depth', () => {
   test('truecolor writes the exact rgb', () => {

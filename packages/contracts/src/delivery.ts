@@ -21,6 +21,11 @@ export const DeliveryNeedsSchema = z.object({
   capabilities: z.array(z.string().min(1).max(60)).max(5).default([]),
   fanout: z.enum(['best', 'all']).default('best'),
   urgency: z.enum(['normal', 'high']).default('normal'),
+  /**
+   * Never held for a busy or away person (ADR-0034 §6): the person asked for this (a handoff of their own request) or set it
+   * for this time (a reminder).
+   */
+  immediate: z.boolean().optional(),
 })
 export type DeliveryNeeds = z.infer<typeof DeliveryNeedsSchema>
 
@@ -71,6 +76,10 @@ export const DeliveryFailReasonSchema = z.enum([
 ])
 export type DeliveryFailReason = z.infer<typeof DeliveryFailReasonSchema>
 
+/** Why a delivery waits for the person's return (ADR-0034 §6): the person is busy, away, out (stated) or offline. */
+export const DeliveryHoldReasonSchema = z.enum(['busy', 'away', 'out', 'offline'])
+export type DeliveryHoldReason = z.infer<typeof DeliveryHoldReasonSchema>
+
 /** What `deliver()` returns: the outcome of the run id, stored, so a repeat call answers the same. */
 export const DeliveryOutcomeSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('delivered'), route: z.string(), attempts: z.number().int() }),
@@ -83,6 +92,12 @@ export const DeliveryOutcomeSchema = z.discriminatedUnion('status', [
     status: z.literal('failed'),
     reason: DeliveryFailReasonSchema,
     attempts: z.number().int(),
+  }),
+  /** Kept for the return digest (ADR-0034 §7); `until` is the end of a stated status when known (epoch ms). */
+  z.object({
+    status: z.literal('held'),
+    reason: DeliveryHoldReasonSchema,
+    until: z.number().optional(),
   }),
 ])
 export type DeliveryOutcome = z.infer<typeof DeliveryOutcomeSchema>

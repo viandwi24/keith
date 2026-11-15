@@ -1,6 +1,6 @@
+import { formatElapsed, isActive, shortAgent, statusIcon, statusTone } from '@keith/app-model'
 import type { Task } from '@keith/contracts'
 import { type Column, ListRow, Panel, useNow } from '@keith/ui'
-import { formatElapsed, isActive, shortAgent, statusIcon, statusTone } from './tasks-state.ts'
 
 /** Columns of a task row: glyph, agent (padded), description (flex), elapsed (right). */
 export function taskColumns(task: Task, now: number, agentWidth: number): Column[] {

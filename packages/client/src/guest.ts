@@ -330,7 +330,11 @@ export function createGuestClient(options: GuestClientOptions): GuestClient {
       const decoder = new TextDecoder()
       let buffer = ''
       try {
-        for await (const bytes of res.body as unknown as AsyncIterable<Uint8Array>) {
+        // a reader, not `for await`: async iteration of a `ReadableStream` is missing in some browsers
+        const reader = res.body.getReader()
+        for (;;) {
+          const { done, value: bytes } = await reader.read()
+          if (done) break
           buffer += decoder.decode(bytes, { stream: true })
           let at = buffer.indexOf('\n\n')
           while (at >= 0) {

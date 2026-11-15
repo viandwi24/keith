@@ -16,6 +16,7 @@ import {
 import type { Audit } from '../audit/index.ts'
 import { formatCredential, hashSecret, newCredentialId, newSecret } from './credentials.ts'
 import { json, readJson, refuse } from './http.ts'
+import { createCookieIssuer, withSetCookie } from './web-session.ts'
 
 /** A device code lives this long. */
 export const DEVICE_TTL_MS = 600_000
@@ -93,6 +94,7 @@ export function createDeviceLogin(options: DeviceLoginOptions): DeviceLogin {
   const startGuard = pairingGuard({ maxFailures: options.maxStarts ?? 15, windowMs })
   const pollGuard = pairingGuard({ maxFailures: options.maxPollFailures ?? 20, windowMs })
   const { devices, credentials, audit } = options
+  const cookies = createCookieIssuer(credentials, now)
 
   /** The pending, unexpired request a code names (with the hash of its future secret). */
   const findPending = async (code: string) => {
@@ -201,10 +203,15 @@ export function createDeviceLogin(options: DeviceLoginOptions): DeviceLogin {
       devices.remove(found.id) // single use: whatever the answer, the request is consumed now
       if (found.status === 'denied' || found.credentialId === null)
         return reply({ status: 'denied' })
-      return reply({
-        status: 'approved',
-        credential: formatCredential(found.credentialId, await deriveDeviceSecret(pollSecret)),
-      })
+      const credential = formatCredential(found.credentialId, await deriveDeviceSecret(pollSecret))
+      if (parsed.data.deliver === 'cookie') {
+        // the credential never reaches the page: it goes into the HttpOnly cookie (a browser-session cookie)
+        return withSetCookie(
+          reply({ status: 'approved', cookie: true }),
+          cookies.issue(request, credential, false),
+        )
+      }
+      return reply({ status: 'approved', credential })
     },
 
     async approve({ code, label, personId, via }) {

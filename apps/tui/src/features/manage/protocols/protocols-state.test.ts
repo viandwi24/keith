@@ -1,7 +1,4 @@
 import { describe, expect, test } from 'bun:test'
-import { MS_DAY, MS_HOUR, MS_MINUTE, type ProtocolRun, type ProtocolView } from '@keith/contracts'
-import { createFakeProtocols, NOW } from '../../../testing/fake-protocols.ts'
-import { reminderDefinition } from './protocols-reminder.ts'
 import {
   askLines,
   clock,
@@ -12,13 +9,16 @@ import {
   protocolCells,
   protocolDetail,
   protocolRows,
+  reminderDefinition,
   runCell,
   shortClock,
   span,
   stateCell,
   triggerLine,
   widthsOf,
-} from './protocols-state.ts'
+} from '@keith/app-model/manage'
+import { MS_DAY, MS_HOUR, MS_MINUTE, type ProtocolRun, type ProtocolView } from '@keith/contracts'
+import { createFakeProtocols, NOW } from '../../../testing/fake-protocols.ts'
 
 const view = (over: Partial<ProtocolView> = {}): ProtocolView => ({
   id: 'p1',

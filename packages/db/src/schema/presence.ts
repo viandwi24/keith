@@ -45,13 +45,15 @@ export const presenceSignals = sqliteTable(
 )
 
 /**
- * The manual status of a person (the first overlay source): `state` is `busy` while the row exists, `until` is the end
- * (null: no end, at most 24 hours from `set_at` by the service). `/free` deletes the row.
+ * The stated status of a person: `state` is its kind, `busy` (the first overlay source) or `out`; `from` is the start
+ * (epoch ms, null: from `set_at`), `until` is the end (null: no end, capped by the service). `/free` deletes the row.
  */
 export const presenceStatus = sqliteTable('presence_status', {
   personId: text('person_id').primaryKey(),
   state: text('state').notNull(),
   note: text('note'),
+  /** Epoch ms the status starts (ADR-0034 §5); null means it started when it was set. */
+  from: integer('from'),
   until: integer('until'),
   setAt: integer('set_at').notNull(),
 })
@@ -65,4 +67,28 @@ export const presenceDisclosure = sqliteTable(
     level: text('level').notNull(),
   },
   (t) => [primaryKey({ columns: [t.personId, t.audience] })],
+)
+
+/**
+ * A Web Push subscription of one person (docs/specs/push.md, ADR-0035): the endpoint (unique) and the browser's keys. The
+ * endpoint and the keys are secrets of the subscription; no read shows them to a client. `failures` counts failed sends
+ * in a row, the row is dropped past the limit or on a 404/410 answer.
+ */
+export const pushSubscriptions = sqliteTable(
+  'push_subscriptions',
+  {
+    id: text('id').primaryKey(),
+    personId: text('person_id').notNull(),
+    endpoint: text('endpoint').notNull().unique(),
+    p256dh: text('p256dh').notNull(),
+    auth: text('auth').notNull(),
+    /** The presence client id of the browser, when it sent one. */
+    clientId: text('client_id'),
+    label: text('label').notNull(),
+    userAgent: text('user_agent').notNull(),
+    createdAt: integer('created_at').notNull(),
+    lastSuccessAt: integer('last_success_at'),
+    failureCount: integer('failure_count').notNull().default(0),
+  },
+  (t) => [index('push_subscriptions_person').on(t.personId)],
 )

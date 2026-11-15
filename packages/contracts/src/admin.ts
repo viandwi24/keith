@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { PersonCapabilitySchema } from './capabilities.ts'
 import { PersonRoleSchema } from './people.ts'
+import { CredentialDeliverySchema } from './web-session.ts'
 
 /** How the owner reaches core: only this computer, or also from other devices. */
 export const AccessModeSchema = z.enum(['local', 'remote'])
@@ -106,13 +107,20 @@ export type DeviceStartResponse = z.infer<typeof DeviceStartResponseSchema>
 export const DevicePollRequestSchema = z.object({
   requestId: z.string().min(1).max(100),
   pollSecret: z.string().min(1).max(200),
+  /** `cookie`: an approved credential goes into the session cookie, and the answer carries `cookie: true` instead (ADR-0035). */
+  deliver: CredentialDeliverySchema.optional(),
 })
 export type DevicePollRequest = z.infer<typeof DevicePollRequestSchema>
 
 /** `POST /auth/device/poll` answer. `approved` carries the credential exactly once. */
 export const DevicePollResponseSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('pending') }),
-  z.object({ status: z.literal('approved'), credential: z.string() }),
+  z.object({
+    status: z.literal('approved'),
+    /** The credential, shown once; absent when it went into the cookie. */
+    credential: z.string().optional(),
+    cookie: z.literal(true).optional(),
+  }),
   z.object({ status: z.literal('expired') }),
   z.object({ status: z.literal('denied') }),
 ])
@@ -188,6 +196,8 @@ export const WhoamiSchema = z.object({
   assurance: z.number().int().min(0).max(2).optional(),
   /** Whether this call is stepped up (the socket always is; a session for 10 minutes after a PIN). */
   elevated: z.boolean(),
+  /** When the step-up of this session ends (epoch ms); null when not stepped up or on the socket. Absent on older cores. */
+  elevatedUntil: z.number().nullable().optional(),
   /** What this person may do: the role table plus their grants (the server checks every call again). */
   capabilities: z.array(PersonCapabilitySchema),
 })

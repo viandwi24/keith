@@ -137,7 +137,11 @@ registerMySummary('presence.disclosure.set', (d) =>
     : `set who may see your presence (${text(d.audience)}) to ${text(d.level)}`,
 )
 registerMySummary('presence.status.set', (d) =>
-  d.busy === false ? 'cleared your busy status' : 'set your status to busy',
+  d.busy === false
+    ? 'cleared your status'
+    : d.kind === 'out'
+      ? 'set your status to out'
+      : 'set your status to busy',
 )
 registerMySummary('protocol.create', () => 'created one of your protocols')
 registerMySummary('protocol.update', () => 'changed one of your protocols')
@@ -247,6 +251,15 @@ hideFromMine('person.notice.seen')
 hideFromMine('delivery.sent')
 hideFromMine('delivery.retry')
 hideFromMine('delivery.failed')
+hideFromMine('delivery.held')
+hideFromMine('delivery.push')
+registerMySummary('push.subscribed', () => 'turned on push notifications on a device')
+registerMySummary('push.unsubscribed', () => 'turned off push notifications on a device')
+registerMySummary('push.preview.set', (d) =>
+  d.preview === true
+    ? 'turned on message previews in push notifications'
+    : 'turned off message previews in push notifications',
+)
 registerMySummary('delivery.reported', () => 'a message you set could not be delivered')
 registerMySummary('delivery.test_notice', () => 'the owner sent you a test notice')
 

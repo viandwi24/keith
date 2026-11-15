@@ -117,6 +117,27 @@ Run /connect to add a provider connection, then /model to pick a model." The fai
 `eh.notice` message (see `wernicke-broca.md`). It is also the agent's static model, because a
 plain model id string would go to the AI Gateway over the network.
 
+## Tools in conversation
+
+Decision: ADR-0034 §8. Plugin `keith-providers-model-tools` (`providers/model-tools.ts`), added to the front agent only. Both tools are the
+owner's (`not-owner` for a member, `no-person` without one); a refusal is an answer `{ ok: false, reason, message }`, never a throw.
+
+| Tool | Input | Approval | Output |
+| --- | --- | --- | --- |
+| `model_roles_get` | none | no (a read, `trusted`) | `{ ok: true, roles }` (`front`, `cortex`, `guest`; null when none) |
+| `model_role_set` | `role` (`front`, `cortex`, `guest`), `model` (`connection:model`) | when tainted (a reversible write, see below) | `{ ok: true, role, model, roles }`, or `unknown-model` for an unknown connection or model |
+
+`model_role_set` calls `ProviderService.setRole` (the call behind `keith-core model set` and `models.roles.set`), so validation is the same, and
+writes the same audit row (`settings.model.set`, `{ role, ref }`, via `local`). The plugin has no `tool.approve` hook of its own since ADR-0036:
+the tools declare `metadata` (`model_roles_get`: `risk: 'read', source: 'trusted'`; `model_role_set`: `risk: 'write', reversible: true, source: 'trusted'`) and
+amygdala's consent hook decides (`amygdala.md`, "Consent"): in a clean conversation (the owner just asked, nothing outside read since) `model_role_set` runs at
+once; otherwise it waits as an approval with the tier `conversation`. The tool stays in `STEP_UP_TOOLS`, so answering such an approval from a remote client
+needs a step-up, and a call that runs is an elevated local owner action.
+
+**Undo.** `ModelToolsDeps.undo` (an `UndoLog`, `platform/undo-log.ts`): after a switch whose role had a model before, the tool records how to put it back
+(`setRole(role, previous)`, with its own `settings.model.set` audit row). A first pick (the role was empty) records nothing: there is no previous model to
+restore. `undo_last` runs it (`amygdala.md`, "Undo"). Test: `providers/model-tools.test.ts`.
+
 ## Secrets
 
 - `createVault(secretKey, dataDir)` (`platform/vault.ts`): `webCryptoVault` (AES-256-GCM). The key

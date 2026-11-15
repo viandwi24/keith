@@ -23,6 +23,7 @@ import { clientAddress } from './guest-address.ts'
 import { type BearerStore, guestTokenOf, type IpHasher, newGuestToken } from './guest-bearer.ts'
 import type { StartLimiter } from './guest-limiter.ts'
 import { type GuestLine, scrubResponse } from './guest-scrub.ts'
+import { acceptsHtml, createWebStatic, GUEST_PAGE, WEB_BASE } from './web-static.ts'
 
 /** What the guest app reads of the owner's guest settings, per request. */
 export interface GuestSettingsView {
@@ -47,6 +48,8 @@ export interface GuestAppOptions {
   banner?: string
   /** The visitor's text for a failed turn, read at the error (the persona's line; default the professional line). */
   guestLine?: GuestLine
+  /** The folder of the web client's build: the listener then serves the guest chat page at `/app/guest` (and nothing else of it). */
+  web?: { dir: string }
 }
 
 /** What the server hands to `app.fetch` as `env`: the peer address, whether proxy headers came, the idle-timeout lift. */
@@ -324,6 +327,19 @@ export function createGuestApp(options: GuestAppOptions): Hono<{ Bindings: Guest
     }
     return response
   })
+
+  if (options.web !== undefined) {
+    // the guest chat page: the web build, only the `/guest` route and its assets (`web-static.ts`, `guestOnly`)
+    const web = createWebStatic(options.web.dir, { guestOnly: true })
+    app.all(WEB_BASE, (c) => web.serve(c.req.raw))
+    app.all(`${WEB_BASE}/*`, (c) => web.serve(c.req.raw))
+    // a visitor who types the bare address in a browser lands on the page; an API client gets the plain 404
+    app.get('/', (c) =>
+      acceptsHtml(c.req.raw)
+        ? c.redirect(`${WEB_BASE}${GUEST_PAGE}`, 302)
+        : failure('GUEST_NOT_FOUND', 404),
+    )
+  }
 
   app.notFound(() => failure('GUEST_NOT_FOUND', 404))
   app.onError(() => failure('GUEST_UNAVAILABLE', 500))

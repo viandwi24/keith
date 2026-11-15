@@ -1,12 +1,4 @@
 export {
-  PERSONA_USAGE,
-  type PersonaCommand,
-  type PersonaCommandEnv,
-  parsePersonaCommand,
-  runPersonaCommand,
-} from './commands.ts'
-export { usePersonaSection } from './persona-section.ts'
-export {
   dirtyFieldsOf,
   draftOf,
   historyRowsOf,
@@ -23,7 +15,15 @@ export {
   setDraftField,
   summaryOf,
   templateChoices,
-} from './persona-state.ts'
+} from '@keith/app-model/manage'
+export {
+  PERSONA_USAGE,
+  type PersonaCommand,
+  type PersonaCommandEnv,
+  parsePersonaCommand,
+  runPersonaCommand,
+} from './commands.ts'
+export { usePersonaSection } from './persona-section.ts'
 export { StyleScreen, type StyleScreenProps } from './style-screen.tsx'
 export {
   type AddressCheck,

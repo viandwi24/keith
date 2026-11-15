@@ -124,7 +124,7 @@ export function documentToolOf(deps: DocumentDeps) {
       description:
         "Save a long result of this chat (a full list, a plan, a long answer) as a document in the person's own workspace. Pass a short title and the full body in Markdown. The reply to the person is one sentence that offers the file name; do not paste the body into the chat.",
       inputSchema: DocumentSaveInput,
-      metadata: { risk: 'write' },
+      metadata: { risk: 'write', source: 'trusted' },
       execute: async ({
         title,
         body,

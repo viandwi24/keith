@@ -24,6 +24,7 @@ import type { AuthMethod } from './methods/types.ts'
 import { methodDecision, type NetworkDecision, type NetworkRuleInput } from './network-rule.ts'
 import type { Peer } from './peer.ts'
 import { sessionTerms } from './session-terms.ts'
+import { type CookieIssuer, withSetCookie } from './web-session.ts'
 import { type LanNets, zoneOf } from './zone.ts'
 
 /** A flow lives this long from `identify`. */
@@ -54,6 +55,8 @@ export interface FlowRoutesOptions {
   proxy: () => AccessProxy
   insecure: boolean
   lan?: (() => LanNets | undefined) | undefined
+  /** `deliver: 'cookie'` puts the credential in the session cookie. */
+  cookies: CookieIssuer
   now: () => number
 }
 
@@ -223,6 +226,12 @@ export function createFlowRoutes(options: FlowRoutesOptions): FlowRoutes {
       })
       if (outcome.ok) {
         flows.delete(flowId)
+        if (parsed.data.deliver === 'cookie') {
+          return withSetCookie(
+            answer(200, { cookie: true }),
+            options.cookies.issue(request, outcome.credential, parsed.data.remember === true),
+          )
+        }
         return answer(200, { credential: outcome.credential })
       }
       if (outcome.status === 429) return THROTTLED(outcome.retryAfter)

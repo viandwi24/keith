@@ -1,4 +1,3 @@
-import { cells } from '../text-width.ts'
 import type { ColorDepth } from '../theme.ts'
 
 // Pure ANSI colour helpers for the orb: no theme, no env. Colours arrive as rgb arguments (the Ink
@@ -17,12 +16,7 @@ export const ESC = String.fromCharCode(27)
 export const RESET = `${ESC}[0m`
 const ANSI = new RegExp(`${ESC}\\[[0-9;]*[A-Za-z]`, 'g')
 
-const STICKY = new RegExp(`${ESC}\\[[0-9;]*[A-Za-z]`, 'y')
-
 export const stripAnsi = (s: string): string => s.replace(ANSI, '')
-/** Terminal cells a string takes once its escapes are removed. */
-export const visibleWidth = (s: string): number => cells(stripAnsi(s))
-
 export function hexToRgb(hex: string): Rgb {
   const n = Number.parseInt(hex.replace('#', ''), 16)
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
@@ -93,30 +87,3 @@ export function paint(text: string, rgb: Rgb, depth: ColorDepth): string {
 
 /** Bold on or off by depth (it survives none depth: bold is not a colour). */
 export const bold = (text: string): string => `${ESC}[1m${text}${RESET}`
-
-/** Cut a string with escapes to `width` cells; closes the colour when it cut. */
-export function clipAnsi(line: string, width: number): string {
-  if (width <= 0) return ''
-  if (visibleWidth(line) <= width) return line
-  let out = ''
-  let used = 0
-  let i = 0
-  while (i < line.length) {
-    if (line[i] === ESC) {
-      STICKY.lastIndex = i
-      const m = STICKY.exec(line)
-      if (m) {
-        out += m[0]
-        i += m[0].length
-        continue
-      }
-    }
-    const ch = String.fromCodePoint(line.codePointAt(i) ?? 32)
-    const w = cells(ch)
-    if (used + w > width) break
-    out += ch
-    used += w
-    i += ch.length
-  }
-  return `${out}${RESET}`
-}

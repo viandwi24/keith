@@ -25,7 +25,8 @@
     "eharness": "catalog:",
     "ink": "catalog:",
     "react": "catalog:",
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "@keith/app-model": "workspace:*"
   },
   "version": "0.1.0",
   "bin": {

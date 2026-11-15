@@ -39,7 +39,7 @@ Plugins add tools, storage and their own screens in the terminal app through a s
 examples. Node drivers add new abilities to a machine with a typed driver SDK.
 
 ### 🌐 Clients and nodes expand your reach
-Talk to Keith from the terminal app on any computer you sign in from. Pair any machine as a node and Keith can act there: run commands,
+Talk to Keith from the terminal app or the web app (phone included) on any device you sign in from. Pair any machine as a node and Keith can act there: run commands,
 see and use the desktop, or run code in a disposable sandbox. Keith knows which of your clients is active and reaches you where you are.
 
 ## Features
@@ -76,7 +76,8 @@ In another terminal:
 keith                 # Home: the orb and the brain trace; press enter to chat
 ```
 
-Sign in with the PIN you chose, and talk to Keith. Then:
+Sign in with the PIN you chose, and talk to Keith. Or build the web app once (`bun run --cwd apps/web build`) and open
+`http://127.0.0.1:7420/app`. Then:
 
 - **Add a person:** `keith-core people add ana --name Ana`, then `keith-core people passwd ana`.
 - **Pair a machine:** `keith-core pair` on the core prints a code; on the other machine run `keith-node join --core <url> --code <code>` and `keith-node run`.
@@ -94,6 +95,7 @@ Everything else (roles, rooms, persona, node drivers, remote access, scripting) 
 flowchart LR
     subgraph Clients
         TUI["keith<br/>terminal app"]
+        Web["web app<br/>/app"]
         Guest["guest visitors"]
     end
 
@@ -117,6 +119,7 @@ flowchart LR
     Provider["model provider<br/>OpenRouter / OpenAI / DeepSeek"]
 
     TUI -- "HTTP + SSE" --> Thalamus
+    Web -- "HTTP + SSE (cookie)" --> Thalamus
     Guest --> Thalamus
     Thalamus --> Front
     Front -- "delegates" --> Cortex
@@ -176,6 +179,7 @@ Details: [SECURITY.md](SECURITY.md), [docs/sharing-and-privacy.md](docs/sharing-
 apps/
   core/        keith-core: the server (Hono + eharness), one folder per brain region
   tui/         keith: the terminal app (Ink)
+  web/         the web app (SvelteKit), served by the core at /app
   node/        keith-node: the daemon on a paired machine
 packages/
   contracts/   every type that crosses an app boundary (zod)

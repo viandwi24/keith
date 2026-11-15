@@ -103,6 +103,7 @@ export async function verifyCredential(
       kind: found.kind,
       assurance: found.assurance,
       methods: found.methods,
+      elevatedUntil: found.elevatedUntil,
     },
     elevated: found.elevatedUntil !== null && found.elevatedUntil > now,
   }

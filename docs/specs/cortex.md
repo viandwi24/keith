@@ -73,6 +73,16 @@ because everything it needs is in the shared SQLite adapters.
 - `motor_remote` has risk `external` but its own `tool.approve` hook returns `user-approval` for
   everything above `read`; most restrictive wins, so the policy does not open it. The worker parks
   until the owner answers (`amygdala.md`); the answer is `by: 'user'`.
+- **Consent (ADR-0036).** `WorkerDeps.consent` is the worker's `consent.plugin('worker')` (`amygdala.md`, "Consent"), added after `aclGuard()`. The web tools are `external` for eharness
+  but read as `read` for consent (`EHARNESS_TOOL_TRAITS`), so research never asks. `motor_remote` asks with a tier: `conversation` when the front call that delegated the worker was
+  clean and the worker has read nothing `outside` since, `device` otherwise. **Worker context.** A worker session has `ctx.session.parent = { sessionId, toolCallId }`; the front
+  consent hook decides every call (the `agent` call included) and caches its context by `<session id>|<tool call id>`, and the worker's hook reads the delegating call's entry: `clean`
+  gives the origin `delegated-clean` (the whole worker transcript must hold only `trusted` calls), anything else, an unknown call, an evicted entry, a restart, or a delegation from a
+  wake turn, gives `tainted`. Limit: a worker resumed later by another call keeps the context of its first delegation. The worker's static instructions end with
+  `UNTRUSTED_CONTENT_INSTRUCTIONS`. A request a worker raises with tier `conversation` is voiced by the person's front agent: `watchPending` tells `createConsentVoice` about each new approval, which writes `consent.asked` and wakes the
+  person's front session through the delivery service (`consent.request`, `needs.immediate` unset: it may be held while the person is away, then it simply expires with the request after `conversationTtlMs`) with the one-line
+  summary (command, node, capability) framed as outside text; the front agent says what, where and why with one yes/no question, and the person's next message answers the worker's approval (`amygdala.md`, "Asked in conversation").
+  Tests: `amygdala/consent.test.ts`, `consent.e2e.test.ts`, `consent-conversation.e2e.test.ts`, `tool-sources.test.ts`.
 - `WORKER_BUDGET`: `maxTurnUsd: 1`, `maxSessionUsd: 3`. The eharness default
   `toolCalls.maxIdenticalResults` stays on.
 - With `hardening` (M4): the ledger scopes global + the person of its root session (`budget.md`) and its stop notice; `toolOutput: { maxChars: 20_000 }`

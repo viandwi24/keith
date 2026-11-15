@@ -1,4 +1,5 @@
 import {
+  type CredentialDelivery,
   type DevicePollResponse,
   DevicePollResponseSchema,
   DeviceStartResponseSchema,
@@ -34,6 +35,9 @@ export interface DeviceLoginOptions {
   pollMs?: number
 }
 
+/** The result of a device login: the credential, or `cookie` when the core put it into the session cookie. */
+export type DeviceLoginResult = { credential: string } | { cookie: true }
+
 const sleep = (ms: number, signal: AbortSignal | undefined): Promise<void> =>
   new Promise((resolve) => {
     if (signal?.aborted) return resolve()
@@ -53,7 +57,21 @@ const sleep = (ms: number, signal: AbortSignal | undefined): Promise<void> =>
  * denied or the wait is aborted. Retries network errors until the code expires.
  */
 export async function deviceLogin(options: DeviceLoginOptions): Promise<string> {
+  const result = await deviceLoginResult(options)
+  if ('credential' in result) return result.credential
+  throw new DeviceLoginError('rejected', 'the core answered without a credential')
+}
+
+/**
+ * {@link deviceLogin} for a client that may take the session as a cookie (`deliver: 'cookie'`, the browser): resolves
+ * with `{ cookie: true }` then, and with the credential otherwise. A body login whose approval has no credential, or a
+ * cookie login whose approval has none, is rejected (`rejected`).
+ */
+export async function deviceLoginResult(
+  options: DeviceLoginOptions & { deliver?: CredentialDelivery },
+): Promise<DeviceLoginResult> {
   const { signal } = options
+  const cookie = options.deliver === 'cookie'
   const doFetch = options.fetch ?? fetch
   const base = options.core.replace(/\/+$/, '')
   const post = (path: string, body: unknown): Promise<Response> =>
@@ -96,6 +114,7 @@ export async function deviceLogin(options: DeviceLoginOptions): Promise<string> 
       const res = await post('/auth/device/poll', {
         requestId: request.requestId,
         pollSecret: request.pollSecret,
+        ...(cookie ? { deliver: 'cookie' } : {}),
       })
       if (res.status === 404) {
         throw new DeviceLoginError('expired', 'the login request is gone: it expired or was used')
@@ -110,7 +129,11 @@ export async function deviceLogin(options: DeviceLoginOptions): Promise<string> 
       if (signal?.aborted) throw aborted()
       // a network blip: keep waiting until the code expires
     }
-    if (answer?.status === 'approved') return answer.credential
+    if (answer?.status === 'approved') {
+      if (cookie && answer.cookie === true) return { cookie: true }
+      if (!cookie && answer.credential !== undefined) return { credential: answer.credential }
+      throw new DeviceLoginError('rejected', 'the core approved the login without a usable session')
+    }
     if (answer?.status === 'denied')
       throw new DeviceLoginError('denied', 'the owner denied this login')
     if (answer?.status === 'expired' || Date.now() > request.expiresAt + 10_000) {

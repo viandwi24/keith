@@ -1,5 +1,6 @@
 // Wernicke–Broca: the front agent (docs/specs/wernicke-broca.md).
 export {
+  CONSENT_INSTRUCTIONS,
   createFrontAgent,
   FRONT_INSTRUCTIONS,
   FRONT_STEPS,

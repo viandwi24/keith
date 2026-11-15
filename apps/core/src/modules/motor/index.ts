@@ -2,6 +2,7 @@
 export {
   announcedDrivers,
   DESKTOP_INSTRUCTIONS,
+  framedModelOutputOf,
   MOTOR_INSTRUCTIONS,
   MOTOR_REMOTE_TOOL,
   type MotorOptions,
@@ -11,8 +12,9 @@ export {
   OUTPUT_MAX_CHARS,
   REMOTE_TIMEOUT_MS,
   riskOf,
+  runsUnasked,
 } from './remote.ts'
-export { type MotorAsk, motorAskOf, ownerAnswers } from './risk.ts'
+export { type MotorAsk, motorAskOf, motorConsentRisk, ownerAnswers } from './risk.ts'
 export {
   createNodeCallLimit,
   createNodeCallLimitSettings,

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { ESC, paint, stripAnsi, visibleWidth } from './color.ts'
+import { visibleWidth } from './ansi-width.ts'
+import { ESC, paint, stripAnsi } from './color.ts'
 import { FRAME_COLORS } from './fixtures.ts'
 import { frame, frameStyle } from './frame-text.ts'
 

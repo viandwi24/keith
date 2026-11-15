@@ -32,6 +32,15 @@ export {
   SCREEN_TEXT,
   SPEECH_TEXT,
 } from './mode-text.ts'
+export { createOnboarding, type OnboardingDeps, type OnboardingOf } from './onboarding.ts'
+export {
+  createPersonaToolsPlugin,
+  PERSONA_APPROVAL_TOOLS,
+  PERSONA_TOOLS_PLUGIN,
+  type PersonaToolsDeps,
+  personaToolsOf,
+  type ToolRefusal,
+} from './persona-tools.ts'
 export {
   type PrefrontalProcedureDeps,
   prefrontalCallerOf,

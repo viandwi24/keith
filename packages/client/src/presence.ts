@@ -10,7 +10,6 @@ import type {
   ClientRegister,
 } from '@keith/contracts'
 import { brainEventOf, type KeithClient } from './client.ts'
-import { fileClientIdStore } from './identifier-memory.ts'
 
 /** Where the client's id lives between starts (`client-state.json`). */
 export interface ClientIdStore {
@@ -54,7 +53,7 @@ export interface PresenceReporterOptions {
   label: string
   capabilities: ClientCapability[]
   version: string
-  /** Where the id is kept (default: `client-state.json` next to `client.json`). */
+  /** Where the id is kept (default: in memory; the root entry's `createPresenceReporter` keeps it in `client-state.json`). */
   store?: ClientIdStore
   /** Heartbeat cadence (default 20 s). */
   heartbeatMs?: number
@@ -102,6 +101,17 @@ export const TERMINAL_CAPABILITIES: readonly ClientCapability[] = [
 
 const GOODBYE_MS = 3_000
 
+/** An id kept for this run only. */
+export function memoryClientIdStore(): ClientIdStore {
+  let id: string | undefined
+  return {
+    read: () => id,
+    write: (next) => {
+      id = next
+    },
+  }
+}
+
 const defaultEvery = (ms: number, fn: () => void): (() => void) => {
   const timer = setInterval(fn, ms)
   return () => clearInterval(timer)
@@ -111,7 +121,7 @@ export function createPresenceReporter(
   client: KeithClient,
   options: PresenceReporterOptions,
 ): PresenceReporter {
-  const store = options.store ?? fileClientIdStore()
+  const store = options.store ?? memoryClientIdStore()
   const now = options.now ?? Date.now
   const every = options.every ?? defaultEvery
   const heartbeatMs = options.heartbeatMs ?? 20_000

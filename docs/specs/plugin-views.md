@@ -79,7 +79,7 @@ never queued. A client that stays behind for 30 s is closed (`error`). `ready` i
 
 ### Reserved keys
 
-`esc` leaves the panel (the client sends `close`); `ctrl+g` goes Home. Both are handled by the client and never forwarded; a stray `\u001b` or `\u0007` message is dropped by the server too. Everything else goes to the view.
+`esc` leaves the panel (the client sends `close`); `ctrl+g` goes Home. Both are handled by the client and never forwarded (`isLeave` and `isHome` in `@keith/client`; the web uses `esc` to release the keyboard); a stray `\u001b` or `\u0007` message is dropped by the server too. Everything else goes to the view.
 
 ## Sanitiser rules (the client: `parseFrame`)
 
@@ -113,13 +113,19 @@ openView({
 ```
 
   `ViewEndReason` is the server's `view | idle | revoked | limit | error | refused`, or what the client saw: `disconnected` (the socket dropped or went silent after it had opened), `unavailable` (it never opened: core down or a refused upgrade, a bad credential among them), `protocol` (the server broke the protocol: bad JSON, a frame that grows past 256 KiB).
-- **Keys.** The UI turns its key events into terminal bytes (arrow up is `ESC [ A`) and calls `sendKey(bytes)`. `esc` alone and `ctrl+g` (`RESERVED_VIEW_KEYS`) are dropped here: the UI handles them itself (leave and Home). Before `open` and after `close`, input is dropped. A paste is split into parts of at most 4096 characters (never between the halves of a surrogate pair) and cut at 64 KiB.
+- **Keys.** The UI turns its key events into terminal bytes (arrow up is `ESC [ A`; `keyBytes(input, key)` of `packages/client/src/view/key-bytes.ts`, exported from both entries, takes any object shaped like `KeyLike`: Ink's `Key` and the web's mapped `KeyboardEvent` both fit) and calls `sendKey(bytes)`. `esc` alone and `ctrl+g` (`RESERVED_VIEW_KEYS`) are dropped here: the UI handles them itself (leave and Home). Before `open` and after `close`, input is dropped. A paste is split into parts of at most 4096 characters (never between the halves of a surrogate pair) and cut at 64 KiB.
 - **Resize.** `resize(cols, rows)` coalesces for 50 ms and sends the last size; the sanitiser uses the latest size for the next frames.
 - **Frames.** Parts of one `seq` are joined; a newer `seq` replaces an unfinished one; a frame older than the last complete one is ignored.
 - **Close.** `close()` sends `close`, waits up to 1 s for the server's answer and then drops the socket; `onEnd('view')`. Before the socket has opened it just drops it.
 - **Heartbeat.** The client pings every 20 s and counts the server gone after 60 s of silence.
 - **Reconnect rules: none.** A view lives on the server only while its socket is open, so a dropped connection is a view that is gone. The client reports `disconnected` and never reconnects or replays input behind the person's back; the UI offers to open a fresh view on their action (step 6: the panel says disconnected and offers `esc`).
 - Needs a bearer credential, or a client built with `socketPath` (the local Unix socket: no token, the socket's rules decide who the viewer is). A client with neither throws `ViewMenuError('unauthorized')`. `createKeithClient({ baseUrl, fetch: socketFetch(path), socketPath: path })` is what the TUI builds for a socket connection.
+
+### Web (`apps/web`, `docs/specs/web.md`, "Apps")
+
+The web client shows a view as the same terminal grid: it opens the view with the platform `WebSocket` in cookie mode (`client.openView`, no header; the cookie goes with the same-origin upgrade), sizes `hello` from the container in cells (a hidden monospace probe), draws the
+parsed runs as text spans in a `<pre>` (never as markup) with the colours mapped to the theme tokens, and sends keys as terminal bytes through `keyBytes` (`@keith/client`, shared with the TUI: the same bytes for the same key). `esc` returns the keyboard to the page instead of
+leaving, because the grid takes Tab; `ctrl+c` and `ctrl+g` are not sent. A view of `plugin:<id>:<view>` in an `open.view` delivery opens `/app/apps/<id>/<view>` when the view is in the person's menu. The slot is unchanged: a plugin ships no web code.
 
 ## Data and operations (`useKeith`)
 
@@ -199,4 +205,4 @@ Consequences for steps 3 to 5: the sink (not Ink) throttles, de-duplicates and c
 
 ## Not here
 
-Web UI, mouse, images, hyperlinks, clipboard (a host copy action is future work), views for guests, view-to-view navigation, third-party views (a subprocess tier later).
+A declarative web slot (the web draws the terminal grid today), mouse, images, hyperlinks, clipboard (a host copy action is future work), views for guests, view-to-view navigation, third-party views (a subprocess tier later).

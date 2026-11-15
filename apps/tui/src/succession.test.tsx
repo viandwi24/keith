@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { existsSync } from 'node:fs'
+import { clock, DAY_MS } from '@keith/app-model/manage'
 import { cells } from '@keith/ui'
-import { clock } from './features/manage/protocols/protocols-state.ts'
-import { DAY_MS } from './features/manage/succession/succession-state.ts'
 import { createFakeAdmin } from './testing/fake-admin.ts'
 import { MEMBER } from './testing/fake-core.ts'
 import {

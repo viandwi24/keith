@@ -1,7 +1,5 @@
-import { FramePanel, type FrameTag, type Hint, windowOf } from '@keith/ui'
-import { useEffect, useRef, useState } from 'react'
-import { useGuardedInput as useInput } from '../activity/index.ts'
 import {
+  clampRow,
   clearSecrets,
   confirmReady,
   cycleOption,
@@ -9,15 +7,18 @@ import {
   focusMove,
   menuMove,
   missingField,
+  moveRow,
   needsDialog,
   openAction,
   openMenu,
   setValue,
   submitValues,
-} from './dialog-state.ts'
+} from '@keith/app-model/manage'
+import { FramePanel, type FrameTag, type Hint, windowOf } from '@keith/ui'
+import { useEffect, useRef, useState } from 'react'
+import { useGuardedInput as useInput } from '../activity/index.ts'
 import { ConfirmDialog, FormDialog, MenuDialog, NoteDialog } from './dialogs.tsx'
 import { dialogHints, rowHints } from './legend.ts'
-import { clampRow, moveRow } from './manage-state.ts'
 import type { ActionSpec, ManageEnv, SectionDef } from './manage-types.ts'
 import { SectionView } from './section-view.tsx'
 

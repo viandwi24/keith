@@ -125,6 +125,9 @@ describe('presence', () => {
     }
     expect(PresenceSchema.safeParse(presence).success).toBe(true)
     expect(PresenceSchema.safeParse({ ...presence, note: 'x'.repeat(201) }).success).toBe(false)
+    // `where` and `until` are optional (an older reader keeps working) and `where` is a closed set
+    expect(PresenceSchema.safeParse({ ...presence, where: 'desk', until: 5 }).success).toBe(true)
+    expect(PresenceSchema.safeParse({ ...presence, where: 'home' }).success).toBe(false)
   })
 
   test('signal types are the six of ADR-0025 §1', () => {

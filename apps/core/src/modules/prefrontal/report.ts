@@ -4,7 +4,7 @@
 // block to the step's reminder. A report over about 1,500 characters or 20 lines is saved as a document (the same function as
 // `document_save`), and the reminder names the saved path. A short report is not saved.
 import type { HarnessContext, HarnessPlugin } from 'eharness'
-import { definePlugin } from 'eharness'
+import { definePlugin, untrustedContent } from 'eharness'
 import { workspaceOf } from '../cortex/index.ts'
 import { DocumentError, saveDocument } from './document-tool.ts'
 
@@ -132,6 +132,39 @@ export function reportStep(
   return { reminder: reportReminder(savedPathOf(ctx, body, deps)) }
 }
 
+/**
+ * The wire of a report step with the report body inside an `untrusted-content` frame (ADR-0036 §6): a worker that read the web
+ * or a node may carry text from outside, so what it reports is data, never an instruction. Wire only (`step.prepare` `messages`,
+ * never stored); undefined when the step does not answer a report.
+ */
+export function frameReportMessages<M extends { role: string; content: unknown }>(
+  messages: readonly M[],
+): M[] | undefined {
+  const at = messages.findLastIndex((m) => m.role === 'user')
+  const last = messages[at]
+  if (last === undefined || reportOfMessages(messages) === undefined) return undefined
+  const pattern = new RegExp(`(<event name="${REPORT_EVENT}">)([\\s\\S]*)(</event>)`)
+  const frame = (text: string): string =>
+    text.replace(
+      pattern,
+      (_all, open: string, body: string, close: string) =>
+        `${open}${untrustedContent(body.trim(), { source: 'worker-report', name: REPORT_EVENT })}${close}`,
+    )
+  const content = last.content
+  const framed =
+    typeof content === 'string'
+      ? frame(content)
+      : Array.isArray(content)
+        ? content.map((part) => {
+            const p = part as { type?: unknown; text?: unknown }
+            return p.type === 'text' && typeof p.text === 'string'
+              ? { ...p, text: frame(p.text) }
+              : part
+          })
+        : content
+  return messages.map((m, i) => (i === at ? { ...m, content: framed } : m))
+}
+
 /** Plugin of the report mode: added to the front agent only; it adds a reminder and never a tool. */
 export function createReportPlugin(deps: ReportDeps): HarnessPlugin<typeof REPORT_PLUGIN> {
   return definePlugin({
@@ -140,7 +173,10 @@ export function createReportPlugin(deps: ReportDeps): HarnessPlugin<typeof REPOR
       hooks: {
         'step.prepare': (ctx, e) => {
           try {
-            return reportStep(ctx, e.messages, deps)
+            const step = reportStep(ctx, e.messages, deps)
+            if (step === undefined) return undefined
+            const messages = frameReportMessages(e.messages)
+            return messages === undefined ? step : { ...step, messages }
           } catch {
             return undefined
           }

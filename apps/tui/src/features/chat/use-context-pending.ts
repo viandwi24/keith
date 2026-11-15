@@ -1,13 +1,14 @@
 // The context change in progress of the signed-in person (context-pending.ts). `begin`/`end` mark this TUI's own `/new` or `/compact`;
 // the person's feed (`chat.context.pending`) fills in the change another TUI of the person runs.
-import { type KeithClient, watchChatContextPending } from '@keith/client'
-import { useEffect, useReducer } from 'react'
+
 import {
   type ContextKind,
   type ContextPendingState,
   INITIAL_CONTEXT_PENDING,
   reduceContextPending,
-} from './context-pending.ts'
+} from '@keith/app-model'
+import { type KeithClient, watchChatContextPending } from '@keith/client'
+import { useEffect, useReducer } from 'react'
 
 export interface ContextPendingHandle extends ContextPendingState {
   begin(kind: ContextKind): void

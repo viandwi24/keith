@@ -1,3 +1,4 @@
+import { SESSION_COOKIE } from '@keith/contracts'
 import {
   createViewHost,
   createViewKeith,
@@ -7,7 +8,13 @@ import {
 import type { Server, WebSocketHandler } from 'bun'
 import type { ActivityStore } from 'eharness/activity'
 import type { Audit } from './modules/audit/index.ts'
-import type { LocalAccess, PrincipalResolver, Via } from './modules/auth/index.ts'
+import {
+  type LocalAccess,
+  type PrincipalResolver,
+  sameOriginUpgrade,
+  sessionCookieOf,
+  type Via,
+} from './modules/auth/index.ts'
 import type { NodeSocketData } from './modules/nodes/index.ts'
 import {
   createViewAudit,
@@ -91,9 +98,12 @@ export function createViews(options: {
       const local = via === 'local' ? options.local : undefined
       // a locked socket serves nothing (423); the app's middleware says so for HTTP, the route for the upgrade
       if (via === 'local' && local?.mode() === 'locked') return undefined
+      const authorization = request.headers.get('authorization')
+      // the web client's cookie authenticates an upgrade only from the same origin (a page of another site could open it)
+      const cookie = authorization === null ? sessionCookieOf(request.headers) : undefined
+      if (cookie !== undefined && !sameOriginUpgrade(request)) return undefined
       const principal = await options.principals.resolve(request, via, ip)
       if (principal === undefined) return undefined
-      const authorization = request.headers.get('authorization')
       return {
         principalId: principal.personId,
         method: principal.credential?.methods?.[0] ?? null,
@@ -101,7 +111,12 @@ export function createViews(options: {
         // The socket's implicit owner has no header: it stays allowed until the socket locks or its trust is `none`.
         stillAllowed: async () => {
           if (via === 'local' && local?.mode() === 'locked') return false
-          const headers = authorization === null ? {} : { authorization }
+          const headers: Record<string, string> =
+            authorization !== null
+              ? { authorization }
+              : cookie !== undefined
+                ? { cookie: `${SESSION_COOKIE}=${encodeURIComponent(cookie)}` }
+                : {}
           return (
             (await options.principals.resolve(new Request(request.url, { headers }), via, ip)) !==
             undefined

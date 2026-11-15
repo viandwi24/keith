@@ -153,8 +153,9 @@ creates instances through a form generated from it. Clients render forms from th
 ## Layers and dependency rules
 
 ```text
-apps/tui ──► packages/client ──► packages/contracts ◄── apps/node
-                                       ▲
+apps/tui ─┬► packages/client ──► packages/contracts ◄── apps/node
+apps/web ─┤        ▲                     ▲
+          └► packages/app-model ─────────┘
 apps/core ──► packages/{contracts, db, eh-ext, host, cli}
 apps/node ──► packages/cli
 plugins/* ──► packages/{host, contracts}
@@ -164,6 +165,10 @@ plugins/* ──► packages/{host, contracts}
 - `apps/tui` imports only `@keith/client`, `@keith/contracts` and `@keith/cli` from the repo; from npm only Ink,
   React and the chat stack (`@ai-sdk/react`, `ai`, `eharness/client`), never eharness core; `zod`
   only in `src/platform/config.ts` (its env schema).
+- `apps/web` (the browser client, ADR-0035) imports only the browser entry `@keith/client/browser`, `@keith/contracts`,
+  `@keith/app-model` and the Ink-free subpaths of `@keith/ui` (`tokens`, `orb`, `markdown`); from npm only Svelte, SvelteKit,
+  bits-ui and `@ai-sdk/svelte`. The core serves its build at `/app`.
+- `packages/app-model` holds the logic both clients share; it imports no framework.
 - A core module imports another module only through its `index.ts`.
 - Plugins import only `@keith/host` and `@keith/contracts`.
 - No import cycles; a relative import never leaves its package.

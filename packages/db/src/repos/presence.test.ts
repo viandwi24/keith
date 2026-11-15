@@ -142,7 +142,29 @@ describe('manual status', () => {
     const status = presenceStatusRepo(sqlite)
     status.set('ana', { note: 'in a meeting', until: 5_000, setAt: 1_000 })
     status.set('ana', { note: null, until: null, setAt: 2_000 })
-    expect(status.get('ana')).toEqual({ personId: 'ana', note: null, until: null, setAt: 2_000 })
+    expect(status.get('ana')).toEqual({
+      personId: 'ana',
+      kind: 'busy',
+      note: null,
+      from: null,
+      until: null,
+      setAt: 2_000,
+    })
+    status.set('ana', {
+      kind: 'out',
+      note: 'at the clinic',
+      from: 3_000,
+      until: 9_000,
+      setAt: 2_500,
+    })
+    expect(status.get('ana')).toEqual({
+      personId: 'ana',
+      kind: 'out',
+      note: 'at the clinic',
+      from: 3_000,
+      until: 9_000,
+      setAt: 2_500,
+    })
     expect(status.clear('ana')).toBe(true)
     expect(status.clear('ana')).toBe(false)
     expect(status.get('ana')).toBeUndefined()

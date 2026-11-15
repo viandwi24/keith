@@ -23,10 +23,12 @@ Keith: a personal agent harness (core node, peripheral nodes, TUI client) built 
 | apps/core | Server: Hono + eharness. Brain regions in src/modules/<region>/, plumbing in src/platform/ |
 | apps/node | Peripheral node daemon: pairing, heartbeat, motor executor |
 | apps/tui | Ink client: src/features/<feature>/ |
+| apps/web | Browser client: SvelteKit 3 SPA (adapter-static, base /app), src/lib/features/<feature>/; talks only through @keith/client; spec docs/specs/web.md |
 | packages/contracts | Every type that crosses an app boundary (zod) |
 | packages/db | Drizzle schema + migrations; only apps/core imports it |
 | packages/eh-ext | Local extensions on top of eharness (public API only) |
-| packages/ui | Ink theme tokens, components and glyphs shared by the TUI and the core console; rules in its AGENTS.md |
+| packages/ui | Ink theme tokens, components and glyphs shared by the TUI and the core console; Ink-free `@keith/ui/tokens` for the web; rules in its AGENTS.md |
+| packages/app-model | Framework-free logic both clients share (chat items, tool lines, slash forms, context-pending, history, dream marks, tasks); imports only contracts, client and `@keith/ui/tokens`; spec docs/specs/app-model.md |
 | packages/acl | Resource-level access: pure evaluator, `Membership` and `AclStore` ports, in-memory store, conformance cases (`@keith/acl/testing`); spec docs/specs/acl.md |
 | packages/host | Plugin host contract |
 | packages/driver-sdk | Driver SDK: `defineDriver`, the `keith-driver.json` schema, `loadDriver`; imports only `@keith/contracts` (docs/specs/node-drivers.md) |
@@ -45,6 +47,7 @@ bun run manual:setup|manual:core|manual:admin|manual:tui|manual:node (KEITH_HOME
 bun run ref:sync (`-- --update` accepts a tag moved upstream) · bunx changeset ·
 bun run db:migrate · bun run --filter @keith/core token:reset · bun run eval:news (real model,
 needs OPENROUTER_API_KEY, costs money; `-- --scripted` is offline; reports in data/evals/) ·
+bun run eval:consent (injection eval: planted "run this" in notes and worker reports; `-- --scripted [--script honest|obedient]` is offline) ·
 keith-node join --core <url> --code <code> [--allow-shell] · keith-node run (from a checkout: bun apps/node/src/main.ts …)
 
 `bun run check` = Biome · tsc (every package + scripts) · bun test · check-imports ·

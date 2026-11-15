@@ -142,7 +142,20 @@ export type SignalType = z.infer<typeof SignalTypeSchema>
 export const PresenceStateSchema = z.enum(['active', 'idle', 'away', 'busy', 'offline'])
 export type PresenceState = z.infer<typeof PresenceStateSchema>
 
-/** A person's presence as computed now. `reachableOn` holds online client ids, most recently active first. */
+/**
+ * A hint of where the person is, derived from facts and never a place (ADR-0034 §5): `desk` (the active client is a
+ * computer on the local socket, loopback or LAN), `mobile` (the active client is a phone, or its network is public), `out`
+ * (the person stated they are out), `unknown`.
+ */
+export const PRESENCE_WHERE_IDS = ['desk', 'mobile', 'out', 'unknown'] as const
+export const PresenceWhereSchema = z.enum(PRESENCE_WHERE_IDS)
+export type PresenceWhere = z.infer<typeof PresenceWhereSchema>
+
+/**
+ * A person's presence as computed now. `reachableOn` holds online client ids, most recently active first. `where` is the
+ * hint above and `until` the end (epoch ms) of the busy or stated `out` status that holds; both are optional so an older
+ * reader keeps working.
+ */
 export const PresenceSchema = z.object({
   personId: z.string(),
   state: PresenceStateSchema,
@@ -150,6 +163,8 @@ export const PresenceSchema = z.object({
   activeClient: z.string().nullable(),
   note: z.string().max(200).nullable(),
   asOf: z.number(),
+  where: PresenceWhereSchema.optional(),
+  until: z.number().optional(),
 })
 export type Presence = z.infer<typeof PresenceSchema>
 
@@ -179,19 +194,35 @@ export type DisclosureRow = z.infer<typeof DisclosureRowSchema>
 export const DisclosureSetSchema = DisclosureRowSchema
 export type DisclosureSet = z.infer<typeof DisclosureSetSchema>
 
-/** The manual status (the first overlay source): busy with an optional note and a lifetime (at most 24 hours). */
+/** The kinds of a stated status (ADR-0034 §5): `busy` (do not disturb) and `out` (away from the desk, reachable elsewhere). */
+export const PresenceStatusKindSchema = z.enum(['busy', 'out'])
+export type PresenceStatusKind = z.infer<typeof PresenceStatusKindSchema>
+
+/**
+ * The stated status (the first overlay source): `busy: false` clears it; otherwise a status of `kind` (default `busy`)
+ * with an optional note, a start `from` and an end `until` (epoch ms), or `minutes` from the start (`from`, else now).
+ * A status with no end lasts a day (busy) or a day at most. A `from` in the future does nothing until then.
+ */
 export const PresenceStatusSetSchema = z.object({
   busy: z.boolean(),
+  kind: PresenceStatusKindSchema.optional(),
   note: z.string().max(200).optional(),
   minutes: z.number().int().min(1).max(1440).optional(),
+  from: z.number().int().nonnegative().optional(),
+  until: z.number().int().nonnegative().optional(),
 })
 export type PresenceStatusSet = z.infer<typeof PresenceStatusSetSchema>
 
-/** The manual status as stored and read back. `until` is null when it has no end; `busy: false` means none is set. */
+/**
+ * The stated status as stored and read back. `busy` is true while a `busy` status holds now; `kind` names the stored
+ * status (also `out`, or a busy one that has not started) and is null when none is set. `until` is null when it has no end.
+ */
 export const PresenceStatusViewSchema = z.object({
   busy: z.boolean(),
   note: z.string().max(200).nullable(),
   until: z.number().nullable(),
+  kind: PresenceStatusKindSchema.nullable().optional(),
+  from: z.number().nullable().optional(),
 })
 export type PresenceStatusView = z.infer<typeof PresenceStatusViewSchema>
 

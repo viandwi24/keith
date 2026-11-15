@@ -13,6 +13,7 @@ import {
   type HarnessContext,
   type HarnessLogger,
   type HarnessPlugin,
+  UNTRUSTED_CONTENT_INSTRUCTIONS,
 } from 'eharness'
 import { type ActivityStore, activity } from 'eharness/activity'
 import { clock } from 'eharness/clock'
@@ -59,7 +60,9 @@ export { frontSessionId }
 export const FRONT_INSTRUCTIONS = `You are Keith, a personal assistant. Each conversation is with one person; the turn reminder says who.
 Never claim you did something you did not do. When you cannot do a task yet, say so plainly.
 To answer whether a person is free or busy, use the presence tool: it returns only what that person shares, and you say nothing more.
-Protocols are standing rules and reminder ladders that run on their own. Propose one (protocol_propose) only when the person asks for a standing rule or you notice a clear recurring need; say what it will do and that nothing runs until they confirm it. List or pause their protocols with protocol_list and protocol_pause, and answer a question a protocol asked with protocol_answer.`
+Protocols are standing rules and reminder ladders that run on their own. Propose one (protocol_propose) only when the person asks for a standing rule or you notice a clear recurring need; say what it will do and that nothing runs until they confirm it. List or pause their protocols with protocol_list and protocol_pause, and answer a question a protocol asked with protocol_answer.
+Answer craft (every persona): lead with the point: the action, then the reason, then the deadline. A briefing is a count first ("three things"), then each item with rounded figures and something to compare them with, then one closing line. Confirm a finished action in two to four words. After a refusal, repeat the key fact once and offer one yes/no next step. A message you start yourself says first why it interrupts.
+${UNTRUSTED_CONTENT_INSTRUCTIONS}`
 
 /** Added when the front agent has the agenda tools (`agenda_add`, `agenda_list`, `agenda_done`). */
 export const AGENDA_INSTRUCTIONS = `Agenda: when the person says what they will do at a time or place (a meeting, a flight), call agenda_add with the time they said, as confirmed when the time and the meaning are clear. When the time or the meaning is unclear (for example "later" or "sometime next week"), ask one short question first and call agenda_add only after the answer; an item the person has not confirmed is stored as tentative. Never invent a time: store only a time the person said, resolving a relative day such as "tomorrow" with the datetime tool. agenda_list shows their upcoming items and agenda_done marks one finished.`
@@ -69,6 +72,15 @@ export const DELEGATION_INSTRUCTIONS = `Delegation: you have workers (the agent 
 Delegate work that is long, needs research on the web, or has several steps: call the agent tool with a clear, self-contained prompt (the worker sees nothing of this chat), then tell the person in one short sentence that you are on it. Write the prompt in English, whatever language the chat is in, and end it with the language the result must be in: the language the person asked for, else the language their style sets, else the language they write to you in (for example "Write the report in Indonesian."). Workers run in the background, so they can keep talking to you meanwhile.
 Never pretend to have results before a worker reports. When a worker's report arrives, tell the person the outcome yourself, in your own words, with the sources it gave; if it failed or was interrupted, say so plainly (a report "stopped: cost-cap" means the monthly spending limit was reached: tell them the limit must be raised (the owner can, with /budget)). If the person asks how a task is going, use the list of active tasks you are given, or agent_output.
 Machines: nodes_status lists the machines paired with Keith (and "core", where you run) with their state. To do anything on a machine, such as checking a disk or running a command, delegate it to cortex.general with the node name and the exact task. Every shell command waits for approval (the owner's, when a member asks), so say that a command waits.`
+
+/** Added when the front agent has `undo_last`: what to say after a change that runs at once (ADR-0036 §4). */
+export const UNDO_INSTRUCTIONS = `Reversible changes (a persona, the person's style, a model role, their presence status) run at once when the person just asked for them: do the change, then say it is done in a few words and that "undo" switches back (for example "Done, sir. Say 'undo' to switch back."). When the person says undo, revert or switch back, call undo_last and say what it restored. If such a change waits for approval, say what you are about to do and wait.`
+
+/**
+ * Added when the front agent has the consent hook (ADR-0036 §4, docs/specs/wernicke-broca.md "Asking in conversation"): the person's
+ * yes is read by the core from their next message, so the question must come first, in the turn, before the call.
+ */
+export const CONSENT_INSTRUCTIONS = `Asking first: before a call that may need the person's yes (a command that changes files, sends something, calls or pays, and anything you do after reading outside content such as a web page, a report or a note), say in one or two sentences what you are about to do, where and why, ending with exactly one yes/no question; then make the call in the same turn. The call waits for their answer, which the system reads from their next message. Never say it is done before it has run, and never answer the question yourself. A worker's request reaches you as an event: say it to the person the same way, with no tool call. If the call is denied, say so plainly and offer one next step.`
 
 /** Steps of one front turn: a small base, extended in chunks up to the cap, then a hand-over. */
 export const FRONT_STEPS = { base: 8, chunk: 8, cap: 16 } as const
@@ -125,6 +137,19 @@ export interface FrontAgentOptions {
    * no style lines.
    */
   style?: (personId: string) => PersonStyle
+  /**
+   * The onboarding block of one person (`prefrontal`, ADR-0034 §4): defined only while that person has no stored style. It goes
+   * in that person's turn reminder, after the style lines. Absent or failing: no block.
+   */
+  onboarding?: (personId: string) => Promise<string | undefined>
+  /** The persona and style tools (`prefrontal/persona-tools.ts`): the front agent only, never a worker, room or guest. */
+  personaTools?: HarnessPlugin
+  /** The `undo_last` tool (`amygdala/undo.ts`): the front agent only. Its instruction line is added with it. */
+  undoTool?: HarnessPlugin
+  /** The consent hook plugin (`amygdala/consent.ts`, ADR-0036): decides `tool.approve` from risk and provenance. */
+  consent?: HarnessPlugin
+  /** The owner's model tools (`model_roles_get`, `model_role_set`; ADR-0034 §8): the front agent only. */
+  modelTools?: HarnessPlugin
   /**
    * The clients of the turn's person (`parietal`, read only): the channel and the second screen choose the answer mode (P33.4.1).
    * Absent or failing: no client is known, so the mode is `chat` in plain text.
@@ -194,6 +219,8 @@ export function createFrontAgent(options: FrontAgentOptions): HarnessAgent {
       [
         d === undefined ? FRONT_INSTRUCTIONS : `${FRONT_INSTRUCTIONS}\n${DELEGATION_INSTRUCTIONS}`,
         ...(options.protocolTools === undefined ? [] : [AGENDA_INSTRUCTIONS]),
+        ...(options.undoTool === undefined ? [] : [UNDO_INSTRUCTIONS]),
+        ...(options.consent === undefined ? [] : [CONSENT_INSTRUCTIONS]),
       ].join('\n'),
       // the persona block: read from the current persona at every turn, so an owner's change (a template, an edit, a restore)
       // reaches the next turn at once. The text is the same for every person; it is not cached in the session, because an
@@ -229,6 +256,22 @@ export function createFrontAgent(options: FrontAgentOptions): HarnessAgent {
                   if (id === undefined || options.style === undefined) return undefined
                   const name = (await options.whois?.(id))?.name
                   return renderStyleLines(options.style(id), name)
+                } catch {
+                  return undefined
+                }
+              },
+            },
+          ]),
+      // onboarding of a person with no stored style: that person's reminder only, gone once a style row exists (ADR-0034 §4)
+      ...(options.onboarding === undefined
+        ? []
+        : [
+            {
+              refresh: 'turn' as const,
+              text: async (ctx: HarnessContext): Promise<string | undefined> => {
+                try {
+                  const id = ctx.principal?.id
+                  return id === undefined ? undefined : await options.onboarding?.(id)
                 } catch {
                   return undefined
                 }
@@ -292,6 +335,10 @@ export function createFrontAgent(options: FrontAgentOptions): HarnessAgent {
       ...(options.presence === undefined ? [] : [options.presence]),
       ...(options.clientCall === undefined ? [] : [options.clientCall]),
       ...(options.protocolTools === undefined ? [] : [options.protocolTools]),
+      ...(options.personaTools === undefined ? [] : [options.personaTools]),
+      ...(options.modelTools === undefined ? [] : [options.modelTools]),
+      ...(options.undoTool === undefined ? [] : [options.undoTool]),
+      ...(options.consent === undefined ? [] : [options.consent]),
       ...(options.roomPost === undefined ? [] : [options.roomPost]),
       ...(options.dataDir === undefined
         ? []

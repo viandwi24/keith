@@ -1,3 +1,12 @@
+import {
+  canPrevPage,
+  initialLogsState,
+  type LogsAction,
+  type LogsState,
+  reduceLogs,
+  sessionsInput,
+  sessionsKey,
+} from '@keith/app-model/manage'
 import type {
   LogsCallOutput,
   LogsRawOutput,
@@ -7,15 +16,6 @@ import type {
 import { useEffect, useReducer, useRef } from 'react'
 import type { ManageEnv } from '../manage-types.ts'
 import { type Loaded, useLoad } from '../use-load.ts'
-import {
-  canPrevPage,
-  initialLogsState,
-  type LogsAction,
-  type LogsState,
-  reduceLogs,
-  sessionsInput,
-  sessionsKey,
-} from './logs-state.ts'
 
 /** A detail answer tagged with the id it was asked for, so a late answer never shows under another row. */
 interface Keyed<T> {

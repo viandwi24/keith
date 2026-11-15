@@ -44,7 +44,7 @@ export const LIST_ROWS = 6 // twelve regions in two columns
 const BARS = '▁▂▃▄▅▆▇█'
 const SEPARATOR = ' › '
 
-interface Sample {
+export interface Sample {
   level: number
   region: Region
 }
@@ -95,6 +95,11 @@ export class BrainTrace {
       this.samples.push({ level, region: best })
       if (this.samples.length > MAX_SAMPLES) this.samples.shift()
     }
+  }
+
+  /** The newest `n` samples, oldest first (the web draws them on a canvas). */
+  lastSamples(n: number): readonly Sample[] {
+    return this.samples.slice(-n)
   }
 
   /** Number of samples kept (the trace scrolls: oldest dropped past MAX_SAMPLES). */

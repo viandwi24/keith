@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { PersonRoleSchema } from './people.ts'
+import { CookieIssuedSchema, CredentialDeliverySchema } from './web-session.ts'
 
 /**
  * Identifier-first sign-in, adapters and policy (ADR-0014, docs/specs/auth.md). Additive: the
@@ -97,13 +98,16 @@ export const FlowAnswerSchema = z.object({
    * all) instead of the method's own lifetime. Absent or false changes nothing.
    */
   remember: z.boolean().optional(),
+  /** `cookie`: the session goes into the HttpOnly cookie and the answer is `{ cookie: true }` (ADR-0035). Absent means `body`. */
+  deliver: CredentialDeliverySchema.optional(),
 })
 export type FlowAnswer = z.infer<typeof FlowAnswerSchema>
 
-/** Answer of `POST /auth/flow/:id`: the next step, or the session (a credential, shown once). */
+/** Answer of `POST /auth/flow/:id`: the next step, or the session (a credential, shown once, or `{ cookie: true }` when delivered as the cookie). */
 export const FlowResultSchema = z.union([
   z.object({ step: StepSchema }),
   z.object({ credential: z.string() }),
+  CookieIssuedSchema,
 ])
 export type FlowResult = z.infer<typeof FlowResultSchema>
 

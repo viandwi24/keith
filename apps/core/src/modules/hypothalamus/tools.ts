@@ -138,7 +138,7 @@ export function protocolToolsOf(actors: AclActors, ports: () => ProtocolToolPort
         description:
           'Suggest a protocol (a standing rule or a reminder ladder) to the person. It is only a suggestion: nothing runs until the person confirms it. Use it only when the person asks for a standing rule or you see a clear recurring need.',
         inputSchema: ProposeInput,
-        metadata: { risk: 'write' },
+        metadata: { risk: 'write', source: 'trusted' },
         execute: (input: z.infer<typeof ProposeInput>) =>
           asCaller(actors, ports, ctx, (p, caller) => {
             const proposal = p.proposals.propose(caller, {
@@ -160,7 +160,7 @@ export function protocolToolsOf(actors: AclActors, ports: () => ProtocolToolPort
         description:
           'List the protocols of the person and the suggestions still waiting for their answer.',
         inputSchema: ListInput,
-        metadata: { risk: 'read' },
+        metadata: { risk: 'read', source: 'trusted' },
         execute: () =>
           asCaller(actors, ports, ctx, async (p, caller) => ({
             ok: true,
@@ -182,7 +182,7 @@ export function protocolToolsOf(actors: AclActors, ports: () => ProtocolToolPort
         description:
           'Pause one of the person protocols until a time, or switch it off when no time is given. Only the person own protocols can be changed.',
         inputSchema: PauseInput,
-        metadata: { risk: 'write' },
+        metadata: { risk: 'write', source: 'trusted' },
         execute: (input: z.infer<typeof PauseInput>) =>
           asCaller(actors, ports, ctx, (p, caller) => {
             const row = p.protocols.get(input.id)
@@ -205,7 +205,7 @@ export function protocolToolsOf(actors: AclActors, ports: () => ProtocolToolPort
         description:
           'Add something the person will do at a time or place to their agenda. Store only a time the person said; never invent one. Ask one short question first when the time or the meaning is unclear, and call this only after the answer.',
         inputSchema: AgendaAddTool,
-        metadata: { risk: 'write' },
+        metadata: { risk: 'write', source: 'trusted' },
         execute: (input: z.infer<typeof AgendaAddTool>) =>
           asCaller(actors, ports, ctx, (p, caller) => {
             const startsAt = Date.parse(input.startsAt)
@@ -249,7 +249,7 @@ export function protocolToolsOf(actors: AclActors, ports: () => ProtocolToolPort
         description:
           'List the agenda items of the person in a window (by default from now to seven days ahead).',
         inputSchema: AgendaListTool,
-        metadata: { risk: 'read' },
+        metadata: { risk: 'read', source: 'trusted' },
         execute: (input: z.infer<typeof AgendaListTool>) =>
           asCaller(actors, ports, ctx, (p, caller) => {
             const from = input.from === undefined ? Date.now() : Date.parse(input.from)
@@ -275,7 +275,7 @@ export function protocolToolsOf(actors: AclActors, ports: () => ProtocolToolPort
       tool({
         description: 'Mark one of the person agenda items as done.',
         inputSchema: AgendaDoneTool,
-        metadata: { risk: 'write' },
+        metadata: { risk: 'write', source: 'trusted' },
         execute: (input: z.infer<typeof AgendaDoneTool>) =>
           asCaller(actors, ports, ctx, (p, caller) => {
             const item = p.agenda.done(caller, input.id)
@@ -288,7 +288,7 @@ export function protocolToolsOf(actors: AclActors, ports: () => ProtocolToolPort
         description:
           'Answer a question a protocol asked the person in chat. Pass the run id from the question and the option or the text the person chose.',
         inputSchema: AnswerInput,
-        metadata: { risk: 'write' },
+        metadata: { risk: 'write', source: 'trusted' },
         execute: (input: z.infer<typeof AnswerInput>) =>
           asCaller(actors, ports, ctx, async (p, caller) => {
             const run = p.runs.get(input.runId)

@@ -21,7 +21,9 @@ import {
 } from '../auth/index.ts'
 import { emit } from '../brain-events/index.ts'
 import { activityFilter } from './activity-filter.ts'
+import { clearCookie, cookieRejected, csrfRefusal } from './cookie-guard.ts'
 import type { OpenStreams } from './open-streams.ts'
+import { acceptsHtml, createWebStatic, isWebPath } from './web-static.ts'
 
 /** `/plugins/*` (docs/specs/plugins.md): the plugin module answers; thalamus only resolves who asks. */
 export interface PluginRoutesPort {
@@ -29,6 +31,20 @@ export interface PluginRoutesPort {
     request: Request,
     context: { principal: Principal | undefined; via: Via },
   ): Promise<Response>
+}
+
+/**
+ * The consent seam (docs/specs/amygdala.md "Asked in conversation"): called for every chat `send` of a signed-in person, before
+ * the message reaches their front session and before eharness applies `onNewInput` to the approvals that wait. It answers with
+ * a response (the message was only the answer to a request: nothing is sent to the agent), or lets the message go on.
+ */
+export interface ChatMessagePort {
+  message(call: {
+    principal: Principal
+    via: Via
+    text: string
+    request: Request
+  }): Promise<{ kind: 'forward' } | { kind: 'answered'; response: Response }>
 }
 
 export interface ThalamusOptions {
@@ -49,6 +65,8 @@ export interface ThalamusOptions {
   lock?: SessionLock
   /** The activity feed: served at `/activity` and fed with `brain.thalamus.routed`. */
   activity?: { store: ActivityStore; bootId: string; warn?: (message: string) => void }
+  /** The consent seam: a person's next message may answer a request asked in conversation. */
+  consent?: ChatMessagePort
   /** A message of a person was sent to their front session (`chat.validate`): presence writes its `activity` signal. */
   onRouted?: (personId: string) => void
   /** What waits for the owner: served at `/attention` and `/attention/:id/answer`. */
@@ -61,7 +79,7 @@ export interface ThalamusOptions {
   capabilities?: Capabilities
   /** Clock of the principal resolver (tests: the step-up window). */
   now?: () => number
-  /** `POST /plugins/<id>/<op>` and `GET /plugins/openapi.json`, behind the bearer. */
+  /** `POST /plugins/<id>/<op>` and `GET /plugins/openapi.json`. */
   plugins?: PluginRoutesPort
   /**
    * The registry of long-lived requests: the activity feed, the session streams and `/attention`
@@ -70,6 +88,8 @@ export interface ThalamusOptions {
   streams?: OpenStreams
   /** `POST /nodes/join` (open: the pairing code is the credential); `clientKey` = caller address. */
   join?: (request: Request, clientKey: string) => Promise<Response>
+  /** Build folder of the web client, served at `/app` (absent: no `/app`). */
+  web?: { dir: string }
 }
 
 /** What the server hands to `app.fetch` as `env`: the caller's address (rate limit of pairing). */
@@ -95,6 +115,7 @@ const OPEN_PATHS = new Set([
   '/auth/login',
   '/auth/methods',
   '/auth/identify',
+  '/auth/web/adopt',
   '/auth/local/unlock',
   '/auth/local/session',
   '/auth/local/status',
@@ -112,6 +133,18 @@ const ROUTE_CAPABILITY: Record<string, Capability | undefined> = {
 }
 const capabilityOfAction = (action: string): Capability | undefined =>
   action in ROUTE_CAPABILITY ? ROUTE_CAPABILITY[action] : 'chat'
+
+/** The text parts of the last user message of a chat request, joined. */
+function textOf(messages: Array<{ role: string; parts?: unknown[] }>): string {
+  const last = [...messages].reverse().find((m) => m.role === 'user')
+  return (last?.parts ?? [])
+    .map((p) =>
+      (p as { type?: string; text?: string }).type === 'text'
+        ? ((p as { text?: string }).text ?? '')
+        : '',
+    )
+    .join('')
+}
 
 /** The first 120 characters of the text of the last user message of a chat request. */
 function previewOf(messages: Array<{ role: string; parts?: unknown[] }>): string {
@@ -147,6 +180,8 @@ export function createApp(options: ThalamusOptions): Hono<{
   const capabilities = options.capabilities ?? roleCapabilities
   // a tracked request is a copy with a child signal: it keeps the principal the middleware resolved
   const adopted = new WeakMap<Request, Principal>()
+  // the listener each tracked request came in on (the step-up of a chat message depends on it)
+  const viaOf = new WeakMap<Request, Via>()
   const http = createHarnessHttp<Principal>(options.agent, {
     authorize: async ({ request, action, sessionId }): Promise<Principal | HttpDeny> => {
       const principal = adopted.get(request) ?? (await principals.resolve(request))
@@ -183,7 +218,17 @@ export function createApp(options: ThalamusOptions): Hono<{
           },
           chat: {
             // runs after authorize, on the sanitised body: a new owner message reached the core
-            validate: ({ body, kind, principal }) => {
+            validate: async ({ body, kind, principal, request }) => {
+              // the person's own message may answer a request asked in conversation (it never reaches the agent then)
+              const answered =
+                kind === 'send' && options.consent !== undefined
+                  ? await options.consent.message({
+                      principal,
+                      via: viaOf.get(request) ?? 'tcp',
+                      text: textOf(body.messages),
+                      request,
+                    })
+                  : undefined
               if (kind === 'send' && options.activity !== undefined) {
                 const sessionId = frontSessionId(
                   principal.personId,
@@ -199,7 +244,7 @@ export function createApp(options: ThalamusOptions): Hono<{
                 )
               }
               if (kind === 'send') options.onRouted?.(principal.personId)
-              return undefined
+              return answered?.kind === 'answered' ? answered.response : undefined
             },
           },
         }),
@@ -237,23 +282,46 @@ export function createApp(options: ThalamusOptions): Hono<{
       }
       local.touch(c.req.method, path)
     }
-    if (!OPEN_PATHS.has(path) && !path.startsWith('/auth/flow/')) {
+    if (!OPEN_PATHS.has(path) && !path.startsWith('/auth/flow/') && !isWebPath(path)) {
       const principal = await principals.resolve(c.req.raw, c.env?.via, c.env?.ip)
+      const refused = csrfRefusal(c.req.raw, principal)
+      if (refused !== undefined) return refused
       c.set('principal', principal)
       if (principal !== undefined) c.env?.keepAlive?.()
+      await next()
+      if (c.res.status === 401 && cookieRejected(c.req.raw, principal)) {
+        c.res = clearCookie(c.req.raw, c.res)
+      }
+      return
     }
     await next()
   })
+  const web = options.web === undefined ? undefined : createWebStatic(options.web.dir)
+  if (web !== undefined) {
+    app.on(['GET', 'HEAD'], '/', (c) =>
+      acceptsHtml(c.req.raw) ? c.redirect('/app', 302) : c.notFound(),
+    )
+    app.all('/app', (c) => web.serve(c.req.raw))
+    app.all('/app/*', (c) => web.serve(c.req.raw))
+  }
   const streams = options.streams
   /**
    * Hand a request to eharness through the registry: its signal can be aborted when the person's
    * access ends. Only event streams stay registered; any other answer releases the entry at once.
    */
-  const tracked = async (raw: Request, principal: Principal | undefined): Promise<Response> => {
-    if (streams === undefined || principal === undefined) return http.fetch(raw)
+  const tracked = async (
+    raw: Request,
+    principal: Principal | undefined,
+    via: Via,
+  ): Promise<Response> => {
+    if (streams === undefined || principal === undefined) {
+      viaOf.set(raw, via)
+      return http.fetch(raw)
+    }
     const grantsKey = [...capabilities.of(principal)].sort().join(',')
     const { request, release } = streams.open(principal, raw, grantsKey)
     adopted.set(request, principal)
+    viaOf.set(request, via)
     let response: Response
     try {
       response = await http.fetch(request)
@@ -268,18 +336,18 @@ export function createApp(options: ThalamusOptions): Hono<{
     const body = response.body.pipeThrough(new TransformStream({ flush: release }))
     return new Response(body, response)
   }
-  app.all('/sessions/*', (c) => tracked(c.req.raw, c.get('principal')))
+  app.all('/sessions/*', (c) => tracked(c.req.raw, c.get('principal'), c.env?.via ?? 'tcp'))
   if (options.activity !== undefined) {
-    app.all('/activity', (c) => tracked(c.req.raw, c.get('principal')))
-    app.all('/activity/*', (c) => tracked(c.req.raw, c.get('principal')))
+    app.all('/activity', (c) => tracked(c.req.raw, c.get('principal'), c.env?.via ?? 'tcp'))
+    app.all('/activity/*', (c) => tracked(c.req.raw, c.get('principal'), c.env?.via ?? 'tcp'))
   }
   if (options.attention !== undefined) {
-    app.all('/attention', (c) => tracked(c.req.raw, c.get('principal')))
+    app.all('/attention', (c) => tracked(c.req.raw, c.get('principal'), c.env?.via ?? 'tcp'))
     app.all('/attention/*', async (c) => {
       const request = c.req.raw
       // the approval is read before the answer runs: once it is answered it no longer waits
       const pending = await readAnswer(request.clone() as Request, options.attention)
-      const response = await tracked(request, c.get('principal'))
+      const response = await tracked(request, c.get('principal'), c.env?.via ?? 'tcp')
       await auditAnswer(audit, {
         pending,
         response,
@@ -312,6 +380,8 @@ export function createApp(options: ThalamusOptions): Hono<{
     app.post('/auth/identify', (c) => auth.identify(c.req.raw, peerOf(c)))
     app.post('/auth/flow/:id', (c) => auth.flow(c.req.raw, peerOf(c), c.req.param('id')))
     app.post('/auth/step-up', (c) => auth.stepUp(c.req.raw, peerOf(c), c.get('principal')))
+    app.post('/auth/web/adopt', (c) => auth.webAdopt(c.req.raw, peerOf(c)))
+    app.post('/auth/web/logout', (c) => auth.webLogout(c.req.raw, peerOf(c), c.get('principal')))
   }
   const local = options.local
   if (local !== undefined) {

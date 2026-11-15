@@ -1,5 +1,5 @@
-import type { AuthZone, MethodDescriptor, Step } from '@keith/contracts'
-import type { ClientConfig } from './config.ts'
+import type { AuthZone, CredentialDelivery, MethodDescriptor, Step } from '@keith/contracts'
+import type { ClientConfig } from './client-config.ts'
 
 /** A method id is whatever the core lists (`device`, `pin`, `password`, `token`, a future `totp`). */
 export type SignInMethod = string
@@ -114,8 +114,16 @@ export interface SignInOptions {
   now?: () => number
   /** Resolves after `ms`, or at once when `signal` aborts. */
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>
-  /** Where the credential is saved (default: `writeClientConfig` at the default path, mode 0600). */
+  /**
+   * Where the credential is saved. The root entry's `createSignIn` defaults to `writeClientConfig` (mode 0600); the browser
+   * entry and this bare function keep nothing (a cookie is no file).
+   */
   store?: SignInStore
+  /**
+   * `cookie`: the core keeps the credential in the HttpOnly session cookie and answers `{ cookie: true }` (ADR-0035); the
+   * store is not called and a pasted token is turned into the cookie (`POST /auth/web/adopt`). Default `body`.
+   */
+  deliver?: CredentialDelivery
   /** Remembers the identifier that signed in and pre-fills it next time (default: nothing is remembered). */
   remember?: IdentifierMemory
   /** Name the owner sees for this device (default: the core's own default label). */

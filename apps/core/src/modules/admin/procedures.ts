@@ -174,6 +174,8 @@ export function adminProcedures(options: AdminProceduresOptions) {
             ? {}
             : { assurance: principal.credential.assurance }),
           elevated: principal.elevated === true,
+          elevatedUntil:
+            principal.elevated === true ? (principal.credential?.elevatedUntil ?? null) : null,
           // core ids and the ids of loaded plugins the person holds (docs/specs/plugins.md)
           capabilities: [...context.capabilities].sort(),
         }

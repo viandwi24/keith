@@ -131,7 +131,7 @@ export function clientCallToolOf(options: ClientCallToolOptions) {
         capability: z.enum(CLIENT_CAPABILITY_IDS),
         input: z.record(z.string(), z.unknown()),
       }),
-      metadata: { risk: 'write' },
+      metadata: { risk: 'write', source: 'trusted' },
       execute: async ({
         capability,
         input,

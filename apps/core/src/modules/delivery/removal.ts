@@ -1,4 +1,5 @@
-// The delivery share of a removed person's data (ADR-0027 §26, docs/specs/delivery.md "Removal"). Pending rows stay in
+// The delivery share of a removed person's data (ADR-0027 §26, docs/specs/delivery.md "Removal"). Held rows follow the
+// pending ones (listed on `export`, deleted on `purge`). Pending rows stay in
 // place on `keep`: the service retries them and each ends as `recipient-gone` (the creator is told). `export` lists their
 // ids only, and `purge` deletes what is still pending after the keep time.
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -12,7 +13,9 @@ export function deliveryRemoval(deliveries: DeliveriesRepo): PersonRemovalHooks 
       return undefined
     },
     export(personId, dest) {
-      const pending = deliveries.pendingFor(personId).map((row) => row.id)
+      const pending = [...deliveries.pendingFor(personId), ...deliveries.heldFor(personId)].map(
+        (row) => row.id,
+      )
       if (pending.length === 0) return
       mkdirSync(dest, { recursive: true })
       writeFileSync(
@@ -23,6 +26,7 @@ export function deliveryRemoval(deliveries: DeliveriesRepo): PersonRemovalHooks 
     },
     purge(personId) {
       deliveries.deletePendingFor(personId)
+      deliveries.deleteHeldFor(personId)
     },
   }
 }

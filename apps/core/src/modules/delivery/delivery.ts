@@ -5,16 +5,19 @@ import {
   type DeliveryFailedRecord,
   DeliveryFailedRecordSchema,
   type DeliveryFailReason,
+  type DeliveryHoldReason,
   type DeliveryNeeds,
   DeliveryNeedsSchema,
   type DeliveryOutcome,
   type DeliveryRequest,
   type DeliveryRequestInput,
   DeliveryRequestSchema,
+  type PresenceState,
 } from '@keith/contracts'
 import type { DeliveriesRepo, DeliveryRecord } from '@keith/db'
 import { type FrontGenerationOf, frontSessionId } from '../../platform/sessions.ts'
 import type { Audit } from '../audit/index.ts'
+import { createDigest, HELD_PREFIX, holdReasonOf } from './digest.ts'
 
 /** What a route answers for one attempt. `unavailable` is retried; `budget` and `recipient-gone` end the delivery. */
 export type RouteResult =
@@ -24,12 +27,25 @@ export type RouteResult =
 /** One way to reach a person (the front session today; a client, a push or a mail later). */
 export interface DeliveryRoute {
   id: string
+  /**
+   * A companion route (a Web Push, docs/specs/push.md) runs in its place in the plan but never decides: its answer is ignored,
+   * it neither delivers the message nor refuses it, and the next route is always tried (the front session is never replaced).
+   */
+  companion?: boolean
   send(request: DeliveryRequest, ctx: { attempt: number }): Promise<RouteResult>
 }
 
-/** Chooses the routes of a delivery, best first. The seam of P27 (presence) and P28 (protocol `notify`). */
+/** The answer "keep it for the return digest" (ADR-0034 §6): `until` is the end of a stated busy or out status (epoch ms). */
+export interface RouteHold {
+  hold: { reason: DeliveryHoldReason; until?: number }
+}
+
+/** The routes of a delivery, best first, or a hold. */
+export type RoutePlan = DeliveryRoute[] | RouteHold
+
+/** Chooses the routes of a delivery, best first, or holds it. The seam of P27 (presence) and P28 (protocol `notify`). */
 export interface RoutePlanner {
-  plan(person: string, needs: DeliveryNeeds): Promise<DeliveryRoute[]>
+  plan(person: string, needs: DeliveryNeeds): Promise<RoutePlan>
 }
 
 /** Writes an activity record on a session (the core's `emit`, bound to its store). Never throws. */
@@ -57,9 +73,17 @@ export interface DeliveryOptions {
   warn?: (message: string) => void
   /** The current front generation of each person (ADR-0030 §2): the session the person's events go to. */
   generations: FrontGenerationOf
+  /** The person's front session: the digest turn and the 7-day notes go there. Without it, held rows are never released. */
+  front?: DeliveryRoute
+  /** One notice to the person's active client when a digest is released (best effort). */
+  notify?: (personId: string, text: string) => Promise<void>
+  /** The person's presence now: the tick releases held rows of a person who is active or idle again. */
+  presenceOf?: (personId: string) => { state: PresenceState } | undefined
 }
 
 export interface Delivery {
+  /** Releases every held row of the person as one digest (the person came back); a repeat finds nothing held. */
+  release(personId: string): Promise<void>
   /** Sends a request once for its run id; a repeat returns the stored outcome and sends nothing. */
   deliver(request: DeliveryRequestInput): Promise<DeliveryOutcome>
   /** Attempts the pending rows that are due (at most `TICK_LIMIT`). */
@@ -69,7 +93,10 @@ export interface Delivery {
   stop(): void
 }
 
-type Attempt = { ok: true; route: string } | { ok: false; reason: DeliveryFailReason }
+type Attempt =
+  | { ok: true; route: string }
+  | { ok: false; reason: DeliveryFailReason }
+  | { held: RouteHold['hold'] }
 
 /** The request a stored row was made from (retries and the failure notice read the row, not the caller). */
 export function requestOf(row: DeliveryRecord): DeliveryRequest {
@@ -98,6 +125,7 @@ export function outcomeOf(row: DeliveryRecord): DeliveryOutcome {
       reason: (row.reason ?? 'unavailable') as DeliveryFailReason,
       attempts: row.attempts,
     }
+  if (row.status === 'held') return { status: 'held', reason: holdReasonOf(row.reason) }
   return {
     status: 'queued',
     reason: 'unavailable',
@@ -139,7 +167,9 @@ export function createDelivery(options: DeliveryOptions): Delivery {
     if (!(await isActive(request.to))) return { ok: false, reason: 'recipient-gone' }
     let routes: DeliveryRoute[]
     try {
-      routes = await planner.plan(request.to, request.needs)
+      const plan = await planner.plan(request.to, request.needs)
+      if (!Array.isArray(plan)) return { held: plan.hold }
+      routes = plan
     } catch (error) {
       warn(`delivery: planner failed: ${message(error)}`)
       return { ok: false, reason: 'unavailable' }
@@ -151,6 +181,7 @@ export function createDelivery(options: DeliveryOptions): Delivery {
     const refusals: RouteResult[] = []
     for (const candidate of routes) {
       const result = await sendVia(candidate, request, attempt)
+      if (candidate.companion === true) continue
       if (result.ok) {
         if (!all) return { ok: true, route: candidate.id }
         delivered.push(candidate.id)
@@ -236,6 +267,23 @@ export function createDelivery(options: DeliveryOptions): Delivery {
     const attemptNo = row.attempts + 1
     const outcome = await route(request, attemptNo)
 
+    if ('held' in outcome) {
+      // kept for the return digest: no retry timer, the text stays (docs/specs/delivery.md, "Hold and digest")
+      const { reason, until } = outcome.held
+      deliveries.settle(row.id, {
+        status: 'held',
+        reason: `${HELD_PREFIX}${reason}`,
+        attempts: row.attempts,
+        nextAttemptAt: null,
+      })
+      audit.record({
+        kind: 'delivery.held',
+        actor: 'system',
+        via: 'local',
+        detail: { id: row.id, source: row.source, to: row.recipientId, reason },
+      })
+      return { status: 'held', reason, ...(until === undefined ? {} : { until }) }
+    }
     if (outcome.ok) {
       deliveries.settle(row.id, { status: 'delivered', attempts: attemptNo, route: outcome.route })
       audit.record({
@@ -313,8 +361,22 @@ export function createDelivery(options: DeliveryOptions): Delivery {
     return done ?? outcomeOf(deliveries.get(record.id) ?? record)
   }
 
+  const digest =
+    options.front === undefined
+      ? undefined
+      : createDigest({
+          deliveries,
+          front: options.front,
+          audit,
+          now,
+          warn,
+          ...(options.notify === undefined ? {} : { notify: options.notify }),
+          ...(options.presenceOf === undefined ? {} : { presenceOf: options.presenceOf }),
+        })
+
   const tick = async (): Promise<void> => {
     for (const row of deliveries.due(now(), TICK_LIMIT)) await attemptGuarded(row)
+    await digest?.sweep()
   }
 
   const tickLogged = (): void => {
@@ -323,6 +385,7 @@ export function createDelivery(options: DeliveryOptions): Delivery {
 
   return {
     deliver,
+    release: async (personId) => digest?.release(personId),
     tick,
     start() {
       tickLogged()

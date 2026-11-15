@@ -1,6 +1,6 @@
+import type { Dialog as DialogState } from '@keith/app-model/manage'
 import { Dialog, Field, G, ListRow, Notice, PulseGlyph, Txt } from '@keith/ui'
 import { Box } from 'ink'
-import type { Dialog as DialogState } from './dialog-state.ts'
 import type { ActionSpec, NoteSpec } from './manage-types.ts'
 
 type Of<K extends DialogState['kind']> = Extract<DialogState, { kind: K }>

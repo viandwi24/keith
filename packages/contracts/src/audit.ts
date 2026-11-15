@@ -107,6 +107,14 @@ export const AUDIT_SUBJECT_FIELDS: Readonly<Record<string, readonly string[]>> =
   'delivery.retry': ['to'],
   'delivery.failed': ['to'],
   'delivery.reported': ['to'],
+  // a delivery kept for the return digest (ADR-0034 §7): the recipient and the reason, never the text
+  'delivery.held': ['to'],
+  // a Web Push sent for a delivery (docs/specs/push.md, "Audit"): the recipient and the subscription id, never the endpoint or the text
+  'delivery.push': ['to'],
+  // the person's own push subscriptions and setting (docs/specs/push.md, "Audit")
+  'push.subscribed': ['subject'],
+  'push.unsubscribed': ['subject'],
+  'push.preview.set': ['subject'],
   // the owner's test notice (`keith-core notify`, docs/specs/delivery.md, "Audit"): the recipient, the outcome, never the text
   'delivery.test_notice': ['to'],
   // presence of the person's own clients and status (docs/specs/parietal.md, "Settings, audit, errors")

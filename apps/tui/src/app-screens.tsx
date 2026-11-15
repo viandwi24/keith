@@ -11,6 +11,8 @@ export type Screen =
   | 'chat'
   | 'help'
   | 'tasks'
+  /** `/inbox`: the pending approvals, the only place the TUI answers a `device` request (`features/approvals`). */
+  | 'inbox'
   | 'trace'
   | 'nodes'
   | 'budget'

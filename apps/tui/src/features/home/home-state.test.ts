@@ -1,33 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { BrainEvent } from '@keith/contracts'
-import { fitLegend, REGIONS } from '@keith/ui'
-import {
-  homeLegend,
-  homeSize,
-  ORB_MAX_ROWS,
-  orbModeOf,
-  plainText,
-  regionOf,
-  strengthOf,
-} from './home-state.ts'
-
-const calm = { alert: false, busy: false, speaking: false, typing: false }
-
-describe('orbModeOf', () => {
-  test('idle, listening, thinking, speaking and alert from real state', () => {
-    expect(orbModeOf(calm)).toBe('idle')
-    expect(orbModeOf({ ...calm, typing: true })).toBe('listening')
-    expect(orbModeOf({ ...calm, busy: true })).toBe('thinking')
-    expect(orbModeOf({ ...calm, busy: true, speaking: true })).toBe('speaking')
-    expect(orbModeOf({ ...calm, alert: true, busy: true, speaking: true, typing: true })).toBe(
-      'alert',
-    )
-  })
-
-  test('a running turn outranks the draft', () => {
-    expect(orbModeOf({ ...calm, busy: true, typing: true })).toBe('thinking')
-  })
-})
+import { fitLegend } from '@keith/ui'
+import { homeLegend, homeSize, ORB_MAX_ROWS } from './home-state.ts'
 
 describe('homeSize', () => {
   test('the brain frame hides below 80 columns, the subtitle below 14 rows', () => {
@@ -61,35 +34,6 @@ describe('homeSize', () => {
     expect(homeSize(100, 13, 0.5).captionRows).toBe(1)
     expect(homeSize(300, 100).orbHeight).toBe(ORB_MAX_ROWS)
     expect(homeSize(60, 20).orbWidth).toBeLessThanOrEqual(60)
-  })
-})
-
-describe('events to the trace', () => {
-  const event = (type: string): BrainEvent => ({ type, payload: {} }) as unknown as BrainEvent
-  test('the region is the second part of the type and is always a trace region', () => {
-    expect(regionOf(event('brain.cortex.step'))).toBe('cortex')
-    expect(REGIONS).toContain(regionOf(event('brain.hippocampus.recall')))
-    expect(regionOf(event('brain.parietal.presence'))).toBe('parietal')
-    expect(REGIONS).toContain(regionOf(event('brain.parietal.deliver')))
-  })
-
-  test('a step is small, a spoken answer or a motor act is larger', () => {
-    const step = strengthOf(event('brain.cortex.step'))
-    expect(step).toBeLessThan(strengthOf(event('brain.amygdala.decide')))
-    expect(strengthOf(event('brain.amygdala.decide'))).toBeLessThan(
-      strengthOf(event('brain.broca.start')),
-    )
-    expect(strengthOf(event('brain.motor.act'))).toBeGreaterThan(step)
-  })
-})
-
-describe('plainText', () => {
-  test('strips markdown down to the words', () => {
-    expect(plainText('# Title\n\nSome **bold** and *soft* `code` [link](http://x).')).toBe(
-      'Title Some bold and soft code link.',
-    )
-    expect(plainText('- one\n- two\n\n```ts\nconst a = 1\n```\nend')).toBe('one two end')
-    expect(plainText('snake_case_word stays')).toBe('snake_case_word stays')
   })
 })
 

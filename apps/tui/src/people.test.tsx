@@ -157,8 +157,11 @@ describe('step-up', () => {
 })
 
 describe('approvals of two people', () => {
-  test('the owner reads who asked, the node and the whole command', async () => {
-    const { lastFrame, unmount } = await setupApp({ attention: [askedByApproval()] })
+  test('the owner reads who asked, the node and the whole command (in the Inbox, ADR-0036 §7)', async () => {
+    const { lastFrame, stdin, unmount } = await setupApp({ attention: [askedByApproval()] })
+    // another person's request never interrupts the chat: the quiet line names the Inbox
+    await frameUntil(lastFrame, (f) => f.includes('Confirm in the Inbox'))
+    await typeLine(stdin, '/inbox')
     const frame = await frameUntil(lastFrame, (f) => f.includes('Approval needed'))
     expect(frame).toContain('Ana asks to run a shell command on laptop-e')
     expect(frame).toContain('$ rm -rf /tmp/build-cache')

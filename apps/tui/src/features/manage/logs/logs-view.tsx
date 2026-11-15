@@ -1,14 +1,14 @@
-import { ListRow, Txt, windowOf } from '@keith/ui'
-import { Box } from 'ink'
-import type { Row } from '../manage-types.ts'
-import { FactLine, fitWidths, rowColumns } from '../section-view.tsx'
 import {
   GENERATION_HEADER,
   GENERATION_WIDTHS,
   type LogLine,
   SESSION_HEADER,
   SESSION_WIDTHS,
-} from './logs-format.ts'
+} from '@keith/app-model/manage'
+import { ListRow, Txt, windowOf } from '@keith/ui'
+import { Box } from 'ink'
+import type { Row } from '../manage-types.ts'
+import { FactLine, fitWidths, rowColumns } from '../section-view.tsx'
 
 /** The first line a scrolled body shows, kept inside its `total` lines and `rows` rows. */
 export const clampOffset = (offset: number, total: number, rows: number): number =>

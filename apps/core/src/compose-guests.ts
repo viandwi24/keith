@@ -67,6 +67,8 @@ export function createGuestFetch(options: {
   now?: () => number
   /** The visitor's text for a failed turn: the persona's `guestUnavailable` line (`prefrontal/lines.ts`). */
   guestLine?: () => string
+  /** The web client's build folder: the guest listener serves the guest chat page from it (`config.web`, `config.webDir`). */
+  web?: { dir: string }
 }): GuestHttp {
   const { guests } = options
   return createGuestHttp({
@@ -91,6 +93,7 @@ export function createGuestFetch(options: {
     onDenied: options.onDenied ?? guests.audit.denied,
     ...(options.ownNames === undefined ? {} : { ownNames: options.ownNames }),
     ...(options.guestLine === undefined ? {} : { guestLine: options.guestLine }),
+    ...(options.web === undefined ? {} : { web: options.web }),
   })
 }
 

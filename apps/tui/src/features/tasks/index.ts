@@ -1,5 +1,3 @@
-export { TasksPanel } from './tasks-panel.tsx'
-export { TasksScreen } from './tasks-screen.tsx'
 export {
   formatElapsed,
   isActive,
@@ -7,5 +5,7 @@ export {
   statusIcon,
   statusTone,
   taskChangedOf,
-} from './tasks-state.ts'
+} from '@keith/app-model'
+export { TasksPanel } from './tasks-panel.tsx'
+export { TasksScreen } from './tasks-screen.tsx'
 export { type Tasks, useTasks } from './use-tasks.ts'

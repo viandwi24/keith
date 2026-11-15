@@ -1,4 +1,11 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
+import {
+  clipText,
+  draftOfValues,
+  editFieldsOf,
+  personaRowsOf,
+  stampOf,
+} from '@keith/app-model/manage'
 import { KEITH_STEP_UP_REQUIRED, type KeithClient } from '@keith/client'
 import type { PersonaBody, PersonaVersion, PersonaView, Whoami } from '@keith/contracts'
 import { FooterProvider, resolveTheme, ThemeProvider } from '@keith/ui'
@@ -8,7 +15,6 @@ import { SECTIONS, visibleSections } from '../manage/index.ts'
 import type { ManageEnv } from '../manage/manage-types.ts'
 import { SectionHost } from '../manage/section-host.tsx'
 import { StepUpDialog, useStepUp } from '../stepup/index.ts'
-import { clipText, draftOfValues, editFieldsOf, personaRowsOf, stampOf } from './persona-section.ts'
 
 afterEach(cleanup)
 

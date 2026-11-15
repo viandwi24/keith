@@ -163,3 +163,20 @@ describe('front agent prompt', () => {
     expect(after).not.toContain(JSON.stringify(oldBlock).slice(1, -1))
   })
 })
+
+describe('answer craft in the static instructions (ADR-0034 §1)', () => {
+  test('the rules are in FRONT_INSTRUCTIONS and the speech-only rule is not', async () => {
+    const { SPEECH_TEXT } = await import('../prefrontal/index.ts')
+    for (const rule of [
+      'Answer craft',
+      'the action, then the reason, then the deadline',
+      'A briefing is a count first',
+      'two to four words',
+      'repeat the key fact once',
+      'says first why it interrupts',
+    ])
+      expect(FRONT_INSTRUCTIONS).toContain(rule)
+    expect(FRONT_INSTRUCTIONS).not.toContain('let me check')
+    expect(SPEECH_TEXT).toContain('let me check')
+  })
+})

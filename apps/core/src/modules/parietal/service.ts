@@ -24,6 +24,7 @@ import type {
   PresenceDisclosureRepo,
   PresenceSignalsRepo,
   PresenceStatusRepo,
+  StatusRow,
 } from '@keith/db'
 import type { ActivityStore } from 'eharness/activity'
 import { type FrontGenerationOf, frontSessionId } from '../../platform/sessions.ts'
@@ -31,7 +32,7 @@ import type { AclAudit } from '../audit/index.ts'
 import { emit } from '../brain-events/index.ts'
 import type { PeopleService } from '../people/index.ts'
 import { type ClientRouteOptions, type ClientRoutePort, createClientRoute } from './client-route.ts'
-import { computePresence, isClientOnline, type PresenceWindows } from './compute.ts'
+import { computePresence, isClientOnline, type OutStatus, type PresenceWindows } from './compute.ts'
 import {
   createDisclosure,
   DEFAULT_GROUP_LEVEL,
@@ -48,8 +49,13 @@ import { createParietalPorts, type ParietalPorts } from './ports.ts'
 export const HEARTBEAT_MIN_MS = 5_000
 /** Registers one person may make per minute (the limit that protects the table from a loop). */
 export const REGISTERS_PER_MINUTE = 10
-/** A manual busy status without minutes lasts this long (the maximum of the contract). */
+/** A stated status without an end lasts this long. */
 export const STATUS_DEFAULT_MINUTES = 1_440
+/** The longest a `busy` status may last (24 hours) and an `out` status may last (7 days). */
+export const BUSY_MAX_MS = 24 * 60 * 60_000
+export const OUT_MAX_MS = 7 * 24 * 60 * 60_000
+/** How far ahead a status may be scheduled to start (7 days). */
+export const STATUS_AHEAD_MAX_MS = 7 * 24 * 60 * 60_000
 
 /** A refusal of the service; the procedures turn it into the oRPC error of the same code. */
 export type ParietalErrorCode = 'BAD_REQUEST' | 'CONFLICT' | 'NOT_FOUND' | 'TOO_MANY_REQUESTS'
@@ -128,16 +134,31 @@ export function createParietalService(options: ParietalServiceOptions): Parietal
   const registers = new Map<string, number[]>()
   const lastState = new Map<string, PresenceState>()
 
-  // the manual status is the first overlay source: busy until its end (`/free` clears the row)
+  /** The stored status of a person while it holds now: it has started and not ended (`/free` clears the row). */
+  const currentStatus = (personId: string, at: number): StatusRow | undefined => {
+    const row = repos.status.get(personId)
+    if (row === undefined) return undefined
+    if ((row.from ?? row.setAt) > at) return undefined
+    if (row.until !== null && row.until <= at) return undefined
+    return row
+  }
+
+  // the stated status is the first overlay source: busy from its start until its end
   overlays.add({
     id: 'manual',
     busy(personId, at) {
-      const row = repos.status.get(personId)
-      if (row === undefined) return undefined
-      if (row.until !== null && row.until <= at) return undefined
+      const row = currentStatus(personId, at)
+      if (row === undefined || row.kind !== 'busy') return undefined
       return { note: row.note, until: row.until ?? Number.POSITIVE_INFINITY }
     },
   })
+
+  /** The stated `out` status that holds now (ADR-0034 §5): away from the desk, with its note and end. */
+  const outOf = (personId: string, at: number): OutStatus | undefined => {
+    const row = currentStatus(personId, at)
+    if (row === undefined || row.kind !== 'out') return undefined
+    return { note: row.note, until: row.until ?? Number.POSITIVE_INFINITY }
+  }
 
   const owned = (personId: string, id: string): ClientRow => {
     const row = repos.clients.get(id)
@@ -173,6 +194,9 @@ export function createParietalService(options: ParietalServiceOptions): Parietal
       lastSeenAt: row.lastSeenAt,
       lastActiveAt: row.lastActiveAt,
       leftAt: left.get(row.id) ?? null,
+      kind: row.kind,
+      network: row.network,
+      device: row.environment?.device ?? null,
     }))
   }
 
@@ -183,6 +207,7 @@ export function createParietalService(options: ParietalServiceOptions): Parietal
       clients: withLeft(personId),
       activityAt: repos.signals.newest(personId, ['activity']),
       overlay: overlays.busyOf(personId, at),
+      out: outOf(personId, at),
       windows,
     })
 
@@ -242,7 +267,7 @@ export function createParietalService(options: ParietalServiceOptions): Parietal
     acl: options.acl,
     presenceOf: (personId, at) => computed(personId, at),
     busyUntil: (personId, at) => {
-      const until = overlays.busyOf(personId, at)?.until
+      const until = (overlays.busyOf(personId, at) ?? outOf(personId, at))?.until
       return until === undefined || !Number.isFinite(until) ? null : until
     },
     ...(options.audit === undefined ? {} : { audit: options.audit }),
@@ -314,8 +339,14 @@ export function createParietalService(options: ParietalServiceOptions): Parietal
       const at = now()
       const row = repos.status.get(personId)
       if (row === undefined || (row.until !== null && row.until <= at))
-        return { busy: false, note: null, until: null }
-      return { busy: true, note: row.note, until: row.until }
+        return { busy: false, note: null, until: null, kind: null, from: null }
+      return {
+        busy: row.kind === 'busy' && (row.from ?? row.setAt) <= at,
+        note: row.note,
+        until: row.until,
+        kind: row.kind,
+        from: row.from,
+      }
     },
 
     setStatus(personId, input) {
@@ -323,13 +354,28 @@ export function createParietalService(options: ParietalServiceOptions): Parietal
       if (!input.busy) {
         repos.status.clear(personId)
         refresh(personId)
-        return { busy: false, note: null, until: null }
+        return { busy: false, note: null, until: null, kind: null, from: null }
       }
-      const until = at + (input.minutes ?? STATUS_DEFAULT_MINUTES) * 60_000
+      const kind = input.kind ?? 'busy'
+      const start = input.from ?? at
+      if (start > at + STATUS_AHEAD_MAX_MS)
+        throw new ParietalError('BAD_REQUEST', 'a status may start at most 7 days ahead')
+      const until = input.until ?? start + (input.minutes ?? STATUS_DEFAULT_MINUTES) * 60_000
+      if (until <= start)
+        throw new ParietalError('BAD_REQUEST', 'a status must end after it starts')
+      if (until <= at) throw new ParietalError('BAD_REQUEST', 'that status has already ended')
+      if (until - start > (kind === 'out' ? OUT_MAX_MS : BUSY_MAX_MS))
+        throw new ParietalError(
+          'BAD_REQUEST',
+          kind === 'out'
+            ? 'an out status lasts 7 days at most'
+            : 'a busy status lasts 24 hours at most',
+        )
       const note = input.note?.trim() || null
-      repos.status.set(personId, { note, until, setAt: at })
+      const from = input.from ?? null
+      repos.status.set(personId, { kind, note, from, until, setAt: at })
       refresh(personId)
-      return { busy: true, note, until }
+      return { busy: kind === 'busy' && start <= at, note, until, kind, from }
     },
 
     setDisclosure(personId, input) {

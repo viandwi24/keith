@@ -182,6 +182,13 @@ import {
   TestResultSchema,
 } from './providers.ts'
 import {
+  PushPreviewSchema,
+  PushPublicKeySchema,
+  PushRecordSchema,
+  PushSubscribeSchema,
+  PushUnsubscribeSchema,
+} from './push.ts'
+import {
   ReviewDenyInputSchema,
   ReviewListInputSchema,
   ReviewRefSchema,
@@ -304,6 +311,21 @@ export const keithContract = {
     setStatus: can('chat').input(PresenceStatusSetSchema).output(PresenceStatusViewSchema),
     disclosure: {
       set: can('chat').input(DisclosureSetSchema).output(DisclosureRowSchema),
+    },
+    /** Web Push of the signed-in person (docs/specs/push.md, ADR-0035): every call is the caller's own. */
+    push: {
+      /** The VAPID public key, base64url: the `applicationServerKey` of `pushManager.subscribe`. */
+      publicKey: can('authenticated').output(PushPublicKeySchema),
+      subscribe: can('authenticated').input(PushSubscribeSchema).output(PushRecordSchema),
+      unsubscribe: can('authenticated')
+        .input(PushUnsubscribeSchema)
+        .output(z.object({ ok: z.literal(true) })),
+      list: can('authenticated').output(z.array(PushRecordSchema)),
+      /** The setting `push.preview`: whether a push carries the message text (default off). */
+      preview: {
+        get: can('authenticated').output(PushPreviewSchema),
+        set: can('authenticated').input(PushPreviewSchema).output(PushPreviewSchema),
+      },
     },
   },
   budget: {

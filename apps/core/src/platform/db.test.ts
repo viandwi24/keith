@@ -298,8 +298,8 @@ describe('migrateWithBackup (ADR-0027 §3)', () => {
       .list(5)
       .find((r) => r.kind === 'db.migrated')
     expect(row?.via).toBe('offline')
-    // `from` and `to` count the core's journal rows: all 26 are applied by `migrateDatabase` before the plugin tables are added
-    expect(row?.detail).toMatchObject({ backup, from: 26, to: 26, pluginMigrations: 3 })
+    // `from` and `to` count the core's journal rows: all 28 are applied by `migrateDatabase` before the plugin tables are added
+    expect(row?.detail).toMatchObject({ backup, from: 28, to: 28, pluginMigrations: 3 })
     sqlite.close()
 
     expect(lines.some((l) => l.includes('was behind: applying') && l.includes(backup))).toBe(true)

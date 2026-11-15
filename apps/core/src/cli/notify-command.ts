@@ -32,6 +32,10 @@ export function noticeLines(sent: AdminNoticeSent, person: string): string[] {
     return [
       `queued for ${person}: no route now, the core retries at ${when(outcome.nextAttemptAt)}`,
     ]
+  if (outcome.status === 'held')
+    return [
+      `held for ${person} (${outcome.reason}): it is delivered in the digest when they are back`,
+    ]
   return [`not delivered to ${person}: ${outcome.reason}`]
 }
 

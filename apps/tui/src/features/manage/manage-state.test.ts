@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'bun:test'
+import {
+  capsOf,
+  clampRow,
+  moveRow,
+  type Nav,
+  navReduce,
+  visibleSections,
+} from '@keith/app-model/manage'
 import { type CAPABILITY_IDS, ROLE_CAPABILITIES } from '@keith/contracts'
-import { capsOf, clampRow, moveRow, type Nav, navReduce, visibleSections } from './manage-state.ts'
 import { SECTIONS } from './sections.ts'
 
 const ids = (role: 'owner' | 'member', grants: (typeof CAPABILITY_IDS)[number][] = []) =>

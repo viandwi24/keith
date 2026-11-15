@@ -1,4 +1,22 @@
 import { useChat } from '@ai-sdk/react'
+import {
+  answerableOf,
+  CONTEXT_HOLD_TEXT,
+  type ContextKind,
+  codeOf,
+  completeCommand,
+  type DreamMark,
+  draftRestoredOf,
+  marksWith,
+  matchCommands,
+  messageOf,
+  SEND_REFUSED_TEXT,
+  SESSION_BUSY_TEXT,
+  type Settled,
+  showsDivider,
+  toItems,
+  withDreamMarks,
+} from '@keith/app-model'
 import { CHAT_CLIP, type KeithClient } from '@keith/client'
 import type { Task } from '@keith/contracts'
 import { GUTTER, Notice, type NoticeLevel, Rule, ScrollView, useNow } from '@keith/ui'
@@ -15,21 +33,9 @@ import React, {
   useState,
 } from 'react'
 import { type DreamActivity, dreamingLineOf } from '../memory/index.ts'
-import { showsDivider } from './context-commands.ts'
 import { ContextDivider } from './context-divider.tsx'
-import {
-  CONTEXT_HOLD_TEXT,
-  type ContextKind,
-  draftRestoredOf,
-  SEND_REFUSED_TEXT,
-  SESSION_BUSY_TEXT,
-} from './context-pending.ts'
-import { type DreamMark, marksWith, withDreamMarks } from './dream-marks.ts'
 import { InputBand } from './input-band.tsx'
 import { MessageList } from './message-list.tsx'
-import { toItems } from './message-text.ts'
-import { answerableOf, codeOf, messageOf, type Settled } from './question-state.ts'
-import { completeCommand, matchCommands } from './slash.ts'
 
 const bindings = createReactBindings(React)
 

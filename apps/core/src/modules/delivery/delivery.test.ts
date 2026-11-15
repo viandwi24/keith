@@ -454,3 +454,53 @@ describe('the planner seam', () => {
     ])
   })
 })
+
+describe('companion routes (Web Push)', () => {
+  const companion = (id: string, result: RouteResult) => {
+    const calls: DeliveryRequest[] = []
+    const route: DeliveryRoute = {
+      id,
+      companion: true,
+      async send(r) {
+        calls.push(r)
+        return result
+      },
+    }
+    return { route, calls }
+  }
+  const planOf = (...routes: DeliveryRoute[]): RoutePlanner => ({ plan: async () => routes })
+
+  test('an accepted companion never ends the plan: the front route still delivers and names the outcome', async () => {
+    const push = companion('push', OK)
+    const front = scripted('front')
+    const { delivery } = setup({ planner: planOf(push.route, front.route) })
+    expect(await delivery.deliver(request())).toEqual({
+      status: 'delivered',
+      route: 'front',
+      attempts: 1,
+    })
+    expect(push.calls).toHaveLength(1)
+    expect(front.calls).toHaveLength(1)
+  })
+
+  test('a refused or throwing companion changes nothing; a terminal front refusal stays terminal in fanout all', async () => {
+    const refused = companion('push', UNAVAILABLE)
+    const front = scripted('front', [BUDGET])
+    const { delivery } = setup({ planner: planOf(refused.route, front.route) })
+    const out = await delivery.deliver(request({ needs: { fanout: 'all' } }))
+    expect(out).toMatchObject({ status: 'failed', reason: 'budget' })
+    const thrower: DeliveryRoute = {
+      id: 'push',
+      companion: true,
+      send: async () => {
+        throw new Error('boom')
+      },
+    }
+    const second = scripted('front')
+    const again = setup({ planner: planOf(thrower, second.route) })
+    expect(await again.delivery.deliver(request())).toMatchObject({
+      status: 'delivered',
+      route: 'front',
+    })
+  })
+})

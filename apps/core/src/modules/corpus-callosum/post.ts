@@ -46,7 +46,7 @@ export function roomPostToolOf(deps: RoomPostDeps) {
       description:
         'Share a result of this chat with the room the person is active in, when the person asks for it. Pass the roomId from the reminder and the exact text to share. Nothing is posted by this call: the person confirms the exact text first.',
       inputSchema: RoomPostInput,
-      metadata: { risk: 'write' },
+      metadata: { risk: 'write', source: 'trusted', selfConfirmed: true },
       execute: async ({ roomId, text }: z.infer<typeof RoomPostInput>): Promise<RoomPostAnswer> => {
         const personId = ctx.principal?.id
         if (personId === undefined)

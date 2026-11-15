@@ -9,6 +9,7 @@ export const HELP: ReadonlyArray<Group> = [
     rows: [
       ['/manage', 'people, devices, nodes, providers, access, budget, audit'],
       ['/tasks', 'all tasks (enter opens one, s stops it)'],
+      ['/inbox', 'approvals that wait for you (tab answers, esc closes)'],
       ['/nodes', 'paired nodes, read only'],
       ['/brain trace', 'the last 50 brain events'],
       ['/budget', 'cost this month, the limit and every person'],

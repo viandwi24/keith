@@ -1,0 +1,34 @@
+{
+  "name": "@keith/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#lib": "./src/lib/index.js",
+    "#lib/*": "./src/lib/*"
+  },
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "prepare": "svelte-kit sync || echo ''",
+    "check-types": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc --noEmit -p src/service-worker/tsconfig.json",
+    "test": "bun test --pass-with-no-tests"
+  },
+  "devDependencies": {
+    "@keith/client": "workspace:*",
+    "@keith/contracts": "workspace:*",
+    "@keith/ui": "workspace:*",
+    "@sveltejs/adapter-static": "catalog:",
+    "@sveltejs/kit": "catalog:",
+    "@sveltejs/vite-plugin-svelte": "catalog:",
+    "@types/bun": "catalog:",
+    "bits-ui": "catalog:",
+    "svelte": "catalog:",
+    "svelte-check": "catalog:",
+    "typescript": "catalog:web",
+    "vite": "catalog:",
+    "@ai-sdk/svelte": "catalog:",
+    "@keith/app-model": "workspace:*"
+  }
+}

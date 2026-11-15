@@ -1,5 +1,5 @@
 import type { AclStore, KindDef } from '@keith/acl'
-import type { AclActor, Actor, PersonRole } from '@keith/contracts'
+import type { AclActor, Actor, PersonRole, ToolSource } from '@keith/contracts'
 import type { BunSQLiteDatabase } from 'drizzle-orm/bun-sqlite'
 import type { z } from 'zod'
 import type { PluginAccess, PluginPeople } from './access.ts'
@@ -240,6 +240,12 @@ export interface OperationDef<I extends z.ZodType = z.ZodType, O extends z.ZodTy
   audience?: Audience
   /** Default `write`. */
   risk?: OperationRisk
+  /**
+   * Where the text the operation returns comes from (ADR-0036 §3): `trusted` only when it is the person's own data, `outside`
+   * when anyone else can have written it (shared notes, messages, a page). Default `outside`: a conversation that read it can no
+   * longer be "clean" for a risky call.
+   */
+  source?: ToolSource
   expose?: Exposure
   rateLimit?: RateLimit
   /** Hold the call for the owner's review (above). Default: never. */
@@ -344,6 +350,7 @@ export interface ResolvedOperation {
   readonly permission: PermissionDecl
   readonly audience: Audience
   readonly risk: OperationRisk
+  readonly source: ToolSource
   readonly expose: Required<Exposure>
   readonly rateLimit: RateLimit | undefined
   readonly review: ReviewRule | undefined

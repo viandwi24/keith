@@ -63,6 +63,33 @@ const VIEW_STACK = /^(?:ink|chalk|@keith\/ui)(?:\/|$)/
 const HOST_VIEW_FILE = /^packages\/host\/src\/(?:tui\/|views\.ts$)/
 /** The driver packages (docs/specs/node-drivers.md, "Driver package"): code with the node's rights, which see only the SDK and the contracts. */
 const DRIVER_PACKAGE = /^packages\/driver-/
+/**
+ * The browser app (docs/specs/web.md): Svelte, SvelteKit and bits-ui (headless primitives) only; its data comes through `@keith/client`.
+ * `vite.config.ts` and tests are exempt, like in the TUI.
+ */
+const WEB_NPM = [/^svelte(\/|$)/, /^@sveltejs\//, /^bits-ui(\/|$)/, /^@ai-sdk\/svelte$/]
+const WEB_WORKSPACES = [
+  'apps/web',
+  'packages/app-model',
+  'packages/client',
+  'packages/contracts',
+  'packages/ui',
+]
+/** The Ink-free files of `@keith/ui` the browser may import (`@keith/ui/tokens`, `@keith/ui/markdown`, `@keith/ui/orb`). */
+const UI_PURE_FILES = [
+  'packages/ui/src/tokens.ts',
+  'packages/ui/src/markdown-parse.ts',
+  'packages/ui/src/orb/index.ts',
+]
+/**
+ * The shared logic of both clients (docs/specs/app-model.md): framework-free, so it imports the contracts, the client, the
+ * Ink-free design tokens and (types only) `ai`; never Ink, React, Svelte or an app.
+ */
+const APP_MODEL_WORKSPACES = ['packages/app-model', 'packages/client', 'packages/contracts']
+/** SvelteKit virtual modules and aliases that Bun cannot resolve: `$app/state`, `./$types`, `#lib/x`. */
+const WEB_VIRTUAL =
+  /^(?:\$app\/|\$env\/|\$service-worker$|\$lib(?:\/|$)|#lib(?:\/|$))|(?:^|\/)\$types$/
+const SCRIPT_BLOCK = /<script\b[^>]*>([\s\S]*?)<\/script>/g
 const TYPE_ONLY = /(?:^|[\n;])\s*(?:import|export)\s+type\b[^'";]*?\bfrom\s*(['"])([^'"]+)\1/g
 
 /** Import specifiers of one file: value imports from Bun, type-only imports by pattern. */
@@ -70,6 +97,11 @@ export function scanSpecifiers(
   path: string,
   code: string,
 ): { specifier: string; typeOnly: boolean }[] {
+  // a Svelte component: only its `<script>` blocks hold imports
+  if (path.endsWith('.svelte')) {
+    const scripts = [...code.matchAll(SCRIPT_BLOCK)].map((m) => m[1] ?? '').join('\n')
+    return scanSpecifiers(`${path}.ts`, scripts)
+  }
   const loader = path.endsWith('.tsx') ? 'tsx' : 'ts'
   // scanImports rejects a shebang line: blank it (keeps line numbers)
   const source = code.replace(/^#![^\n]*/, '')
@@ -122,8 +154,13 @@ export function checkEdge(edge: Edge, workspaces: Map<string, Workspace>): Viola
   if (edge.pkg !== undefined) {
     const ws = workspaces.get(owner)
     // tests, tool configs (drizzle.config.ts) and root scripts run only in development
+    // (the web app is bundled by Vite, so everything it imports is a devDependency)
     const devAllowed =
-      TEST_FILE.test(edge.from) || CONFIG_FILE.test(edge.from) || owner === '' || edge.typeOnly
+      TEST_FILE.test(edge.from) ||
+      CONFIG_FILE.test(edge.from) ||
+      owner === '' ||
+      owner === 'apps/web' ||
+      edge.typeOnly
     const declared =
       ws !== undefined &&
       (ws.dependencies.has(edge.pkg) || (devAllowed && ws.devDependencies.has(edge.pkg)))
@@ -148,6 +185,22 @@ export function checkEdge(edge: Edge, workspaces: Map<string, Workspace>): Viola
     // a bare import that resolves inside the repo is a workspace package, not npm
     const isNpm = edge.to === undefined
     if (
+      owner === 'apps/web' &&
+      isNpm &&
+      !TEST_FILE.test(edge.from) &&
+      !CONFIG_FILE.test(edge.from) &&
+      !WEB_NPM.some((re) => re.test(edge.specifier))
+    )
+      add('web-npm-allowlist')
+    // the shared logic has no framework: only the `ai` types (a `UIMessage` is the shape of a chat message)
+    if (
+      owner === 'packages/app-model' &&
+      isNpm &&
+      !TEST_FILE.test(edge.from) &&
+      !(edge.specifier === 'ai' && edge.typeOnly)
+    )
+      add('app-model-npm-allowlist')
+    if (
       owner === 'apps/tui' &&
       isNpm &&
       !TEST_FILE.test(edge.from) &&
@@ -168,11 +221,29 @@ export function checkEdge(edge: Edge, workspaces: Map<string, Workspace>): Viola
   }
   if (
     owner === 'apps/tui' &&
-    !['apps/tui', 'packages/cli', 'packages/client', 'packages/contracts', 'packages/ui'].some(
-      (d) => inside(to, d),
-    )
+    ![
+      'apps/tui',
+      'packages/app-model',
+      'packages/cli',
+      'packages/client',
+      'packages/contracts',
+      'packages/ui',
+    ].some((d) => inside(to, d))
   ) {
     add('tui-only-client-contracts')
+  }
+  if (owner === 'apps/web' && !WEB_WORKSPACES.some((d) => inside(to, d))) {
+    add('web-only-client-contracts')
+  }
+  if (owner === 'apps/web' && inside(to, 'packages/ui') && !UI_PURE_FILES.includes(to)) {
+    add('web-ui-pure-subpaths')
+  }
+  if (
+    owner === 'packages/app-model' &&
+    !APP_MODEL_WORKSPACES.some((d) => inside(to, d)) &&
+    !UI_PURE_FILES.includes(to)
+  ) {
+    add('app-model-pure-imports')
   }
   if (
     owner.startsWith('plugins/') &&
@@ -259,13 +330,16 @@ export function buildEdge(
       ? { from, specifier, typeOnly, builtin: true }
       : undefined
   }
+  if (from.startsWith('apps/web/') && WEB_VIRTUAL.test(specifier)) return undefined
   const edge: Edge = { from, specifier, typeOnly }
   if (!specifier.startsWith('.') && !specifier.startsWith('/')) edge.pkg = packageName(specifier)
   try {
     const target = relative(root, Bun.resolveSync(specifier, resolve(root, dirname(from))))
     if (!target.startsWith('..') && !target.includes('node_modules/')) edge.to = target
   } catch {
-    edge.unresolved = true
+    // a Svelte library ships only a `svelte` export condition, which Bun cannot resolve: it is npm, not a missing file
+    const svelteLibrary = from.startsWith('apps/web/') && WEB_NPM.some((re) => re.test(specifier))
+    if (!svelteLibrary) edge.unresolved = true
   }
   return edge
 }
@@ -275,7 +349,10 @@ if (import.meta.main) {
   const listed = await Bun.$`git ls-files --cached --others --exclude-standard`.cwd(root).text()
   const files = listed
     .split('\n')
-    .filter((f) => /^(?:apps|packages|plugins|scripts)\/.+\.tsx?$/.test(f) && !f.endsWith('.d.ts'))
+    .filter(
+      (f) =>
+        /^(?:apps|packages|plugins|scripts)\/.+\.(?:tsx?|svelte)$/.test(f) && !f.endsWith('.d.ts'),
+    )
   const workspaces = await loadWorkspaces(root)
   const violations: Violation[] = []
   const graph = new Map<string, string[]>()

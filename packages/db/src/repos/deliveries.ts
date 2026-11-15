@@ -2,7 +2,7 @@
 // this repo stores rows and answers the questions the service asks. Pruning of finished rows is in retention.ts.
 import type { Sqlite } from '../eh/sql.ts'
 
-export type DeliveryStatus = 'pending' | 'delivered' | 'failed'
+export type DeliveryStatus = 'pending' | 'held' | 'delivered' | 'failed'
 
 export interface DeliveryRecord {
   id: string
@@ -69,6 +69,14 @@ export interface DeliveriesRepo {
   pendingFor(recipientId: string): DeliveryRecord[]
   /** Deletes the pending rows of a recipient; returns how many (removal with `purge`). */
   deletePendingFor(recipientId: string): number
+  /** Held rows of a recipient (kept for the return digest), oldest first, at most `limit`. */
+  heldFor(recipientId: string, limit?: number): DeliveryRecord[]
+  /** The recipients that have held rows. */
+  heldRecipients(): string[]
+  /** Held rows created before `before`, oldest first (the 7-day release). */
+  heldBefore(before: number, limit: number): DeliveryRecord[]
+  /** Deletes the held rows of a recipient; returns how many (removal with `purge`). */
+  deleteHeldFor(recipientId: string): number
   /** Pending rows created before `before` (doctor: stale rows). */
   pendingBefore(before: number): number
 }
@@ -192,6 +200,35 @@ export function deliveriesRepo(
     deletePendingFor(recipientId) {
       return sqlite
         .query(`DELETE FROM deliveries WHERE recipient_id = ? AND status = 'pending'`)
+        .run(recipientId).changes
+    },
+    heldFor(recipientId, limit = 1000) {
+      return sqlite
+        .query<Row, [string, number]>(
+          `SELECT * FROM deliveries WHERE recipient_id = ? AND status = 'held' ORDER BY created_at, id LIMIT ?`,
+        )
+        .all(recipientId, limit)
+        .map(toRecord)
+    },
+    heldRecipients() {
+      return sqlite
+        .query<{ recipient_id: string }, []>(
+          `SELECT DISTINCT recipient_id FROM deliveries WHERE status = 'held' ORDER BY recipient_id`,
+        )
+        .all()
+        .map((r) => r.recipient_id)
+    },
+    heldBefore(before, limit) {
+      return sqlite
+        .query<Row, [number, number]>(
+          `SELECT * FROM deliveries WHERE status = 'held' AND created_at < ? ORDER BY created_at, id LIMIT ?`,
+        )
+        .all(before, limit)
+        .map(toRecord)
+    },
+    deleteHeldFor(recipientId) {
+      return sqlite
+        .query(`DELETE FROM deliveries WHERE recipient_id = ? AND status = 'held'`)
         .run(recipientId).changes
     },
     pendingBefore(before) {

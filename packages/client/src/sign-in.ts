@@ -1,7 +1,7 @@
 import { AuthMethodsSchema, type AuthZone, HealthSchema, type Step } from '@keith/contracts'
 import { createKeithClient } from './client.ts'
-import { DEFAULT_CORE, writeClientConfig } from './config.ts'
-import { DeviceLoginError, deviceLogin } from './login.ts'
+import { DEFAULT_CORE } from './client-config.ts'
+import { DeviceLoginError, deviceLoginResult } from './login.ts'
 import { LoginError, passwordLogin } from './password.ts'
 import { type AnswerOutcome, requestAnswer, requestIdentify } from './sign-in-requests.ts'
 import {
@@ -17,6 +17,7 @@ import {
   type SignInState,
   type SignInStore,
 } from './sign-in-types.ts'
+import { adoptSession, endWebSession, WebSessionError } from './web-session.ts'
 
 export type {
   IdentifierMemory,
@@ -143,7 +144,7 @@ function firstMethod(methods: readonly SignInMethodItem[]): SignInMethodItem | u
 /**
  * The sign-in flow as a small store: address, health check, identifier, the methods the core
  * offers this client, then the step of the chosen method, and the credential is saved the way
- * `keith login` does. The controller is generic: it draws no method of its own, it passes on
+ * `keith login` does (through `options.store`; none is kept without one, and none in cookie mode). The controller is generic: it draws no method of its own, it passes on
  * whatever `methods[]`, `firstStep` and `interaction` say (a new method needs no code here while
  * it uses text or secret fields). Pure: the network, the clock and the file come through the
  * options. Secrets are never kept in a state.
@@ -152,11 +153,8 @@ export function createSignIn(options: SignInOptions = {}): SignIn {
   const doFetch = options.fetch ?? fetch
   const now = options.now ?? Date.now
   const sleep = options.sleep ?? defaultSleep
-  const store: SignInStore = options.store ?? {
-    write: (config) => {
-      writeClientConfig(config)
-    },
-  }
+  const cookie = options.deliver === 'cookie'
+  const store: SignInStore = options.store ?? { write: () => undefined }
   const listeners = new Set<(state: SignInState) => void>()
 
   const initial =
@@ -305,11 +303,15 @@ export function createSignIn(options: SignInOptions = {}): SignIn {
 
   async function whoOf(
     core: string,
-    token: string,
+    token: string | undefined,
     signal: AbortSignal,
   ): Promise<SignInPerson | undefined> {
     if (signal.aborted) return undefined
-    const client = createKeithClient({ baseUrl: core, token, fetch: doFetch })
+    const client = createKeithClient({
+      baseUrl: core,
+      ...(token === undefined ? {} : { token }),
+      fetch: doFetch,
+    })
     const answer = client.rpc.auth.whoami().then(
       (me): SignInPerson => ({ name: me.name, username: me.username, role: me.role }),
       () => undefined,
@@ -331,7 +333,11 @@ export function createSignIn(options: SignInOptions = {}): SignIn {
    * Revoke a credential the controller will not keep (a cancel during the check, a save that failed), best effort.
    * The person never saw it as signed in, so nothing waits for the answer.
    */
-  function revokeQuietly(core: string, credential: string): void {
+  function revokeQuietly(core: string, credential: string | undefined): void {
+    if (credential === undefined) {
+      void endWebSession({ core, fetch: doFetch }).catch(() => undefined)
+      return
+    }
     void createKeithClient({ baseUrl: core, token: credential, fetch: doFetch })
       .revokeSelf()
       .catch(() => undefined)
@@ -345,7 +351,7 @@ export function createSignIn(options: SignInOptions = {}): SignIn {
    */
   async function finish(
     f: Flow,
-    credential: string,
+    credential: string | undefined,
     gen: number,
     signal: AbortSignal,
     checked?: SignInPerson,
@@ -358,12 +364,15 @@ export function createSignIn(options: SignInOptions = {}): SignIn {
     }
     let note: string | undefined
     try {
-      const saved = await store.write({
-        core: f.core,
-        token: credential,
-        ...(remembered ? { remember: true } : {}),
-      })
-      note = typeof saved === 'string' ? saved : undefined
+      // a cookie session has nothing to keep: the browser holds it
+      if (credential !== undefined) {
+        const saved = await store.write({
+          core: f.core,
+          token: credential,
+          ...(remembered ? { remember: true } : {}),
+        })
+        note = typeof saved === 'string' ? saved : undefined
+      }
     } catch {
       revokeQuietly(f.core, credential)
       set(flowState(f, problemOf('save_failed')))
@@ -384,11 +393,30 @@ export function createSignIn(options: SignInOptions = {}): SignIn {
         fetch: doFetch,
       }).rpc.auth.whoami()
       if (stale(gen)) return
-      await finish(f, token, gen, signal, { name: me.name, username: me.username, role: me.role })
+      const person = { name: me.name, username: me.username, role: me.role }
+      if (cookie) {
+        // the token is sent once, to be turned into the cookie; the page never keeps it
+        await adoptSession({
+          core: f.core,
+          credential: token,
+          remember: keepDevice,
+          fetch: doFetch,
+        })
+        if (stale(gen)) {
+          revokeQuietly(f.core, undefined)
+          return
+        }
+        await finish(f, undefined, gen, signal, person, keepDevice)
+        return
+      }
+      await finish(f, token, gen, signal, person)
     } catch (error) {
       if (stale(gen)) return
       const status = (error as { status?: unknown; code?: unknown } | null) ?? {}
-      const unauthorized = status.status === 401 || status.code === 'UNAUTHORIZED'
+      const unauthorized =
+        status.status === 401 ||
+        status.code === 'UNAUTHORIZED' ||
+        (error instanceof WebSessionError && error.reason === 'invalid')
       set(
         flowState(
           f,
@@ -406,6 +434,15 @@ export function createSignIn(options: SignInOptions = {}): SignIn {
   async function legacyPassword(f: Flow, password: string): Promise<void> {
     const { gen, signal } = begin()
     set({ step: 'working', core: f.core, method: f.method })
+    if (cookie) {
+      set(
+        flowState(
+          f,
+          problemOf('rejected', { message: 'this core is too old for a browser sign-in' }),
+        ),
+      )
+      return
+    }
     let credential: string
     try {
       credential = await passwordLogin({
@@ -440,8 +477,9 @@ export function createSignIn(options: SignInOptions = {}): SignIn {
     const { gen, signal } = begin()
     set({ step: 'device', core: f.core, code: undefined, expiresAt: undefined, polling: false })
     try {
-      const credential = await deviceLogin({
+      const result = await deviceLoginResult({
         core: f.core,
+        ...(cookie ? { deliver: 'cookie' as const } : {}),
         signal,
         fetch: doFetch,
         ...(options.label === undefined ? {} : { label: options.label }),
@@ -452,7 +490,7 @@ export function createSignIn(options: SignInOptions = {}): SignIn {
       })
       if (stale(gen)) return
       set({ step: 'working', core: f.core, method: 'device' })
-      await finish(f, credential, gen, signal)
+      await finish(f, 'credential' in result ? result.credential : undefined, gen, signal)
     } catch (error) {
       if (stale(gen)) return
       if (error instanceof DeviceLoginError) {
@@ -474,7 +512,10 @@ export function createSignIn(options: SignInOptions = {}): SignIn {
   }
 
   /** The state a failed answer leads to. The words are the same whoever was typed. */
-  function afterFailure(f: Flow, outcome: Exclude<AnswerOutcome, { kind: 'credential' | 'step' }>) {
+  function afterFailure(
+    f: Flow,
+    outcome: Exclude<AnswerOutcome, { kind: 'credential' | 'cookie' | 'step' }>,
+  ) {
     switch (outcome.kind) {
       case 'expired':
         // the flow is gone: ask again, keeping what was typed
@@ -512,8 +553,18 @@ export function createSignIn(options: SignInOptions = {}): SignIn {
       ...values,
     }
     const remember = keepDevice
-    const outcome = await requestAnswer(f.core, flowId, f.method, body, doFetch, signal, remember)
+    const outcome = await requestAnswer(
+      f.core,
+      flowId,
+      f.method,
+      body,
+      doFetch,
+      signal,
+      remember,
+      cookie ? 'cookie' : 'body',
+    )
     if (stale(gen)) return
+    if (outcome.kind === 'cookie') return finish(f, undefined, gen, signal, undefined, remember)
     if (outcome.kind === 'credential')
       return finish(f, outcome.credential, gen, signal, undefined, remember)
     if (outcome.kind === 'step') {

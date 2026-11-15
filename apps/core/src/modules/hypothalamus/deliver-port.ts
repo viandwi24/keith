@@ -14,11 +14,12 @@ export interface PersonActivity {
 }
 
 /**
- * The step outcome of a delivery outcome: `ok` when delivered or queued for a retry; `refused:budget` and
+ * The step outcome of a delivery outcome: `ok` when delivered, queued for a retry or held for the return digest; `refused:budget` and
  * `refused:person-inactive` for the two terminal refusals; `failed:<reason>` for the rest.
  */
 export function outcomeOfDelivery(outcome: DeliveryOutcome): string {
-  if (outcome.status === 'delivered' || outcome.status === 'queued') return 'ok'
+  if (outcome.status === 'delivered' || outcome.status === 'queued' || outcome.status === 'held')
+    return 'ok'
   if (outcome.reason === 'budget') return 'refused:budget'
   if (outcome.reason === 'recipient-gone') return 'refused:person-inactive'
   return `failed:${outcome.reason}`

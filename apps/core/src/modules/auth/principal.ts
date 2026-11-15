@@ -1,6 +1,7 @@
 import type { CredentialsRepo, TokensRepo } from '@keith/db'
 import { parseCredential, verifyCredential } from './credentials.ts'
 import { bearerOf, OWNER_ID, type Principal, verifyAuthorization } from './tokens.ts'
+import { sessionCookieOf } from './web-session.ts'
 
 /** Where a request came from: the TCP listener, or the owner-only Unix socket. */
 export type Via = 'tcp' | 'local'
@@ -51,8 +52,22 @@ export function createPrincipalResolver(
     ip: string | undefined,
   ): Promise<Principal | undefined> => {
     const header = request.headers.get('authorization')
+    // a bearer always wins; the cookie is read only when the call has no Authorization header at all
+    if (header === null) {
+      const cookie = sessionCookieOf(request.headers)
+      if (cookie === undefined) return undefined
+      const found = await verifyToken(cookie, `Bearer ${cookie}`, ip)
+      return found === undefined ? undefined : { ...found, viaCookie: true }
+    }
     const token = bearerOf(header)
     if (token === undefined) return undefined
+    return verifyToken(token, header, ip)
+  }
+  const verifyToken = async (
+    token: string,
+    header: string,
+    ip: string | undefined,
+  ): Promise<Principal | undefined> => {
     if (parseCredential(token) !== undefined) {
       return verifyCredential(credentials, token, {
         ip,

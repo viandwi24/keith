@@ -1,6 +1,6 @@
 import { driverOf, RISKS, type Risk } from '@keith/contracts'
 import { tool } from 'ai'
-import { definePlugin, type HarnessContext, type HarnessPlugin } from 'eharness'
+import { definePlugin, type HarnessContext, type HarnessPlugin, untrustedContent } from 'eharness'
 import { z } from 'zod'
 import { capHeadTail } from '../../platform/text.ts'
 import {
@@ -152,6 +152,33 @@ export function modelOutputOf(output: unknown): ModelOutput {
       value.push({ type: 'text', text: part.text })
   }
   return { type: 'content', value }
+}
+
+/**
+ * What the model reads of a node's result (ADR-0036 §6): the platform facts (`ok`, `node`, `capability`, the code and message of a
+ * refusal) stay outside the frame; the text the machine produced (`output`, the text parts of a content result) goes inside an
+ * `untrusted-content` frame, so an instruction a file or a command prints is never read as one.
+ */
+export function framedModelOutputOf(output: unknown): ModelOutput {
+  const base = modelOutputOf(output)
+  const frame = (text: string, capability?: unknown) =>
+    untrustedContent(text, {
+      source: 'node',
+      ...(typeof capability === 'string' ? { name: capability } : {}),
+    })
+  if (base.type === 'text') return { type: 'text', value: frame(base.value) }
+  if (base.type === 'content')
+    return {
+      type: 'content',
+      value: base.value.map((part) =>
+        part.type === 'text' ? { ...part, text: frame(part.text) } : part,
+      ),
+    }
+  const value = base.value as Record<string, unknown> | null
+  if (value === null || typeof value !== 'object' || value.output === undefined) return base
+  const text =
+    typeof value.output === 'string' ? value.output : (JSON.stringify(value.output) ?? '')
+  return { type: 'json', value: { ...value, output: frame(text, value.capability) } as never }
 }
 
 /** An output that is an image: base64 `data` and an `image/*` `mimeType` (desktop.screenshot). */
@@ -335,8 +362,9 @@ export function motorRemote(options: MotorOptions): HarnessPlugin<'keith-motor'>
       description:
         'Run a capability on a node: system.info (OS, CPU, memory) or shell.exec (a shell command). Capabilities that need approval wait for the owner.',
       inputSchema: InputSchema,
-      metadata: { risk: 'external' },
-      toModelOutput: ({ output }) => modelOutputOf(output),
+      // the node's output is text from a machine the person does not control: outside (ADR-0036 §3)
+      metadata: { risk: 'external', source: 'outside' },
+      toModelOutput: ({ output }) => framedModelOutputOf(output),
       async *execute({ node: ref, capability, input }, { abortSignal, toolCallId }) {
         const known = nodes.find(ref)
         const node = known?.name ?? ref

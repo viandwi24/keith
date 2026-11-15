@@ -1,4 +1,4 @@
-import { driverOf } from '@keith/contracts'
+import { type ConsentTier, driverOf, STEP_UP_TOOLS } from '@keith/contracts'
 import type { TasksRepo } from '@keith/db'
 import type { HarnessAgent, SessionLock } from 'eharness'
 import type { ActivityStore, AttentionAnswer } from 'eharness/activity'
@@ -16,6 +16,7 @@ import type { Cortex } from '../cortex/index.ts'
 import { motorAskOf, ownerAnswers } from '../motor/index.ts'
 import type { NodeCapabilityRegistry } from '../nodes/index.ts'
 import type { PeopleService } from '../people/index.ts'
+import type { ConsentRegistry } from './consent.ts'
 import type { ApprovalSettings } from './settings.ts'
 
 /**
@@ -58,6 +59,10 @@ export interface AttentionDeps {
   capabilities?: NodeCapabilityRegistry
   /** The current front generation of each person (ADR-0030 §2): the session a person's events go to. */
   generations: FrontGenerationOf
+  /** How each waiting call is confirmed (ADR-0036): the items carry `consent`. Absent: the items carry none. */
+  consent?: Pick<ConsentRegistry, 'tierOf'>
+  /** The lifetime of a request asked in conversation (ms): its item's `expiresAt` counts from it, not from the approval lifetime. */
+  conversationTtlMs?: () => number
 }
 
 /** The code of a refusal: the item waits for the owner and this person is not the owner. */
@@ -122,12 +127,37 @@ export function attentionOptions(deps: AttentionDeps): AttentionOptions {
     }
   }
   /** `ageMs` and `expiresAt` of an approval item (epoch ms), when the lifetime and the age are known. */
-  const lifeOf = (item: { createdAt: number | null }): { ageMs?: number; expiresAt?: number } => {
+  const lifeOf = (item: {
+    createdAt: number | null
+    sessionId: string
+    toolCallId?: string
+  }): { ageMs?: number; expiresAt?: number } => {
     if (deps.approvals === undefined || item.createdAt === null) return {}
+    const conversation =
+      deps.conversationTtlMs !== undefined &&
+      item.toolCallId !== undefined &&
+      deps.consent?.tierOf(item.sessionId, item.toolCallId) === 'conversation'
     return {
       ageMs: Math.max(0, Date.now() - item.createdAt),
-      expiresAt: item.createdAt + deps.approvals.ttlMs(),
+      expiresAt:
+        item.createdAt +
+        (conversation ? (deps.conversationTtlMs?.() ?? 0) : deps.approvals.ttlMs()),
     }
+  }
+  /**
+   * The `consent` field of an approval item (ADR-0036 §4): how the call is confirmed. A call whose tier is unknown (a restart, a
+   * rule that is not the consent table) and an item the owner answers for a member are `device`. Nothing without the registry.
+   */
+  const consentOf = (
+    item: { sessionId: string; toolCallId?: string },
+    routed: boolean,
+  ): { consent?: ConsentTier } => {
+    if (deps.consent === undefined) return {}
+    const tier =
+      routed || item.toolCallId === undefined
+        ? undefined
+        : deps.consent.tierOf(item.sessionId, item.toolCallId)
+    return { consent: tier ?? 'device' }
   }
   const roleOf = async (personId: string): Promise<string | undefined> =>
     deps.people.get(personId).then(
@@ -162,7 +192,15 @@ export function attentionOptions(deps: AttentionDeps): AttentionOptions {
       const item = await approvalOf(sessionId, attentionId)
       const routed = item !== undefined && owned(item.toolName, item.input)
       if (!mine && !routed) return false
-      if (!routed) return true
+      if (!routed) {
+        // a persona or model-switch approval (ADR-0034 §3, §8): the person answers their own, but a remote
+        // client that has not stepped up gets the step-up denial, like every persona change (ADR-0029 §2)
+        if (item !== undefined && STEP_UP_TOOLS.includes(item.toolName)) {
+          const denied = stepUpDenial(principal)
+          if (denied !== undefined) return { deny: 403, ...denied }
+        }
+        return true
+      }
       if (!owner) {
         return {
           deny: 403,
@@ -215,12 +253,13 @@ export function attentionOptions(deps: AttentionDeps): AttentionOptions {
           askedByName: asker?.name ?? person,
           ...ask(item),
           ...life,
+          ...consentOf(item, true),
           scopable: false,
         }
       }
       if (routed && principal.role !== 'owner')
-        return { waitingFor: 'owner', ...life, scopable: false }
-      return { ...life, scopable: true }
+        return { waitingFor: 'owner', ...life, ...consentOf(item, true), scopable: false }
+      return { ...life, ...consentOf(item, false), scopable: true }
     },
     allowRemember: true,
     store: deps.store,

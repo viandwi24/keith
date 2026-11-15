@@ -59,6 +59,11 @@ export interface CoreTiming {
   awayAfterMs: number
   /** How often presence is recomputed for every person; a change of state is emitted (parietal). */
   presenceEveryMs: number
+  /**
+   * How long a request asked in conversation waits for the person's answer (ADR-0036 §4); then the sweeper denies it. The sweep
+   * runs every `reconcileEveryMs`. A code constant: the approval setting counts hours.
+   */
+  conversationTtlMs: number
 }
 
 export const DEFAULT_TIMING: CoreTiming = {
@@ -83,6 +88,7 @@ export const DEFAULT_TIMING: CoreTiming = {
   activeWindowMs: 120_000,
   awayAfterMs: 1_800_000,
   presenceEveryMs: 60_000,
+  conversationTtlMs: 600_000,
 }
 
 /** Retention of the activity feed (P3 decisions). */

@@ -70,10 +70,11 @@ export function presenceProcedures(service: ParietalService, deps: PresenceProce
     mine: rpc.presence.mine.handler(({ context }) => service.mine(context.principal.personId)),
     setStatus: rpc.presence.setStatus.handler(({ input, context }) => {
       const personId = context.principal.personId
-      const view = service.setStatus(personId, input)
+      const view = refused(() => service.setStatus(personId, input))
       context.record('presence.status.set', {
         subject: personId,
         busy: input.busy,
+        kind: input.busy ? (input.kind ?? 'busy') : null,
         minutes: input.minutes ?? null,
       })
       return view

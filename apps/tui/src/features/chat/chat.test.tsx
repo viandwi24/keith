@@ -93,6 +93,34 @@ describe('the conversation', () => {
     unmount()
   })
 
+  test("an approval note is the person's own message between the question and the continuation", async () => {
+    const history = [
+      assistant('a1', [
+        { type: 'text', text: 'Shall I check the disk?' },
+        shell('output-available', { output: { ok: true, output: '91%', exitCode: 0 } }),
+        {
+          type: 'data-eh.input',
+          data: {
+            source: 'user',
+            text: '[approval note for c] framed ya',
+            approvalNote: { toolCallId: 'c', toolName: 'motor_remote', text: 'ya' },
+          },
+        },
+        { type: 'step-start' },
+        { type: 'text', text: 'The disk is full.' },
+      ]),
+    ]
+    const { lastFrame, unmount } = await setupApp({ history, columns: 99, rows: 40 })
+    const f = await frameUntil(lastFrame, (frame) => frame.includes('The disk is full.'))
+    const rows = f.split('\n').map((r) => r.slice(0, 99).trimEnd())
+    const at = (needle: string) => rows.findIndex((r) => r.includes(needle))
+    expect(at('Shall I check')).toBeLessThan(at('laptop-e $ df -h'))
+    expect(at('laptop-e $ df -h')).toBeLessThan(at('ya'))
+    expect(at('ya')).toBeLessThan(at('The disk is full.'))
+    expect(f).not.toContain('framed')
+    unmount()
+  })
+
   test('a delegated task shows its glyph, name, description and the elapsed time of its task', async () => {
     const history = [
       assistant('a1', [

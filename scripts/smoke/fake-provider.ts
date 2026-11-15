@@ -162,6 +162,10 @@ function completion(
       run_in_background: true,
     })
   }
+  // a worker's request voiced to the person (P39.3, ADR-0036): the wake text holds "run", but the front agent only asks
+  if (!afterTool && lastUserText(messages).includes('Voice the request to the person')) {
+    return textOf('A worker wants to run a command on the node. Shall I go ahead?')
+  }
   const wantsRun = !afterTool && lastUserText(messages).includes('run')
   if (wantsRun && names.includes('motor_remote')) {
     return toolCall('motor_remote', {

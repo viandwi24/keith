@@ -1,17 +1,18 @@
 // The `/dream` forms (docs/specs/tui.md, "Commands and keys"; ADR-0031 §5, §8). `/dream` shows the status as an info notice; `now`
 // starts a run; `apply` writes the staged plan; `undo` restores the last applied run; `mode off|propose|auto` sets the person's own
 // mode. Every call acts on the person's own memory (no step-up). A refusal is a warning toast with its reason in plain words.
-import type { DreamingApi } from '@keith/client'
-import { dreamRefusalOf } from '@keith/client'
-import type { DreamMode, DreamRefusalReason, DreamRunView } from '@keith/contracts'
-import type { ToastLevel } from '@keith/ui'
+
 import {
   countsTextOf,
   DREAM_REFUSAL_TEXT,
   runOutcomeOf,
   statusRowsOf,
   undoTextOf,
-} from './dream-state.ts'
+} from '@keith/app-model'
+import type { DreamingApi } from '@keith/client'
+import { dreamRefusalOf } from '@keith/client'
+import type { DreamMode, DreamRefusalReason, DreamRunView } from '@keith/contracts'
+import type { ToastLevel } from '@keith/ui'
 
 export type DreamCommand =
   | { kind: 'status' }

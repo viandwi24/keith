@@ -1,3 +1,7 @@
+export { approvalsOf, askOf, describeApproval } from '@keith/app-model'
 export { ApprovalDialog, approvalsError } from './approval-dialog.tsx'
-export { approvalsOf, askOf, describeApproval } from './approval-state.ts'
+export { ConsentLine, INBOX_COMMAND } from './consent-line.tsx'
+export { InboxScreen } from './inbox-screen.tsx'
+export { chatScope, scopeApprovals } from './scope.ts'
 export { type Approvals, useApprovals } from './use-attention.ts'
+export { useInboxToast } from './use-inbox-toast.ts'

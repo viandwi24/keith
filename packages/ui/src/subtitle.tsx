@@ -1,6 +1,7 @@
 import { Box, Text } from 'ink'
 import { useRef } from 'react'
 import { centerRow, subtitleRows } from './orb/subtitle.ts'
+import { advanceShown, retargetShown } from './orb/typewriter.ts'
 import { Txt } from './text.tsx'
 import { useTheme } from './theme-context.tsx'
 import { type FrameClock, useFrameClock } from './use-frame-clock.ts'
@@ -19,8 +20,6 @@ export interface SubtitleProps {
   clock?: FrameClock
 }
 
-const CATCH_UP = 60 // behind by more than this many characters: type faster
-
 /** The words under the orb, centred, typed out as `text` arrives. No animation in `none` depth. */
 export function Subtitle({
   text,
@@ -38,7 +37,7 @@ export function Subtitle({
   const animated = theme.depth !== 'none' && running
   // a text that continues the last one keeps its progress; any other restarts the typing
   if (st.text !== text) {
-    if (!text.startsWith(st.text)) st.shown = 0
+    st.shown = retargetShown(st.text, st.shown, text)
     st.text = text
   }
   const behind = chars.length - st.shown > 0
@@ -47,8 +46,7 @@ export function Subtitle({
   if (!animated) st.shown = chars.length
   else if (tick !== st.tick) {
     st.tick = tick
-    const rate = chars.length - st.shown > CATCH_UP ? cps * 3 : cps
-    st.shown = Math.min(chars.length, st.shown + Math.max(1, Math.ceil(dt * rate)))
+    st.shown = advanceShown(st.shown, chars.length, dt, cps)
   }
   const rows = subtitleRows(chars.slice(0, st.shown).join(''), Math.min(width, maxWidth), maxRows)
   return (

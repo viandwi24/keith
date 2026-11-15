@@ -5,7 +5,10 @@
   "version": "0.1.0",
   "exports": {
     ".": "./src/index.ts",
-    "./testing": "./src/testing/index.ts"
+    "./testing": "./src/testing/index.ts",
+    "./tokens": "./src/tokens.ts",
+    "./markdown": "./src/markdown-parse.ts",
+    "./orb": "./src/orb/index.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

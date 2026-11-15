@@ -25,7 +25,13 @@ export {
   clientCallToolOf,
   clientsFor,
 } from './client-tools.ts'
-export { computePresence, DEFAULT_WINDOWS, type PresenceWindows } from './compute.ts'
+export {
+  computePresence,
+  DEFAULT_WINDOWS,
+  type OutStatus,
+  type PresenceWindows,
+  whereOf,
+} from './compute.ts'
 export {
   activeClientOf,
   CLIENT_CONTEXT_HEADING,
@@ -33,6 +39,7 @@ export {
   clientContextBlock,
   clientContextFor,
   localClockOf,
+  WHERE_HINT,
 } from './context-block.ts'
 export {
   createDisclosure,
@@ -71,6 +78,14 @@ export {
   type ParietalServiceOptions,
   type RegisterResult,
 } from './service.ts'
+export {
+  PRESENCE_STATUS_SET_DESCRIPTION,
+  PRESENCE_STATUS_SET_TOOL,
+  type PresenceStatusSetAnswer,
+  type PresenceStatusToolOptions,
+  parseStatusTime,
+  presenceStatusSetToolOf,
+} from './status-tool.ts'
 export {
   PRESENCE_TOOL,
   type PresenceAnswer,

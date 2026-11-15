@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { logsFixtures, visibleSections } from '@keith/app-model/manage'
 import type { KeithClient } from '@keith/client'
 import {
   type LogsSessionsInput,
@@ -9,11 +10,11 @@ import {
 import { resolveTheme, ThemeProvider } from '@keith/ui'
 import { cleanup, render } from '@keith/ui/testing'
 import { frameUntil, pressUntil } from '../../../testing/ink.ts'
-import { visibleSections } from '../manage-state.ts'
 import type { ManageEnv } from '../manage-types.ts'
 import { MANAGE_SECTIONS } from '../sections.ts'
-import { CALL_DETAIL, CALL_ERR, CALL_OK, RAW, SESSION, SESSION_DETAIL } from './logs-fixtures.ts'
 import { LogsPane } from './logs-pane.tsx'
+
+const { CALL_DETAIL, CALL_ERR, CALL_OK, RAW, SESSION, SESSION_DETAIL } = logsFixtures
 
 afterEach(cleanup)
 

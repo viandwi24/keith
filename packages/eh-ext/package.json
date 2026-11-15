@@ -11,5 +11,8 @@
     "test": "bun test --pass-with-no-tests"
   },
   "exports": "./src/index.ts",
-  "version": "0.1.0"
+  "version": "0.1.0",
+  "dependencies": {
+    "@keith/contracts": "workspace:*"
+  }
 }

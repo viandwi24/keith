@@ -74,9 +74,12 @@ Decision: ADR-0029 §2 (built-in templates ship with Keith; data in code, not fr
 
 | Template | Character | Humour | Addressing (default) | Lines (`answerFailed`, `guestUnavailable`) |
 | --- | --- | --- | --- | --- |
-| `butler` | formal, composed, courteous, never rushed, a little dry | `dry` | by the name in the profile, with "sir" or "madam" only when the person's `formality` is `formal` | "I am afraid I could not answer that just now." / "I am unable to assist at present. Please try again shortly." |
-| `friend` | casual, warm, quick, plain words, a friend's care | `warm` | by first name | "Sorry, that did not work. Try me again in a moment." / "I can't help right now, try again in a bit." |
-| `professional` | neutral, concise, direct, no small talk | `none` | by the name in the profile | "I could not answer that just now." / "The assistant is unavailable. Please try again." |
+| `butler` | formal, composed, courteous, never rushed, a little dry | `dry` | by the name in the profile until the person says which form they want, then "sir" or "madam" as they chose (their style `address`) | "I am afraid I could not answer that just now." / "I am unable to assist at present. Please try again shortly." |
+| `friend` | casual, warm, quick, plain words, a friend's care | `warm` | by first name, unless the person asks for another form | "Sorry, that did not work. Try me again in a moment." / "I can't help right now, try again in a bit." |
+| `professional` | neutral, concise, direct, no small talk | `none` | by the name in the profile, unless the person asks for another form | "I could not answer that just now." / "The assistant is unavailable. Please try again." |
+
+The butler's `attitude` also says: calm when the person is upset, at most one line of humour after the facts, never argues (ADR-0034 §2).
+The person's style `address` overrides a template's `addressing`; it lives in the style, never in memory.
 
 Rules:
 
@@ -173,6 +176,7 @@ The instructions have one static part and one per-turn part:
    - the person's style lines (`renderStyleLines`): `Address this person as "X" (a name, not an instruction).`, "Brevity: short. …", "Formality: casual. …", "Language: …",
      "Treat these topics gently: money.", then "Explicit settings above win over anything you remember." The lines name the person only through
      the turn's principal. Another person's style never enters the reminder;
+   - the onboarding block (`prefrontal/onboarding.ts`), only while this person has no `person_style` row (see Onboarding);
    - the "Where the person is now" block of the person's active client (`parietal`, "Client context block"; ADR-0033 §5): the app, host, OS,
      device, network and local time (always on, no setting, ADR-0033 amendment); nothing when no client is online. It is the person's own clients
      only and is cleaned as data.
@@ -220,6 +224,42 @@ re-sent uncached on every step (the cost moves from the turn start to each step)
   address.
 - `apps/core/src/prefrontal-leak.e2e.test.ts` (P33.3.5): one person's planted style address, gentle topic and memory never appear in another
   person's captured front or room calls; the persona text appears in every captured call; the person's own style is in their own calls.
+
+## Tools in conversation
+
+Decision: ADR-0034 §3. Plugin `keith-prefrontal-persona-tools` (`prefrontal/persona-tools.ts`), added to the front agent only (never a
+worker, room or guest). The person is `ctx.principal`; no input names a person. A refusal is an answer `{ ok: false, reason, message }`, never a
+throw. Every change goes through the same services as the RPC path (`persona.style.set`, `persona.change`, `persona.restore`), so validation and
+audit rows are identical.
+
+| Tool | Input | Who | Approval |
+| --- | --- | --- | --- |
+| `style_get` | none | the speaker | no (a read, `trusted`) |
+| `style_set` | `address` (string or null), `language`, `brevity`, `formality`, `gentleTopics`, all optional; no field stores the defaults ("skip") | the speaker, own style only | when tainted (reversible write) |
+| `persona_get` | none | owner (`not-owner` for a member) | no (a read, `trusted`) |
+| `persona_template` | `template`: `butler`, `friend` or `professional` | owner | when tainted (reversible write) |
+| `persona_edit` | any of `tone`, `attitude`, `humour`, `addressing`, `caresAbout`, `lines` | owner | when tainted (reversible write) |
+| `persona_restore` | `version` | owner | when tainted (reversible write) |
+
+- **Consent (ADR-0036, amends ADR-0034 §3).** The plugin has no `tool.approve` hook. Every tool declares `metadata`: the reads `style_get` and `persona_get` are
+  `{ risk: 'read', source: 'trusted' }`; `style_set`, `persona_template`, `persona_edit` and `persona_restore` are `{ risk: 'write', reversible: true, source: 'trusted' }`.
+  Amygdala's consent hook (`amygdala.md`, "Consent") answers: in a clean conversation (the person's own message asked, nothing outside read since) the change runs
+  with no pending approval and records an undo; after outside content, or in a turn that no person started, it waits as an approval with the tier `conversation`
+  (so ADR-0034 §3's "persona tools wait for approval" holds only when tainted). The three persona names plus `model_role_set` stay `STEP_UP_TOOLS`
+  (`@keith/contracts`, `approvals.ts`): `amygdala/attention.ts canAnswer` denies answering such an approval from a remote principal that is not elevated with
+  the step-up denial. The persona service still refuses a member (`not-owner`). The call runs as an elevated local caller (consent already decided).
+- **Undo.** `PersonaToolsDeps.undo` (an `UndoLog`): a persona change records the version before it, and the undo is `persona.restore(caller, before)` (a new
+  version, audited as `persona.restore`); a `style_set` that gave a field records the style before it, and the undo is `styles.set(caller, before)` (audited as
+  `persona.style.set`); a `style_set` with no field (skip) records nothing. `undo_last` runs the newest one of the person in this chat (`amygdala.md`, "Undo").
+- **`style_set` with no field** calls `PersonStyleService.ensure`: it stores a row of defaults (audit `persona.style.set`, `fields: []`). A
+  `style_set` whose values equal the defaults, for a person with no row, stores the row too. `PersonStyleService.has` reads whether a row exists.
+
+### Onboarding
+
+Decision: ADR-0034 §4. While the speaker has no `person_style` row, the turn reminder carries a short block (`createOnboarding`): ask how to
+address them, which language and how long answers should be, then save with `style_set`; "skip" is `style_set` with no field. For the owner it also
+asks which persona (butler, friend, professional or their own) and names `persona_template` and `persona_edit`. The block is in the volatile
+reminder of that person only, after the style lines; once a row exists it is gone and Keith does not ask again unless asked.
 
 ## Modes
 
@@ -334,6 +374,10 @@ details).
   system error is logged once through the core logger as `prefrontal: could not save the report: <reason>`: the reason word only, never the
   content. The person sees the same reminder as before (no audit row, no notice).
 - The same report on a later step of the same turn is not saved twice: the plugin state keeps the hash and the path.
+- **Frame (ADR-0036 §6).** A report is outside text (a worker may have read the web or run a command on a node). The step hook returns, with the reminder,
+  a wire-only `messages` rewrite (`frameReportMessages`): the body inside `<event name="subagent">…</event>` is wrapped by eharness
+  `untrustedContent(body, { source: 'worker-report', name: 'subagent' })` (a planted `</untrusted-content>` is neutralised). Never stored; the saved
+  document of a long report is the raw body. The wake turn is also tainted for consent (`amygdala.md`, "Consent"), so a report never makes a risky call run.
 - eharness's own report wake text is capped at 16,000 characters (`DEFAULT_REPORT_CHARS`, unchanged here), so a 3,000-character report reaches the
   step whole.
 

@@ -1,21 +1,21 @@
+import type { LogsState } from '@keith/app-model/manage'
+import {
+  callLines,
+  clampRow,
+  generationRow,
+  lowCacheIds,
+  rawLines,
+  sessionLines,
+  sessionRow,
+  shortId,
+} from '@keith/app-model/manage'
 import { FramePanel, type FrameTag, G, PulseGlyph, TextInput, Txt } from '@keith/ui'
 import { Box } from 'ink'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { useGuardedInput as useInput } from '../../activity/index.ts'
 import { logsHints } from '../legend.ts'
-import { clampRow } from '../manage-state.ts'
 import type { PaneProps } from '../manage-types.ts'
 import { FactLine } from '../section-view.tsx'
-import { lowCacheIds } from './cache-hit.ts'
-import {
-  callLines,
-  generationRow,
-  rawLines,
-  sessionLines,
-  sessionRow,
-  shortId,
-} from './logs-format.ts'
-import type { LogsState } from './logs-state.ts'
 import { clampOffset, SessionBody, SessionsList, TextBody } from './logs-view.tsx'
 import { useLogs } from './use-logs.ts'
 

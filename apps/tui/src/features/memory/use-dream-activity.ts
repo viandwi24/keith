@@ -1,16 +1,17 @@
 // The dream of the signed-in person in the chat (dream-pending.ts). The activity feed's `brain.hippocampus.dream` records give the
 // running line (start to end) and, at an end, the divider: the run's status and reason come from `dream.status` (the run the end
 // names). A run this TUI started with `/dream now` is settled by its own answer (`finish`), and each run gives one divider only.
-import { brainEventOf, type KeithClient } from '@keith/client'
-import type { DreamRefusalReason, DreamRunView } from '@keith/contracts'
-import { useCallback, useEffect, useRef, useState } from 'react'
+
 import {
   type DreamRunning,
   dreamDividerOf,
   dreamEndFallbackOf,
   dreamRefusedDividerOf,
   reduceDreamRunning,
-} from './dream-pending.ts'
+} from '@keith/app-model'
+import { brainEventOf, type KeithClient } from '@keith/client'
+import type { DreamRefusalReason, DreamRunView } from '@keith/contracts'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 /** Dividers kept in memory: the newest ones (a chat shows its own from the mount on). */
 const FINISH_LIMIT = 20

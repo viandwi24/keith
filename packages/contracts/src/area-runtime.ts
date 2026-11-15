@@ -28,6 +28,7 @@ export {
   type ApprovalsSet,
   ApprovalsSetSchema,
   ApprovalTtlHoursSchema,
+  STEP_UP_TOOLS,
 } from './approvals.ts'
 export {
   type AmygdalaDecidePayload,
@@ -68,6 +69,7 @@ export {
   HypothalamusWaitPayloadSchema,
   type MotorActPayload,
   MotorActPayloadSchema,
+  ParietalPresencePayloadSchema,
   type PrefrontalChangePayload,
   PrefrontalChangePayloadSchema,
   type PrefrontalStylePayload,
@@ -129,6 +131,14 @@ export {
   type ChatNewContextOutput,
   ChatNewContextOutputSchema,
 } from './chat-context.ts'
+export {
+  type ConsentContext,
+  ConsentContextSchema,
+  type ConsentTier,
+  ConsentTierSchema,
+  type ToolSource,
+  ToolSourceSchema,
+} from './consent.ts'
 export { type KeithContract, keithContract } from './contract.ts'
 export {
   type AdminNoticeSend,
@@ -143,6 +153,8 @@ export {
   DeliveryFailReasonSchema,
   type DeliveryFailureNotice,
   DeliveryFailureNoticeSchema,
+  type DeliveryHoldReason,
+  DeliveryHoldReasonSchema,
   type DeliveryMode,
   DeliveryModeSchema,
   type DeliveryNeeds,
@@ -322,6 +334,7 @@ export {
   type DisclosureSet,
   DisclosureSetSchema,
   isTimeZone,
+  PRESENCE_WHERE_IDS,
   type Presence,
   type PresenceMine,
   PresenceMineSchema,
@@ -331,10 +344,14 @@ export {
   PresenceSchema,
   type PresenceState,
   PresenceStateSchema,
+  type PresenceStatusKind,
+  PresenceStatusKindSchema,
   type PresenceStatusSet,
   PresenceStatusSetSchema,
   type PresenceStatusView,
   PresenceStatusViewSchema,
+  type PresenceWhere,
+  PresenceWhereSchema,
   type RawClientRecord,
   RawClientRecordSchema,
   RENDER_CAPABILITY_IDS,
@@ -460,6 +477,24 @@ export {
   type TestResult,
   TestResultSchema,
 } from './providers.ts'
+export {
+  PUSH_ENDPOINT_MAX,
+  PUSH_SUBSCRIPTIONS_PER_PERSON_MAX,
+  type PushPayload,
+  PushPayloadSchema,
+  type PushPreview,
+  PushPreviewSchema,
+  type PushPublicKey,
+  PushPublicKeySchema,
+  type PushRecord,
+  PushRecordSchema,
+  type PushSubscribe,
+  PushSubscribeSchema,
+  type PushSubscriptionJson,
+  PushSubscriptionSchema,
+  type PushUnsubscribe,
+  PushUnsubscribeSchema,
+} from './push.ts'
 export {
   ReviewDenyInputSchema,
   ReviewListInputSchema,

@@ -16,6 +16,8 @@
       "!!plugins/*/migrations",
       "!!packages/host/src/testing/fixtures/*/migrations",
       "!!**/coverage",
+      "!!apps/web/.svelte-kit",
+      "!!apps/web/build",
       "!**/*.md",
       "!scripts/exports.snapshot.json"
     ]
@@ -57,6 +59,17 @@
     }
   },
   "overrides": [
+    {
+      "includes": ["apps/web/**/*.svelte"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnusedImports": "off",
+            "noUnusedVariables": "off"
+          }
+        }
+      }
+    },
     {
       "includes": ["apps/*/src/platform/logger.ts", "scripts/**"],
       "linter": {

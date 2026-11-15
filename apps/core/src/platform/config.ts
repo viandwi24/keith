@@ -12,6 +12,9 @@ const optional = z
   .optional()
   .transform((v) => (v === '' ? undefined : v))
 
+/** `<repo>/apps/web/build`: the default web client build, wherever a script runs from. */
+const DEFAULT_WEB_DIR = resolve(import.meta.dir, '../../../web/build')
+
 /** `true`/`1` switch a flag on; unset, empty and anything else off. */
 const flag = z
   .enum(['true', 'false', '1', '0', ''])
@@ -61,6 +64,13 @@ const ConfigSchema = z.object({
   KEITH_CORE_ALLOW_SHELL: flag,
   /** URL nodes use to reach this core, shown in the join command of `/pair`. */
   KEITH_PUBLIC_URL: publicUrl,
+  /** VAPID subject of Web Push (docs/specs/push.md): a `mailto:` or https URL. Default: the public URL when https. */
+  KEITH_PUSH_SUBJECT: optional.pipe(
+    z
+      .string()
+      .regex(/^(mailto:[^\s@]+@[^\s@]+|https:\/\/\S+)$/, 'must be a mailto: or https URL')
+      .optional(),
+  ),
   /** Extra host names core answers to (comma list), like the public URL's host: any port. */
   KEITH_ALLOWED_HOSTS: hostList,
   /**
@@ -68,6 +78,10 @@ const ConfigSchema = z.object({
    * address). Off by default: password routes only answer on loopback, Tailscale and `tailscale serve`.
    */
   KEITH_INSECURE_LOGIN: flag,
+  /** Folder of the built web client served at `/app`. Empty: `apps/web/build` of this checkout. */
+  KEITH_WEB_DIR: optional,
+  /** `off` removes `/app` (the API stays). Default `on`; unknown values count as `on`. */
+  KEITH_WEB: optional.pipe(z.enum(['on', 'off']).optional().catch(undefined)),
   /** Short git SHA reported by `/health`. Empty: read from git at boot. */
   KEITH_BUILD_SHA: optional,
   /**
@@ -131,8 +145,14 @@ export interface Config {
   insecureLogin: boolean
   /** `KEITH_PUBLIC_URL` without a trailing slash, or undefined (the join command uses localhost). */
   publicUrl: string | undefined
+  /** `KEITH_PUSH_SUBJECT`: the VAPID subject, or undefined (the public URL when https, else a placeholder). */
+  pushSubject: string | undefined
   /** `KEITH_ALLOWED_HOSTS`: extra `Host` names besides localhost and the public URL's host. */
   allowedHosts: string[]
+  /** `KEITH_WEB`: whether core serves the web client at `/app` (default true). */
+  web: boolean
+  /** `KEITH_WEB_DIR`: the folder it serves (default `apps/web/build`). */
+  webDir: string
   /** Minimal environment of shells run by the `core` node (never Keith's secrets). */
   shellEnv: Record<string, string>
   buildSha: string | undefined
@@ -189,6 +209,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     insecureLogin: c.KEITH_INSECURE_LOGIN,
     publicUrl: c.KEITH_PUBLIC_URL,
     allowedHosts: c.KEITH_ALLOWED_HOSTS,
+    pushSubject: c.KEITH_PUSH_SUBJECT,
+    web: c.KEITH_WEB !== 'off',
+    webDir: c.KEITH_WEB_DIR === undefined ? DEFAULT_WEB_DIR : resolve(c.KEITH_WEB_DIR),
     shellEnv: Object.fromEntries(
       SHELL_ENV_KEYS.flatMap((key) => {
         const value = env[key]

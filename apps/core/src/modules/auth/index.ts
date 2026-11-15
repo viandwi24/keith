@@ -87,6 +87,18 @@ export {
   type Principal,
   verifyAuthorization,
 } from './tokens.ts'
+export { createWebRoutes, type WebRoutes } from './web-routes.ts'
+export {
+  type CookieIssuer,
+  clearCookieValue,
+  createCookieIssuer,
+  crossSiteWrite,
+  isSecureRequest,
+  sameOriginUpgrade,
+  sessionCookieOf,
+  setCookieValue,
+  withSetCookie,
+} from './web-session.ts'
 export {
   createLanNets,
   inCidrs,

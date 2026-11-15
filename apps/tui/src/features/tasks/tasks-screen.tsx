@@ -1,3 +1,4 @@
+import { formatElapsed, isActive, shortAgent, statusIcon, statusWord } from '@keith/app-model'
 import type { KeithClient } from '@keith/client'
 import type { Task } from '@keith/contracts'
 import {
@@ -16,7 +17,6 @@ import { Box } from 'ink'
 import { useState } from 'react'
 import { useGuardedInput as useInput } from '../activity/index.ts'
 import { agentWidthOf, taskColumns } from './tasks-panel.tsx'
-import { formatElapsed, isActive, shortAgent, statusIcon, statusWord } from './tasks-state.ts'
 
 export interface TasksScreenProps {
   client: KeithClient

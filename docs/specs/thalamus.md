@@ -19,14 +19,16 @@ The single entry of the core: one Hono app that authenticates and routes every r
 | `GET /auth/methods` | none | `auth` option: which login methods this caller's address may use; static, no audit (`auth.md`) |
 | `POST /auth/login` | none (the password is the credential) | `auth` option (`createAuthRoutes`): username + password → device credential; network rule, throttling, body at most 4 KB (`auth.md`) |
 | `POST /auth/step-up` | credential (a `device` or `token` session) | `auth` option: PIN or password → `elevatedUntil` (`auth.md`); same network rule and counters |
+| `POST /auth/web/adopt`, `POST /auth/web/logout` | none (the credential in the body) / cookie or bearer | `auth` option: turn a credential into the session cookie, end the session and clear it (`auth.md`, "Browser sessions") |
+| `GET /app`, `GET /app/*`, `GET /` | none | the web client build ("Web client" below), only when `web` is set; `/` redirects a browser (`Accept: text/html`) to `/app`, an API client gets the usual 404 |
 | `/activity`, `/activity/*` | credential with `chat` | activity feed of `eharness/http` (stream and resync), only when `activity` is set; filtered per principal ("`/activity/*`" below) |
 | `/attention`, `/attention/*` | token with `approvals.answer` | what waits for a person (approvals), `eharness/http` `attention`, only when `attention` is set (`amygdala.md`) |
 | `POST /plugins/<id>/<op>`, `GET /plugins/openapi.json`, `GET /plugins/tui/menu` | credential, or the implicit owner of the local socket (opt-in) | `plugins` option (`createPluginRoutes`, `plugins.md`): thalamus resolves the principal and hands over `{ principal, via }`; the plugin module runs the operation through the same guard as the AI tool and answers; body at most 64 KB; every refusal of a hidden or denied operation is one `404`; the menu is the terminal views the caller may open (`plugin-views.md`) |
 | `POST /nodes/join` | none (the pairing code) | `join` option: exchange a pairing code for a node token (`nodes.md`) |
 | `GET /nodes/ws` | node token | not Hono: the core `fetch` upgrades it to a Bun WebSocket before Hono (`nodes.md`) |
-| `GET /plugins/views/ws` | credential (bearer header) | not Hono: upgraded by the core `fetch` like `/nodes/ws`; also the one upgrade the local Unix socket serves (`fetchLocal`: 423 while locked, a bearer when trust is `none`); a plugin terminal view per socket (`plugin-views.md`) |
+| `GET /plugins/views/ws` | credential (bearer header, or the session cookie from the same origin) | not Hono: upgraded by the core `fetch` like `/nodes/ws`; also the one upgrade the local Unix socket serves (`fetchLocal`: 423 while locked, a bearer when trust is `none`); a plugin terminal view per socket (`plugin-views.md`) |
 
-`createApp({ agent, tokens, credentials, router, health, audit?, device?, auth?, now?, lock?, activity?, attention?, plugins?, join? })` builds it. It is a
+`createApp({ agent, tokens, credentials, router, health, audit?, device?, auth?, now?, lock?, activity?, attention?, plugins?, join?, web? })` builds it. It is a
 `Hono<{ Bindings: CoreBindings; Variables: { principal } }>`: the server passes `{ via, ip, forwarded, keepAlive }` as `env` (`via`: `'local'` for the Unix socket, else TCP; `ip`: the socket peer address (`'local'` on the socket), used by the rate limits of `/nodes/join` and device login and by `last_ip`, never a forwarded header; `forwarded`: the request carried proxy headers; `keepAlive`: lifts the server idle timeout for this request). `lock` is the shared
 `SessionLock` (SQLite, owned by the core's instance id, `resume.md`) passed to every session. With the stream log configured, `GET /sessions/:id/chat/stream` also replays turns that run in another process (`resume.md`). `activity` is `{ store, bootId, warn? }`.
 
@@ -111,6 +113,10 @@ wiring `compose-guests.ts` (`createGuestFetch`), `Core.guestHttp` (`fetch(reques
   `data-eh.usage`, `data-eh.context`, notices, warnings and anything unknown are dropped, message metadata is cut to `{ eharness: { stop } }` (no model id, tokens, cost,
   duration, turn id), and an `error` chunk's text is replaced by the persona's guest line (`guestUnavailable`, read at the error; default the `professional` line; P33.3.4, guests.md). A provider error never reaches a visitor.
 - **Rate-limit memory** holds at most 10 000 address hashes; past that a new address is told to slow down.
+- **Guest page** (`/app/guest`, `createGuestFetch({ web })`, set from `config.web` and `config.webDir` unless `KEITH_WEB=off`). The listener serves the guest chat page of the web build with the same static helper as the owner's `/app`
+  (`createWebStatic(dir, { guestOnly: true })`, `web-static.ts`): `/app/guest` and `/app/guest/` get the shell (the SPA starts on that route), files only under `/app/_app/` (the build's own assets, the same files as the owner's; none holds a secret) and `/app/favicon.svg`;
+  every other path under `/app` (`/login`, `/chat`, the manifest, the service worker, `200.html`, the shell for any other route) is `404`, so this port never answers as the owner's app and the page has no service worker. `GET /` with `Accept: text/html` redirects to `/app/guest`; any other `/` is `404 GUEST_NOT_FOUND`.
+  Same rules as the owner's `/app`: `GET`/`HEAD` only (`405`), the Host guard first (`421`), the CSP with the hash of the inline bootstrap script, the security headers. The owner routes stay `404` here (`guest-web.e2e.test.ts`). With `KEITH_WEB=off` there is no page and the guest API is unchanged.
 
 ### Audit hooks
 
@@ -219,6 +225,10 @@ last user message) through the fire-and-forget `emit` and never denies. The same
 parietal service turns into one `activity` signal of that person (`parietal.md`). A guest message does not pass here (the guest
 listener is its own app), so it writes no signal. See `brain-events.md`.
 
+With `consent` set (`ChatMessagePort`, `amygdala.md` "Asked in conversation") the same `validate` first hands every `send` (the text of the newest user message, the principal, the listener `tcp` or `local` that
+the tracked request came in on) to `consent.message`. It records the client's step-up and, when a request asked in conversation waits, may answer it from the message; a message that was only the answer is
+not sent to the agent and the route answers `202 { inboxId, delivered: 'steer', target: 'local', consent }` (the shape of a queued message). Every other message goes on as before. It never throws.
+
 ### `/attention/*`
 
 With `attention` set (`attentionOptions`, `amygdala.md`) `createHarnessHttp` gets it and the two
@@ -259,6 +269,30 @@ activity feed, `approvals.answer` for `/attention`, none for `/health`) and answ
 when the principal lacks it. `/rpc/*` puts `capabilities.of(principal)` in the call context; the rpc
 middleware checks each procedure's metadata (`permissions.md`).
 
+### Web client (`/app`, `modules/thalamus/web-static.ts`, ADR-0035)
+
+`web: { dir }` (set by the composition unless `KEITH_WEB=off`) serves the SvelteKit build (`adapter-static`, fallback `200.html`, base
+path `/app`) from `KEITH_WEB_DIR` (default `<repo>/apps/web/build`). The route needs no sign-in (the page is public; every call it makes is
+authenticated) and runs after the Host and Origin guard.
+
+- **Files.** `GET`/`HEAD` of `/app` or `/app/*` (anything else is `405`). The path is URL-decoded, normalised, refused when it holds a NUL or a
+  backslash or leaves the folder, and the real path of the file (symlinks resolved) must stay inside the real folder. A file is served with
+  its type; `/app`, `/app/` and any path without a file extension fall back to `200.html` (client routing). A missing asset (a path under
+  `/_app/`, or with an extension) is a `404`, never the shell, so a stale tab never receives HTML where it expects JavaScript.
+- **PWA files.** `manifest.webmanifest` is `application/manifest+json` and `service-worker.js` is JavaScript; both are `no-cache` (an update of the worker is fetched at the next load). The worker's scope is its own folder, `/app/`, so no `Service-Worker-Allowed` header is sent; the page CSP covers the manifest, the worker and the icons (`web.md`, "PWA").
+- **Cache.** Under `/app/_app/immutable/`: `Cache-Control: public, max-age=31536000, immutable`. HTML and every other file: `no-cache`.
+- **Not built.** When the folder or `200.html` is missing, every `/app` request is `404` with a short text naming
+  `bun run --cwd apps/web build`.
+- **Headers on every `/app` answer.** `Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-…'; connect-src 'self';
+  img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'`,
+  `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`. SvelteKit's single-page shell has one inline
+  bootstrap `<script>`, so the core computes the SHA-256 of every inline script of `200.html` when it loads the file (again whenever the
+  file changes) and lists the hashes in `script-src`: no `'unsafe-inline'` for scripts, and `apps/web` needs no `kit.csp`.
+- **Config** (`platform/config.ts`): `KEITH_WEB` (`on` default, `off` removes `/app` and the `/` redirect; the API is unchanged) and
+  `KEITH_WEB_DIR` (an absolute or relative folder).
+- **Cookie rules** of the middleware (`cookie-guard.ts`): the CSRF refusal of a cookie-authenticated write and the clearing of a rejected
+  cookie (`auth.md`, "Browser sessions").
+
 ### `/rpc/*`
 
 Without a valid token the response is `401` with
@@ -296,8 +330,9 @@ Details of the delegation parts: `cortex.md`, `tasks.md`.
 
 - The core binds to loopback unless `KEITH_HOST` says otherwise.
 - The owner API exists on the main listener only; the guest listener serves `/health` and `/guest/*` and nothing else.
-- Only `/health`, `POST /nodes/join` (pairing code), `GET /nodes/ws` (node token) and `POST /auth/device/start|poll` (code and poll secret) `POST /auth/login` (the password, behind the network rule of `auth.md`) and `GET /auth/methods` (a static answer) are reachable without a credential or the local socket.
+- Only `/health`, `POST /nodes/join` (pairing code), `GET /nodes/ws` (node token) and `POST /auth/device/start|poll` (code and poll secret) `POST /auth/login` (the password, behind the network rule of `auth.md`) `POST /auth/web/adopt` (a credential in the body), `GET /app/*` (the web client build) and `GET /auth/methods` (a static answer) are reachable without a credential or the local socket.
 - No TCP request with a Host or Origin outside the allowlist reaches a route.
+- `/app` is the only unauthenticated static route; a cookie-authenticated write is same-origin or refused.
 - `via: 'local'` comes only from `fetchLocal`, which only the Unix socket listener calls.
 - A person never reaches another person's session.
 - No business logic in `compose.ts` or `main.ts`.
@@ -313,5 +348,6 @@ streaming chat, model switch, credentials never in clear, history surviving a re
 `modules/auth/login.e2e.test.ts`: `/auth/login` and `/auth/step-up` over a real listener (network rule matrix, `KEITH_INSECURE_LOGIN`).
 `modules/thalamus/guard.test.ts`: foreign Host refused on `/health`, `/rpc` and `/nodes/ws`, loopback port rule, public URL host (env and live `access`), `KEITH_ALLOWED_HOSTS`, Origin, socket unaffected, forwarded headers never local, `access --proxy`.
 `modules/thalamus/guard.test.ts` also covers the guest listener's guard (literal addresses, listed names, per request list, the main guard unchanged). `guests-http.e2e.test.ts`: the guest routes in a booted core (isolation matrix: no credential, wrong or owner bearer, another address or session, guest bearer on every owner route, 410 after an end, kill switch, zones, per-IP window, busy 409, banner, no model or cost in the stream); `modules/thalamus/guest-{bearer,scrub,listener}.test.ts` (bearer and IP hashes, the stream scrub, a real listener that opens and closes with the settings and dials the machine's LAN address).
+`modules/thalamus/web-static.e2e.test.ts`: `/app` (shell, fallback, immutable cache, CSP hash, traversal and symlink refusal, 404 for a missing asset, missing build, `KEITH_WEB=off`, the `/` redirect, Host guard); the cookie rules are in `modules/auth/web-session.e2e.test.ts`.
 `apps/core/src/serve.test.ts`: 413 on a large join body, idle timeout. `platform/net.test.ts`: loopback and bind warning.
 `apps/core/src/node-pairing.e2e.test.ts`, `motor.e2e.test.ts`: `/nodes/join`, `/nodes/ws`, `/attention` over a real server.

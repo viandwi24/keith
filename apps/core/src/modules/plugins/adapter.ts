@@ -14,6 +14,7 @@ import {
   type HarnessContext,
   type HarnessPlugin,
   type ToolRisk,
+  untrustedContent,
 } from 'eharness'
 
 export interface AdapterDeps {
@@ -63,7 +64,27 @@ export function compilePlugin(plugin: KeithPlugin, deps: AdapterDeps): HarnessPl
     tool({
       description: op.description,
       inputSchema: op.input,
-      metadata: { risk: RISK[op.risk], keithPlugin: plugin.id, keithOperation: op.name },
+      metadata: {
+        risk: RISK[op.risk],
+        source: op.source,
+        keithPlugin: plugin.id,
+        keithOperation: op.name,
+      },
+      // an operation whose text anyone else may have written reaches the model inside an untrusted-content frame (ADR-0036 §6)
+      ...(op.source === 'outside'
+        ? {
+            toModelOutput: ({ output }: { output: unknown }) => ({
+              type: 'text' as const,
+              value: untrustedContent(
+                typeof output === 'string' ? output : (JSON.stringify(output) ?? ''),
+                {
+                  source: 'plugin',
+                  name: op.toolName,
+                },
+              ),
+            }),
+          }
+        : {}),
       execute: async (input: unknown, options) => {
         const call: GuardCall = {
           // live: eharness resolves this getter against the running turn

@@ -98,4 +98,27 @@ describe('loadConfig', () => {
     expect(loadConfig({ KEITH_INSECURE_LOGIN: 'true' }).insecureLogin).toBe(true)
     expect(() => loadConfig({ KEITH_INSECURE_LOGIN: 'yes' })).toThrow(/KEITH_INSECURE_LOGIN/)
   })
+
+  test('the web client is on by default and served from apps/web/build', () => {
+    const config = loadConfig({})
+    expect(config.web).toBe(true)
+    expect(config.webDir).toBe(resolve(import.meta.dir, '../../../web/build'))
+    expect(loadConfig({ KEITH_WEB: 'off' }).web).toBe(false)
+    expect(loadConfig({ KEITH_WEB: 'on', KEITH_WEB_DIR: '/srv/web' }).webDir).toBe('/srv/web')
+    expect(loadConfig({ KEITH_WEB: '', KEITH_WEB_DIR: '' }).web).toBe(true)
+  })
+
+  test('KEITH_PUSH_SUBJECT: a mailto: or https URL, empty is unset, anything else is refused', () => {
+    expect(loadConfig({}).pushSubject).toBeUndefined()
+    expect(loadConfig({ KEITH_PUSH_SUBJECT: '' }).pushSubject).toBeUndefined()
+    expect(loadConfig({ KEITH_PUSH_SUBJECT: 'mailto:me@example.com' }).pushSubject).toBe(
+      'mailto:me@example.com',
+    )
+    expect(loadConfig({ KEITH_PUSH_SUBJECT: 'https://keith.example.com' }).pushSubject).toBe(
+      'https://keith.example.com',
+    )
+    expect(() => loadConfig({ KEITH_PUSH_SUBJECT: 'http://keith.example.com' })).toThrow(
+      'KEITH_PUSH_SUBJECT',
+    )
+  })
 })

@@ -32,6 +32,17 @@ function requestFor(pluginId: string, request: WakeRequest) {
     name: request.name,
     text: request.text,
     ...(request.data === undefined ? {} : { data: request.data }),
+    ...(request.immediate === true
+      ? {
+          needs: {
+            mode: 'wake' as const,
+            capabilities: [],
+            fanout: 'best' as const,
+            urgency: 'normal' as const,
+            immediate: true,
+          },
+        }
+      : {}),
     ...(request.failureNotice === undefined ? {} : { onFailure: request.failureNotice }),
   }
 }
@@ -43,6 +54,9 @@ export function resultOf(outcome: DeliveryOutcome): WakeResult {
       return { delivered: true }
     case 'queued':
       return { delivered: true, queued: { nextAttemptAt: outcome.nextAttemptAt } }
+    case 'held':
+      // kept for the return digest: it counts as delivered; `nextAttemptAt` is the end of the status (0: when the person returns)
+      return { delivered: true, queued: { nextAttemptAt: outcome.until ?? 0 } }
     case 'failed':
       // `no-route` is the core giving up on a route it does not have, so it is reported as `unavailable`
       return {

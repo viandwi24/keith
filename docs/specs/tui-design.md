@@ -430,6 +430,12 @@ style (a rule and a muted label): `dream finished · 3 reviewed · 2 changes wai
 
 ### 5.7 Approval dialog
 
+**The quiet line (ADR-0036 §7).** While a request waits that has no card in the chat (a `conversation` request, or a `device` or another
+person's one), one muted row sits above the input, in the place of the dialog, with no frame and no keys: `Keith is waiting for your yes or no
+· switch the persona to butler · expires in 4:32 · details /inbox`, or `Confirm in the Inbox (/inbox) · run `df -h` on laptop-e`. The countdown
+ticks each second; a long line wraps. The dialog below is drawn in the chat only for an old core's items; otherwise it lives in the Inbox screen
+(`/inbox`, a framed screen like Tasks). The `a` row of its legend is hidden for `conversation` requests and for persona, model, style and status tools.
+
 The dialog sits above the input, in the left column, as a `FramePanel` (5.18): the title in the top border, the `1 of N` count as
 a tag at its right. It is unfocused at first (the chat input keeps the keys, as in `tui.md`): the frame is `border` colour.
 
@@ -1380,7 +1386,7 @@ this later with a pattern on `features/**`.
 | `useFrameClock` | one timer for an animation: `{ fps = 12 (max 30), running }` → `{ tick, dt }` |
 | `FooterProvider` / `useFooter` / `FooterRow` / `LegendRow` | the legend: a screen or dialog sets its hints while mounted, the app shows them (or its own for the chat); `rule={width}` draws them as the separator line above the input, `width` fits them |
 
-The glyphs live in `packages/ui/src/glyphs.ts`, one object. `tasks-state.ts` and `nodes-state.ts` import their
+The glyphs live in `packages/ui/src/glyphs.ts`, one object. `packages/app-model/src/tasks.ts` and `nodes-state.ts` import their
 icons from it.
 
 Notes from the build:

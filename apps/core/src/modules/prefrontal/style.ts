@@ -42,6 +42,13 @@ export interface PersonStyleServiceOptions {
 export interface PersonStyleService {
   /** The caller's own style; every default when no row exists. */
   get(caller: PrefrontalCaller): PersonStyle
+  /** Whether the caller has a stored style row (false: every value is a default and onboarding has not ended). */
+  has(caller: PrefrontalCaller): boolean
+  /**
+   * Stores the caller's style row with the defaults when none exists ("skip" of onboarding); audited like a change with no
+   * fields. Returns the style. A person who already has a row is left as is.
+   */
+  ensure(caller: PrefrontalCaller): PersonStyle
   /** Merges the patch over the caller's own style. A refused value changes nothing. Returns the style after the change. */
   set(caller: PrefrontalCaller, patch: PersonStylePatch): PersonStyle
   /**
@@ -86,10 +93,35 @@ export function createPersonStyleService(options: PersonStyleServiceOptions): Pe
   const current = (personId: string): PersonStyle =>
     styles.get(personId)?.style ?? DEFAULT_PERSON_STYLE
 
+  const store = (caller: PrefrontalCaller, patch: PersonStylePatch, fields: PersonStyleField[]) => {
+    const after = styles.upsert(caller.by, patch, caller.by).style
+    audit.record({
+      kind: 'persona.style.set',
+      actor: caller.by,
+      via: caller.via,
+      detail: { subject: caller.by, fields },
+    })
+    options.activity?.record(
+      frontSessionId(caller.by, generations.current(caller.by)),
+      'brain.prefrontal.style',
+      { region: 'prefrontal', personId: caller.by, fields },
+    )
+    return after
+  }
+
+  const ensure = (caller: PrefrontalCaller): PersonStyle =>
+    styles.get(caller.by) !== undefined
+      ? current(caller.by)
+      : store(caller, { language: DEFAULT_PERSON_STYLE.language }, [])
+
   return {
     get(caller) {
       return current(caller.by)
     },
+
+    has: (caller) => styles.get(caller.by) !== undefined,
+
+    ensure,
 
     set(caller, patch) {
       const given = checkPatch(patch)
@@ -99,25 +131,10 @@ export function createPersonStyleService(options: PersonStyleServiceOptions): Pe
       )
       const wanted = { ...before, ...defined } as PersonStyle
       const fields = changedFields(before, wanted)
-      // a change that changes nothing writes nothing: no row, no audit line, no event
-      if (fields.length === 0) return before
-      const after = styles.upsert(caller.by, given, caller.by).style
-      audit.record({
-        kind: 'persona.style.set',
-        actor: caller.by,
-        via: caller.via,
-        detail: { subject: caller.by, fields },
-      })
-      options.activity?.record(
-        frontSessionId(caller.by, generations.current(caller.by)),
-        'brain.prefrontal.style',
-        {
-          region: 'prefrontal',
-          personId: caller.by,
-          fields,
-        },
-      )
-      return after
+      // a change that changes nothing writes nothing: no audit line, no event. A person with no row still gets one
+      // (the defaults, `fields: []`), so a first answer equal to a default ends onboarding
+      if (fields.length === 0) return styles.get(caller.by) === undefined ? ensure(caller) : before
+      return store(caller, given, fields)
     },
 
     async readStyleAs(caller, personId) {

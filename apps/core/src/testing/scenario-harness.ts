@@ -60,6 +60,8 @@ export interface ScenarioOptions {
   pricing?: { input: number; output: number }
   /** Context window of the front and worker models (default: unknown, 128k). */
   contextWindow?: number
+  /** Hold the front model's calls: pass a released gate and `close()` it later to make the front session busy. */
+  frontGate?: ReturnType<typeof createGate>
   /** Hold the worker's model calls until released (default: open). */
   workerGate?: ReturnType<typeof createGate>
   timing?: Partial<CoreTiming>
@@ -86,6 +88,7 @@ export async function scenario(options: ScenarioOptions = {}): Promise<Scenario>
     ...(options.pricing === undefined && options.contextWindow === undefined
       ? {}
       : { info: { f: priced(options.pricing, options.contextWindow) } }),
+    ...(options.frontGate === undefined ? {} : { gate: options.frontGate }),
     models: {
       f: options.front ?? [
         { toolCalls: [spawnGeneral('c1')] },

@@ -1,0 +1,1 @@
+ALTER TABLE `presence_status` ADD `from` integer;

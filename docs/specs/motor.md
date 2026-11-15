@@ -23,8 +23,8 @@ neither.
 
 ## `motor_remote`
 
-Input `{ node, capability, input? }` (`node` = name or id; `core` is a node). Risk metadata
-`external`. `execute` is an async generator:
+Input `{ node, capability, input? }` (`node` = name or id; `core` is a node). Metadata `{ risk: 'external', source: 'outside' }`
+(ADR-0036: what a machine prints is outside text). `execute` is an async generator:
 
 1. Resolve the node; check the capability against the core's capability registry
    (`modules/nodes/node-capabilities.ts`: the built-in specs and the drivers' specs, `node-drivers.md`, Motor);
@@ -45,6 +45,9 @@ The result is always an object, never a throw for an expected failure:
 - success: `{ ok: true, node, capability, output, exitCode? }`; text output is capped at 30 000
   characters (first 60 %, last 40 %, "[N characters omitted]" between); an object output longer than
   that becomes its capped JSON text. Three caps apply in a row and each keeps a different split: the node executor (`node.md`: 15 000 + 15 000 of 30 000), the core node (`nodes.md`: first 20 000 and last 10 000) and this 30 000 cap at the motor (60/40); the agent's own tool-output cap may cut again. A test that names "20 000" refers to that agent cap.
+- **Framing (ADR-0036 §6).** What the model reads is `framedModelOutputOf(output)` (`toModelOutput`): the platform facts (`ok`, `node`, `capability`, `exitCode`, a refusal's `code`
+  and message) stay outside, and the text the machine produced (`output`; a plain string; the text parts of a content result) is wrapped by eharness
+  `untrustedContent(text, { source: 'node', name: <capability> })`. An image part is not wrapped. The stored message keeps the raw result.
 - failure: `{ ok: false, node, capability, code, error }`. `code`: `unknown-node`,
   `unknown-capability`, `invalid-input`, `shell-off` (same message as the denial, when the call got
   past `tool.approve`, e.g. through a session grant), `offline`, `refused-by-policy`, `timeout`, `cancelled`,
@@ -72,6 +75,16 @@ call (no ask right after the `a`). For `shell.exec` this means a grant covers th
 Since a member's `shell.exec` is always answered by the owner and `remember` is dropped from that
 answer (`amygdala.md`), a member never gets a grant; the owner's `a` covers the owner's own sessions
 and the workers the owner started. The plugin keeps no grant memory of its own.
+
+### Consent (ADR-0036)
+
+`motor_remote` is `external` as a tool, but a call that runs unasked is a `read` for consent. `motorConsentRisk(capabilities)` (`motor/risk.ts`, pure over the registry)
+is the `riskOf` option of amygdala's consent hook: a call that `runsUnasked` (`system.info`, a read capability, an `approval: 'never'` capability at `write` or below) is `read`;
+a capability whose risk for the input is `destructive` is `destructive`; every other call (an unknown capability or an unreadable input included) is `external`. The consent table
+(`amygdala.md`) then gives `user-approval` with the tier `conversation` when the conversation is clean (a command the person asked for in their own words, or delegated from
+such a message and with no outside content read by the worker since) and `device` when tainted. The plugin's own `tool.approve` above is unchanged and still decides who is
+asked and what is denied: most restrictive wins, so shell-off still denies, a `read` still runs without asking, and the member-to-owner routing and the step-up are untouched.
+The node's output is `outside`, so a worker that ran a command (or read a page) is tainted for the rest of its task.
 
 ### Who answers (P9)
 

@@ -29,6 +29,7 @@ the reason in the table below in the same commit.
 | Secret scanning | gitleaks | Bun has no secret scanner |
 | Run CI locally / lint workflows | act, actionlint (machine tools, not repo deps) | Outside Bun's scope |
 | Ink component tests | ink-testing-library | `bun test` has no Ink renderer |
+| Web client build and dev server (`apps/web`, ADR-0035) | Vite + SvelteKit (`svelte-check` for types), run with `bun --bun` | Bun has no Svelte compiler or SvelteKit router; Vite is SvelteKit's build tool. It runs on Bun, Node is not needed. `apps/web` uses TypeScript 6 from the named catalog `web`: SvelteKit 3 reads its tsconfig through `ts.sys`, which TypeScript 7 removed |
 | Archives that keep entry modes (`backup`, `restore`, `people export`, P26.2.1) | `tar` on the system, run with `Bun.spawn` | `Bun.Archive` builds an archive from an object with no per-entry mode: every file is written 0644 and an executable loses its bit, and extraction does not restore modes either (checked on Bun 1.4.2). `tar` keeps the modes and stores a symlink as a link; `archive.ts` refuses links and `..` on extract |
 
 ## Consequences

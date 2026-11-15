@@ -1,5 +1,4 @@
-import type { BrainEvent, BrainRegion } from '@keith/contracts'
-import type { LegendKey, OrbMode } from '@keith/ui'
+import type { LegendKey } from '@keith/ui'
 import { DEFAULT_CELL_ASPECT } from '../../platform/cell-size.ts'
 
 /** The brain frame hides below this many columns. */
@@ -17,28 +16,16 @@ export const FRAME_ROWS = 6 + 3
  * by 48 rows of coloured cells). 48 rows is a 56-row terminal, which no cap below it reaches.
  */
 export const ORB_MAX_ROWS = 48
-/** How long the last words stay under the orb after the turn ended. */
-export const SUBTITLE_HOLD_MS = 8000
+// moved to `@keith/app-model` (shared with the web): the orb mode, event strength and the subtitle's plain words
+export {
+  type OrbInput,
+  orbModeOf,
+  plainText,
+  regionOf,
+  SUBTITLE_HOLD_MS,
+  strengthOf,
+} from '@keith/app-model'
 export const TITLE = 'K E I T H'
-
-/** The live state the orb mode comes from. */
-export interface OrbInput {
-  /** Logged out, core down or offline. */
-  alert: boolean
-  /** The front turn runs. */
-  busy: boolean
-  /** Assistant text is streaming right now. */
-  speaking: boolean
-  /** The chat draft is not empty. */
-  typing: boolean
-}
-
-/** alert, speaking, thinking, listening, else idle: real state only. */
-export function orbModeOf({ alert, busy, speaking, typing }: OrbInput): OrbMode {
-  if (alert) return 'alert'
-  if (busy) return speaking ? 'speaking' : 'thinking'
-  return typing ? 'listening' : 'idle'
-}
 
 export interface HomeSize {
   /** The brain frame is drawn (80 columns or more). */
@@ -93,40 +80,6 @@ export function homeSize(
     orbTop: TOP_ROWS + Math.floor((area - gap - orbHeight) / 2),
     orbLeft: Math.max(0, Math.floor((columns - orbWidth) / 2)),
   }
-}
-
-/** The region an event belongs to: `brain.<region>.<what>`. */
-export const regionOf = (event: BrainEvent): BrainRegion => event.type.split('.')[1] as BrainRegion
-
-const STRENGTH: Partial<Record<BrainEvent['type'], number>> = {
-  'brain.cortex.step': 0.25,
-  'brain.cortex.start': 0.5,
-  'brain.cortex.end': 0.4,
-  'brain.broca.start': 0.8,
-  'brain.broca.end': 0.4,
-  'brain.motor.act': 0.8,
-  'brain.amygdala.decide': 0.55,
-  'brain.amygdala.wait': 0.4,
-  'brain.parietal.presence': 0.4,
-  'brain.parietal.deliver': 0.6,
-}
-
-/** How hard an event fires its region on the trace (default 0.5). */
-export const strengthOf = (event: BrainEvent): number => STRENGTH[event.type] ?? 0.5
-
-/** Markdown to plain words for the subtitle: fences, code, headings, emphasis, links, list marks. */
-export function plainText(markdown: string): string {
-  return markdown
-    .replace(/```[\s\S]*?(```|$)/g, ' ')
-    .replace(/`([^`]*)`/g, '$1')
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
-    .replace(/^\s*>\s?/gm, '')
-    .replace(/^\s*([-*+]|\d+\.)\s+/gm, '')
-    .replace(/\*\*(.+?)\*\*/g, '$1')
-    .replace(/\*(\S[^*]*)\*/g, '$1')
-    .replace(/\s+/g, ' ')
-    .trim()
 }
 
 export interface HomeLegendInput {

@@ -1,5 +1,6 @@
 import {
   type AuthZone,
+  type CredentialDelivery,
   type IdentifyResponse,
   IdentifyResponseSchema,
   type MethodDescriptor,
@@ -23,6 +24,8 @@ export type IdentifyOutcome =
 /** The answers of `POST /auth/flow/:id`. */
 export type AnswerOutcome =
   | { kind: 'credential'; credential: string }
+  /** The session went into the cookie (`deliver: 'cookie'`): there is no credential in the answer. */
+  | { kind: 'cookie' }
   | { kind: 'step'; step: Step }
   | { kind: 'invalid' }
   | { kind: 'not_allowed_here' }
@@ -90,17 +93,26 @@ export async function requestAnswer(
   doFetch: typeof fetch,
   signal: AbortSignal,
   remember = false,
+  deliver: CredentialDelivery = 'body',
 ): Promise<AnswerOutcome> {
   const res = await post(
     `${core}/auth/flow/${encodeURIComponent(flowId)}`,
-    { method, answer, ...(remember ? { remember: true } : {}) },
+    {
+      method,
+      answer,
+      ...(remember ? { remember: true } : {}),
+      ...(deliver === 'cookie' ? { deliver } : {}),
+    },
     doFetch,
     signal,
   )
   if (res === undefined) return { kind: 'unreachable' }
   if (res.status === 200) {
-    const json = res.json as { credential?: unknown; step?: unknown } | null
-    if (typeof json?.credential === 'string')
+    const json = res.json as { credential?: unknown; step?: unknown; cookie?: unknown } | null
+    // each mode takes only its own answer: a body login never trusts a cookie answer, and the reverse
+    if (deliver === 'cookie') {
+      if (json?.cookie === true) return { kind: 'cookie' }
+    } else if (typeof json?.credential === 'string')
       return { kind: 'credential', credential: json.credential }
     const step = StepSchema.safeParse(json?.step)
     return step.success ? { kind: 'step', step: step.data } : { kind: 'rejected' }

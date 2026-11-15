@@ -23,6 +23,8 @@ export const forAnother = (input: { to?: string | undefined }, actor: Actor): bo
 
 export const create = defineOperation({
   name: 'create',
+  // the person's own data: what it returns is not outside text (ADR-0036 §3)
+  source: 'trusted',
   description:
     'Set a reminder: give the text and exactly one of at (an instant with its UTC offset), inMinutes or cron (repeating). Without "to" it is for the caller. A reminder for another person is sent to the owner for review first and only takes effect when the owner approves it.',
   input: z

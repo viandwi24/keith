@@ -89,6 +89,11 @@ export interface WakeRequest {
   /** What the model reads. The host does not frame it: the plugin must, when the text is not the recipient's own. */
   text: string
   data?: unknown
+  /**
+   * Time-sensitive: the person set this for now (a reminder), so it is never held for the return digest while they are busy
+   * or away (ADR-0034 §6, `needs.immediate`). Default false.
+   */
+  immediate?: boolean | undefined
   /** Run id, stable per slot (`ScheduleFire.fireId`): the same id is delivered once, however often it is asked. */
   id: string
   /**

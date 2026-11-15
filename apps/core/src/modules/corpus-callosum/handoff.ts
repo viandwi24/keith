@@ -75,7 +75,7 @@ export function createRoomHandoff(deps: HandoffDeps): RoomHandoff {
           to: speakerId,
           name: HANDOFF_NAME,
           text: handoffText(room.name, request),
-          needs: { mode: 'wake' },
+          needs: { mode: 'wake', immediate: true },
         })
       } catch (error) {
         handled.delete(key)

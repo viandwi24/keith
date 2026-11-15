@@ -146,6 +146,7 @@ async function rememberedPasswordLogin(options: PasswordLoginOptions): Promise<s
   switch (answer.kind) {
     case 'credential':
       return answer.credential
+    case 'cookie':
     case 'step':
       throw new LoginError('remember_unavailable', MESSAGES.remember_unavailable)
     case 'invalid':
@@ -164,7 +165,13 @@ async function rememberedPasswordLogin(options: PasswordLoginOptions): Promise<s
 }
 
 /** Why a step-up did not succeed. */
-export type StepUpFailure = LoginFailure | 'no_method' | 'unauthorized' | 'legacy_credential'
+export type StepUpFailure =
+  | LoginFailure
+  | 'no_method'
+  | 'unauthorized'
+  | 'legacy_credential'
+  /** A PIN session cannot step up with its PIN; the password works. */
+  | 'pin_session'
 
 export class StepUpError extends Error {
   constructor(
@@ -181,9 +188,14 @@ export class StepUpError extends Error {
 
 export type StepUpOptions = {
   core: string
-  /** The session credential (`keith_s_…`) of the signed-in client. */
-  token: string
+  /** The session credential (`keith_s_…`) of the signed-in client; none in cookie mode. */
+  token?: string
   fetch?: typeof fetch
+  /**
+   * `cookie`: the client has no token (the browser); the request rotates the session and the core sets the new one in the
+   * cookie (`{ rotate: true, deliver: 'cookie' }`), answering `cookie: true`. A body-mode client without a token rejects.
+   */
+  deliver?: 'cookie'
 } & ({ pin: string; password?: never } | { password: string; pin?: never })
 
 /**
@@ -192,12 +204,19 @@ export type StepUpOptions = {
  */
 export async function stepUp(options: StepUpOptions): Promise<{ elevatedUntil: number }> {
   const base = options.core.replace(/\/+$/, '')
-  const body = options.pin !== undefined ? { pin: options.pin } : { password: options.password }
+  const cookie = options.deliver === 'cookie'
+  if (options.token === undefined && !cookie)
+    throw new StepUpError('unauthorized', 'this client has no credential')
+  const secret = options.pin !== undefined ? { pin: options.pin } : { password: options.password }
+  const body = cookie ? { ...secret, rotate: true, deliver: 'cookie' } : secret
   let result: Awaited<ReturnType<typeof post>>
   try {
-    result = await post(`${base}/auth/step-up`, body, options.fetch ?? fetch, {
-      authorization: `Bearer ${options.token}`,
-    })
+    result = await post(
+      `${base}/auth/step-up`,
+      body,
+      options.fetch ?? fetch,
+      options.token === undefined ? {} : { authorization: `Bearer ${options.token}` },
+    )
   } catch (error) {
     if (error instanceof LoginError) throw new StepUpError(error.reason, error.message)
     throw error
@@ -214,6 +233,13 @@ export async function stepUp(options: StepUpOptions): Promise<{ elevatedUntil: n
       'this person has no PIN or password to step up with',
       undefined,
       typeof hint === 'string' ? hint : undefined,
+    )
+  }
+  if (status === 403 && code === 'pin_session_cannot_step_up') {
+    const hint = (json as { hint?: unknown }).hint
+    throw new StepUpError(
+      'pin_session',
+      `a PIN session cannot confirm with its PIN: ${typeof hint === 'string' && hint !== '' ? hint : 'confirm with your password'}`,
     )
   }
   if (status === 409 && code === 'legacy_credential')

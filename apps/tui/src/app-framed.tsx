@@ -8,6 +8,7 @@ import {
   useFooterContent,
 } from '@keith/ui'
 import { Box } from 'ink'
+import { type Approvals, InboxScreen } from './features/approvals/index.ts'
 import { type BrainState, TraceView } from './features/brain/index.ts'
 import { BudgetView } from './features/budget/index.ts'
 import { MemoryScreen } from './features/memory/index.ts'
@@ -23,6 +24,7 @@ import { HelpScreen } from './help-screen.tsx'
 export type FramedScreen =
   | 'help'
   | 'tasks'
+  | 'inbox'
   | 'trace'
   | 'nodes'
   | 'budget'
@@ -34,6 +36,7 @@ export type FramedScreen =
 export const isFramed = (screen: string): screen is FramedScreen =>
   screen === 'help' ||
   screen === 'tasks' ||
+  screen === 'inbox' ||
   screen === 'trace' ||
   screen === 'nodes' ||
   screen === 'budget' ||
@@ -45,6 +48,7 @@ export const isFramed = (screen: string): screen is FramedScreen =>
 const LABEL: Record<FramedScreen, string> = {
   help: 'Help',
   tasks: 'Tasks',
+  inbox: 'Inbox',
   trace: 'Brain trace',
   nodes: 'Nodes',
   budget: 'Budget',
@@ -60,6 +64,10 @@ export interface FramedScreensProps {
   role: string | undefined
   stepUp: StepUp
   tasks: Tasks
+  /** Every pending approval, answered here after Tab. */
+  approvals: Approvals
+  barHasKeys: boolean
+  onBarFocus(focused: boolean): void
   nodes: Nodes
   budget: BudgetStatus | undefined
   brain: BrainState
@@ -86,6 +94,9 @@ export function FramedScreens({
   role,
   stepUp,
   tasks,
+  approvals,
+  barHasKeys,
+  onBarFocus,
   nodes,
   budget,
   brain,
@@ -132,6 +143,14 @@ export function FramedScreens({
             active={!stepUpOpen}
             onReload={tasks.reload}
             onClose={onBack}
+          />
+        )}
+        {screen === 'inbox' && (
+          <InboxScreen
+            approvals={approvals}
+            focused={barHasKeys}
+            onFocusChange={onBarFocus}
+            width={inner}
           />
         )}
         {screen === 'trace' && <TraceView state={brain} width={inner} />}

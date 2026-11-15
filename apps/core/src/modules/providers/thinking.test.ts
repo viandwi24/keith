@@ -23,7 +23,7 @@ const deepseekOf = (call: { providerOptions?: unknown }) =>
 
 describe('thinking: the call list and the setting', () => {
   test('the no-thinking calls are the judge and the compaction summary and flush; the setting is off', () => {
-    expect([...NO_THINKING_CALLS]).toEqual(['dream-judge', 'compaction'])
+    expect([...NO_THINKING_CALLS]).toEqual(['dream-judge', 'compaction', 'consent'])
     expect(INFERENCE_THINKING).toBe('off')
     expect(thinkingFor('dream-judge')).toBe('off')
     expect(thinkingFor('compaction')).toBe('off')

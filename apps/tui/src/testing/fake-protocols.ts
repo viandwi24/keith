@@ -1,6 +1,6 @@
+import { reminderDefinition } from '@keith/app-model/manage'
 import type { ProtocolProposal, ProtocolRun, ProtocolView } from '@keith/contracts'
 import { MS_HOUR } from '@keith/contracts'
-import { reminderDefinition } from '../features/manage/protocols/protocols-reminder.ts'
 
 export interface FakeProtocolsCall {
   /** `protocols/pause` */

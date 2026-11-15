@@ -1,3 +1,12 @@
+import {
+  capsOf,
+  NAV_WIDTH,
+  type Nav,
+  type NavKey,
+  navReduce,
+  TWO_PANE_COLUMNS,
+  visibleSections,
+} from '@keith/app-model/manage'
 import type { KeithClient } from '@keith/client'
 import type { Whoami } from '@keith/contracts'
 import {
@@ -15,15 +24,6 @@ import { offlineHints, useGuardedInput as useInput, useLink } from '../activity/
 import type { Nodes } from '../nodes/index.ts'
 import type { StepUp } from '../stepup/index.ts'
 import { NAV_HINTS } from './legend.ts'
-import {
-  capsOf,
-  NAV_WIDTH,
-  type Nav,
-  type NavKey,
-  navReduce,
-  TWO_PANE_COLUMNS,
-  visibleSections,
-} from './manage-state.ts'
 import type { ManageEnv } from './manage-types.ts'
 import { SectionHost } from './section-host.tsx'
 import { MANAGE_SECTIONS } from './sections.ts'

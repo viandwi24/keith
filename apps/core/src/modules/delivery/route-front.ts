@@ -65,3 +65,16 @@ export function createFrontRoute(options: FrontRouteOptions): DeliveryRoute {
     },
   }
 }
+
+/**
+ * A route that tells the agent why the message interrupts (ADR-0034 §1, §6): used when an urgent delivery bypasses a hold
+ * (the person is busy, away or out). It appends one instruction line to the text of the wake; the route id is unchanged.
+ */
+export function interruptingRoute(route: DeliveryRoute, why: string): DeliveryRoute {
+  const line = `\n\n[Urgent, delivered while the person is ${why}: open your reply with one sentence saying why this interrupts them.]`
+  return {
+    id: route.id,
+    send: (request, ctx) =>
+      route.send({ ...request, text: request.text.slice(0, 4000 - line.length) + line }, ctx),
+  }
+}

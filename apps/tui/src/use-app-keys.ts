@@ -42,7 +42,8 @@ export function useAppKeys(k: AppKeysInput): void {
         screen === 'trace' ||
         screen === 'nodes' ||
         screen === 'budget' ||
-        screen === 'presence'
+        screen === 'presence' ||
+        (screen === 'inbox' && !barHasKeys)
       )
         k.setScreen(k.origin)
       else if (screen === 'chat' && !k.chatBusy && !barHasKeys) k.goHome()

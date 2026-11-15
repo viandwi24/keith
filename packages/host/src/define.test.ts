@@ -157,6 +157,22 @@ describe('defineKeithPlugin', () => {
     ).toContain('resource kind')
   })
 
+  test('source is outside unless the operation says trusted; any other value is refused (ADR-0036 §3)', () => {
+    const p = defineKeithPlugin(
+      base({
+        operations: [op('a'), { ...op('b'), source: 'trusted' }, { ...op('c'), source: 'outside' }],
+      }),
+    )
+    expect(p.operations.map((o) => [o.name, o.source])).toEqual([
+      ['a', 'outside'],
+      ['b', 'trusted'],
+      ['c', 'outside'],
+    ])
+    expect(problemsOf(base({ operations: [{ ...op(), source: 'x' as never }] })).join()).toContain(
+      'source',
+    )
+  })
+
   test('audience, risk, rate limit and exposure are validated', () => {
     expect(
       problemsOf(base({ operations: [{ ...op(), audience: 'all' as never }] })).join(),

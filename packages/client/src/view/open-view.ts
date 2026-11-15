@@ -30,9 +30,14 @@ export interface ViewSocket {
 }
 export type ViewConnector = (url: string, headers: Record<string, string>) => ViewSocket
 
-/** Bun's `WebSocket` takes request headers: the bearer goes in a header, never in the URL. */
+/**
+ * Bun's `WebSocket` takes request headers: the bearer goes in a header, never in the URL. With no header (a browser, whose
+ * cookie goes with the upgrade) it is the plain platform `WebSocket`, whose second argument means sub-protocols.
+ */
 const defaultConnector: ViewConnector = (url, headers) =>
-  new WebSocket(url, { headers } as never) as unknown as ViewSocket
+  (Object.keys(headers).length === 0
+    ? new WebSocket(url)
+    : new WebSocket(url, { headers } as never)) as unknown as ViewSocket
 
 export interface OpenViewOptions {
   /** Base URL of the core (`http://127.0.0.1:4100`); `/plugins/views/ws` is added. */

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { DREAM_REFUSAL_TEXT, runOutcomeOf, stagedEntriesOf, statusRowsOf } from '@keith/app-model'
 import type { DreamingApi } from '@keith/client'
 import type { DreamRefusalReason, DreamRunView, DreamStatusView } from '@keith/contracts'
 import {
@@ -8,7 +9,6 @@ import {
   parseDreamCommand,
   runDreamCommand,
 } from './dream-commands.ts'
-import { DREAM_REFUSAL_TEXT, runOutcomeOf, stagedEntriesOf, statusRowsOf } from './dream-state.ts'
 
 const RUN: DreamRunView = {
   id: 'run-1',

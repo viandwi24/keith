@@ -1,11 +1,11 @@
+import { codeOf, messageOf } from '@keith/app-model'
+import { CLAIM_WORD, claimWordOk, heirLines } from '@keith/app-model/manage'
 import type { KeithClient } from '@keith/client'
 import type { SuccessionView } from '@keith/contracts'
 import { FramePanel, Txt, useFooter, useToast } from '@keith/ui'
 import { Box, useInput } from 'ink'
 import { useEffect, useRef, useState } from 'react'
-import { codeOf, messageOf } from '../../chat/question-state.ts'
 import type { StepUp } from '../../stepup/index.ts'
-import { CLAIM_WORD, claimWordOk, heirLines } from './succession-state.ts'
 
 export interface SuccessionPanelProps {
   client: KeithClient

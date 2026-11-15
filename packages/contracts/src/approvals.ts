@@ -34,3 +34,14 @@ export const ApprovalsSetSchema = z
     'give ttlHours, pingBeforeHours or both',
   )
 export type ApprovalsSet = z.infer<typeof ApprovalsSetSchema>
+
+/**
+ * Front-agent tools whose approval is answered with a step-up from a remote client (ADR-0034 §3 and §8): the persona changes and
+ * the model switch (the reads `persona_get` and `model_roles_get` wait for nothing). The core's `canAnswer` (amygdala) reads this list; the tools themselves live in prefrontal and providers.
+ */
+export const STEP_UP_TOOLS: readonly string[] = [
+  'persona_template',
+  'persona_edit',
+  'persona_restore',
+  'model_role_set',
+]

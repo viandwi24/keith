@@ -11,7 +11,7 @@ export function nodesStatus(options: { nodes: NodeRegistry }): HarnessPlugin<'ke
     description:
       'List the machines paired with Keith (and "core"): name, online/offline, OS, drivers (name and version), capabilities, capabilities refused with the reason, and whether shell commands are allowed there.',
     inputSchema: z.object({}),
-    metadata: { risk: 'read' },
+    metadata: { risk: 'read', source: 'trusted' },
     execute: async () => ({
       nodes: options.nodes.list().map((n) => ({
         name: n.name,

@@ -1,4 +1,5 @@
 // Public API of @keith/client: the typed client every Keith UI uses.
+export { describeChatError } from 'eharness/client'
 // The eharness stop-reason and notice-code constants, for UIs that may not import the eharness root.
 export { type KnownStopReason, NOTICE_CODES, type NoticeCode, STOP_REASONS } from 'eharness/codes'
 export {
@@ -94,7 +95,9 @@ export {
   DeviceLoginError,
   type DeviceLoginFailure,
   type DeviceLoginOptions,
+  type DeviceLoginResult,
   deviceLogin,
+  deviceLoginResult,
 } from './login.ts'
 export {
   KEITH_STEP_UP_REQUIRED,
@@ -111,8 +114,8 @@ export { type PersonaApi, type PersonaFeed, personaApiOf, watchPersona } from '.
 export {
   type ClientDelivery,
   type ClientIdStore,
-  createPresenceReporter,
   type DeliveryHandler,
+  memoryClientIdStore,
   type NotifyHandler,
   type PresenceReporter,
   type PresenceReporterOptions,
@@ -120,6 +123,16 @@ export {
   UNSUPPORTED,
   UnsupportedDelivery,
 } from './presence.ts'
+export { createPresenceReporter } from './presence-node.ts'
+export {
+  applicationServerKeyOf,
+  listPush,
+  type PushSubscriptionLike,
+  pushPublicKey,
+  type SubscribePushOptions,
+  subscribePush,
+  unsubscribePush,
+} from './push.ts'
 export {
   createRoomEvents,
   createRoomView,
@@ -136,7 +149,6 @@ export {
   roomsApiOf,
 } from './rooms.ts'
 export {
-  createSignIn,
   type IdentifierMemory,
   type ParsedAddress,
   parseSignInAddress,
@@ -151,7 +163,9 @@ export {
   type SignInState,
   type SignInStore,
 } from './sign-in.ts'
+export { createSignIn } from './sign-in-node.ts'
 export { localSocketPath, probeSocket, socketFetch } from './socket.ts'
+export { isHome, isLeave, type KeyLike, keyBytes } from './view/key-bytes.ts'
 export {
   fetchViewMenu,
   ViewMenuError,

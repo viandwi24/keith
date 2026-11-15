@@ -1,3 +1,4 @@
+import { parseContextCommand, pendingKindOf, runContextCommand } from '@keith/app-model'
 import {
   BrainTrace,
   ChatHeader,
@@ -31,11 +32,14 @@ import {
   useConnection,
   useLinkValue,
 } from './features/activity/index.ts'
-import { approvalsError, useApprovals } from './features/approvals/index.ts'
+import {
+  approvalsError,
+  chatScope,
+  useApprovals,
+  useInboxToast,
+} from './features/approvals/index.ts'
 import { useBrain } from './features/brain/index.ts'
 import { useBudget } from './features/budget/index.ts'
-import { parseContextCommand, runContextCommand } from './features/chat/context-commands.ts'
-import { pendingKindOf } from './features/chat/context-pending.ts'
 import { HistoryScreen } from './features/chat/history-screen.tsx'
 import type { ChatNotice } from './features/chat/index.ts'
 import { useContextPending } from './features/chat/use-context-pending.ts'
@@ -133,6 +137,9 @@ export function App({
   const nodes = useNodes(client)
   const stepUp = useStepUp(client)
   const approvals = useApprovals(client, stepUp.guard)
+  // the chat and Home show a card only for an old core's items; the rest waits in the Inbox screen (ADR-0036 §7)
+  const chatApprovals = chatScope(approvals)
+  useInboxToast(approvals.items)
   const budget = useBudget(client, budgetPollMs)
   const connection = useConnection(client)
   // while the link is down every screen that needs the core is inactive (features/activity/offline.tsx)
@@ -206,11 +213,14 @@ export function App({
   const { health, roles } = useCoreFacts(client)
 
   // the dialog keeps the keys only while it is on screen (chat or Home) with something to answer
+  const barApprovals = screen === 'inbox' ? approvals : chatApprovals
   const barHasKeys =
     barFocus &&
-    (screen === 'chat' || screen === 'home') &&
-    approvals.answerable.length > 0 &&
+    (screen === 'chat' || screen === 'home' || screen === 'inbox') &&
+    barApprovals.answerable.length > 0 &&
     !stepUpOpen
+  // the keys never follow the person to another screen: the next dialog starts unfocused
+  useEffect(() => setBarFocus(false), [screen])
   const layout = layoutOf(width, {
     rows,
     sidebar: screen === 'manage' || screen === 'home' ? false : sidebarPref,
@@ -383,7 +393,7 @@ export function App({
     stepUpOpen,
     barHasKeys,
     notReady: loggedOut || identity.status !== 'ready',
-    approvalsWaiting: approvals.answerable.length > 0,
+    approvalsWaiting: chatApprovals.answerable.length > 0,
     chatBusy,
     kitty,
   })
@@ -398,7 +408,8 @@ export function App({
     />
   ) : undefined
   const above = ChatAbove({
-    approvals,
+    approvals: chatApprovals,
+    allApprovals: approvals,
     stepUp,
     stepUpHere: stepUpOpen && screen === 'chat',
     barHasKeys,
@@ -507,7 +518,7 @@ export function App({
       notice={notice}
       tasks={tasks.tasks}
       roles={roles}
-      tabCompletes={approvals.answerable.length === 0}
+      tabCompletes={chatApprovals.answerable.length === 0}
       onCommand={command}
       onSend={() => {
         setNotice(undefined)
@@ -618,7 +629,7 @@ export function App({
               notice={notice}
               failed={failed}
               stepUp={stepUp}
-              approvals={approvals}
+              approvals={chatApprovals}
               barHasKeys={barHasKeys}
               onBarFocus={setBarFocus}
               onChat={() => {
@@ -700,6 +711,9 @@ export function App({
             role={role}
             stepUp={stepUp}
             tasks={tasks}
+            approvals={approvals}
+            barHasKeys={barHasKeys}
+            onBarFocus={setBarFocus}
             nodes={nodes}
             budget={budget.budget}
             brain={brain.state}

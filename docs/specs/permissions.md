@@ -23,7 +23,7 @@ they also need a recent step-up (`auth.md`).
 | `nodes.read` | `nodes.list` (every node: nodes are Keith's self layer, ADR-0020 and ADR-0027 §9; the per-person filter of OWN-008 applies to the activity feed only) |
 | `nodes.manage` | `nodes.pair`, `nodes.revoke` |
 | `settings.read` | `providers.describe`, `providers.models`, `models.roles.get` (model names, no secrets), `models.price.list`, `admin.approvals.get`, `protocols.settings.get` |
-| `settings.manage` | `providers.list|put|remove|test`, `models.roles.set`, `models.price.set|clear`, `admin.access.get|set`, `persona.setTemplate|edit|restore` (owner only, step-up, one persona version each, `prefrontal.md`) |
+| `settings.manage` | `providers.list|put|remove|test`, `models.roles.set`, `models.price.set|clear`, `admin.access.get|set`, `persona.setTemplate|edit|restore` (owner only, step-up, one persona version each, `prefrontal.md`; the front tools `persona_*` do the same through the persona service: owner only; in a clean conversation they run with undo and no step-up; when tainted they wait on a device and answering from a remote client needs a step-up, `STEP_UP_TOOLS`, ADR-0036) |
 | `budget.read` | `budget.get` (the caller's own scope; the owner, who holds `budget.manage`, also gets the global scope and every person, `budget.md`) |
 | `budget.manage` | `budget.set` |
 | `people.manage` | `admin.people.*` (including grants, passwords, PINs). Members only: never the owner or yourself (the service refuses with `FORBIDDEN`, `people.md`). `admin.people.export` and `admin.people.setLogin` are owner only: a delegate is refused with `FORBIDDEN` (`people.md`, Export and Identifiers) |
@@ -122,6 +122,7 @@ unknown capability, or when a `*.manage` call that changes something lacks `step
 | `settings.manage` (policy) | `admin.auth.policy.set` (not `get`); both also require the owner role in the handler |
 | `people.manage` (sessions) | `admin.sessions.revoke` (not `list`) |
 | Answering a `shell.exec` approval (`/attention`) | yes (see below) |
+| A `STEP_UP_TOOLS` front call (`persona_template|edit|restore`, `model_role_set`) from a remote client that has not stepped up | yes, even in a clean conversation: the call waits as a `device` approval and its answer asks for the step-up (`amygdala.md`, "Step-up binds"); the person's word in the chat never replaces it |
 | everything else | no |
 
 The implicit owner of the local socket (opt-in local trust `idle-lock` or `full`, `auth.md`) is always elevated; a session on the socket steps up like on TCP, and `keith-core` asks for the PIN as needed. A session credential is elevated for
@@ -150,7 +151,11 @@ owner-routed item gets `403` with code `KEITH_WAITING_FOR_OWNER`.
 
 ## Tool risk
 
-Tools keep their own risk (`motor.md`, `cortex.md`). The one rule that crosses people: a member's
+Tools keep their own risk (`motor.md`, `cortex.md`) and, since ADR-0036, declare a **source** next to it: `metadata: { risk, source: 'trusted' | 'outside', reversible? }`
+(`@keith/eh-ext` `toolSource`, `toolReversible`, read like eharness `toolTraits`; the type is `ToolSource` in `@keith/contracts`). `trusted` is Keith's own state and the person's own data;
+`outside` is anything a third party can have written (web pages and search results, plugin text from other people, room messages, other people's notes, node and desktop
+output, a worker's report). A tool that declares nothing is `outside`; the tools eharness ships are known by name (`EHARNESS_TOOL_TRAITS`). Risk and source decide how a call is
+consented (`amygdala.md`, "Consent"). The one rule that crosses people: a member's
 `shell.exec` (on a node or on `core`) is an approval the owner answers (`amygdala.md`, "Who answers"),
 shown to the owner with the asker, node and command (the documented exception to "the owner does not
 see members' messages"). `tool.approve` stays deterministic: it never reads who asks, and it decides from the input and static tables, with one exception that can only deny: the shell-off check reads the live node registry (`motor.md`).

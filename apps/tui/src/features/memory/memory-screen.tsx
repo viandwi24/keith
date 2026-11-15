@@ -2,12 +2,7 @@
 // dreaming mode, the last run, a staged plan with the entries it would change, and the person's own diary. It reads `dreaming.status` and
 // `dreaming.diary` only; it never reads another person's memory, and it changes nothing (the `/dream` commands do). The diary is the
 // latest day; a listing of the days needs a procedure the contract does not have yet.
-import type { KeithClient } from '@keith/client'
-import type { DreamDiaryOutput, DreamStatusView } from '@keith/contracts'
-import { Txt, useFooter } from '@keith/ui'
-import { Box } from 'ink'
-import { useEffect, useState } from 'react'
-import { useGuardedInput as useInput } from '../activity/index.ts'
+
 import {
   countsTextOf,
   dateOf,
@@ -15,7 +10,13 @@ import {
   stagedEntriesOf,
   stagedExpiryNoteOf,
   whenOf,
-} from './dream-state.ts'
+} from '@keith/app-model'
+import type { KeithClient } from '@keith/client'
+import type { DreamDiaryOutput, DreamStatusView } from '@keith/contracts'
+import { Txt, useFooter } from '@keith/ui'
+import { Box } from 'ink'
+import { useEffect, useState } from 'react'
+import { useGuardedInput as useInput } from '../activity/index.ts'
 
 export interface MemoryScreenProps {
   client: KeithClient

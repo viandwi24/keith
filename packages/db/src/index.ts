@@ -173,6 +173,7 @@ export {
 export {
   type PresenceStatusRepo,
   presenceStatusRepo,
+  type StatusKind,
   type StatusRow,
 } from './repos/presence-status.ts'
 export {
@@ -200,6 +201,12 @@ export {
   type SaveVersionResult,
   type VersionRecord,
 } from './repos/protocols.ts'
+export {
+  type NewPushSubscription,
+  type PushSubscriptionRow,
+  type PushSubscriptionsRepo,
+  pushSubscriptionsRepo,
+} from './repos/push-subscriptions.ts'
 export { type RetentionRepo, retentionRepo } from './repos/retention.ts'
 export {
   type ReviewCreateResult,

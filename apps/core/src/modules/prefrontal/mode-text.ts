@@ -3,7 +3,7 @@
 import type { ModeChoice } from './mode.ts'
 
 export const SPEECH_TEXT =
-  'Imagine this is read aloud over the phone. Use full natural sentences, no bullets, tables, headings, code or Markdown. If the answer is a table, a long list, code or has many numbers, say the gist in one or two sentences, then offer to show the details on screen or in a document.'
+  'Imagine this is read aloud over the phone. Use full natural sentences, no bullets, tables, headings, code or Markdown. If the answer is a table, a long list, code or has many numbers, say the gist in one or two sentences, then offer to show the details on screen or in a document. Before a slow tool, say a short "let me check".'
 
 export const CHAT_TEXT = 'Be brief. Use Markdown only when a client renders it and it helps.'
 

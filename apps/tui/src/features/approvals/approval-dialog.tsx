@@ -1,10 +1,10 @@
+import { askedAgo, askOf, isWaitingForOwner, lifeOf, offersTaskGrant } from '@keith/app-model'
 import type { AttentionItem } from '@keith/client'
 import { Chip, Dialog, dialogInner, G, KeyHints, TextInput, Txt, useToast } from '@keith/ui'
 import { Box } from 'ink'
 import { useEffect, useState } from 'react'
 import { useGuardedInput as useInput } from '../activity/index.ts'
 import { WAITING_TEXT } from '../stepup/index.ts'
-import { askedAgo, askOf, isScopable, isWaitingForOwner, lifeOf } from './approval-state.ts'
 import type { Approvals } from './use-attention.ts'
 
 export interface ApprovalDialogProps {
@@ -59,7 +59,7 @@ export function ApprovalDialog({ approvals, focused, onFocusChange, width }: App
   useEffect(() => {
     if (expiredId !== undefined) push('request expired', { level: 'warning' })
   }, [expiredId, push])
-  const scopable = current !== undefined && isScopable(current)
+  const scopable = current !== undefined && offersTaskGrant(current)
   const setReason = (text: string | undefined) =>
     setDraft(text === undefined || current === undefined ? undefined : { id: current.id, text })
 

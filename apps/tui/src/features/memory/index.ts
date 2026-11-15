@@ -1,4 +1,23 @@
 export {
+  changesOf,
+  countsTextOf,
+  DREAM_FAILURE_TEXT,
+  DREAM_REFUSAL_TEXT,
+  type DreamRunning,
+  dateOf,
+  dreamDividerOf,
+  dreamEndFallbackOf,
+  dreamingLineOf,
+  dreamRefusedDividerOf,
+  reasonTextOf,
+  reduceDreamRunning,
+  runLineOf,
+  runOutcomeOf,
+  stagedEntriesOf,
+  statusRowsOf,
+  whenOf,
+} from '@keith/app-model'
+export {
   DREAM_MODE_USAGE,
   DREAM_USAGE,
   type DreamCommand,
@@ -7,27 +26,6 @@ export {
   parseDreamCommand,
   runDreamCommand,
 } from './dream-commands.ts'
-export {
-  changesOf,
-  type DreamRunning,
-  dreamDividerOf,
-  dreamEndFallbackOf,
-  dreamingLineOf,
-  dreamRefusedDividerOf,
-  reduceDreamRunning,
-} from './dream-pending.ts'
-export {
-  countsTextOf,
-  DREAM_FAILURE_TEXT,
-  DREAM_REFUSAL_TEXT,
-  dateOf,
-  reasonTextOf,
-  runLineOf,
-  runOutcomeOf,
-  stagedEntriesOf,
-  statusRowsOf,
-  whenOf,
-} from './dream-state.ts'
 export { MemoryScreen, type MemoryScreenProps } from './memory-screen.tsx'
 export {
   type DreamActivity,

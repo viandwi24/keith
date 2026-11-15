@@ -1,5 +1,6 @@
 import type { ColorDepth } from '../theme.ts'
-import { clipAnsi, RESET, type Rgb, sgr, visibleWidth } from './color.ts'
+import { clipAnsi, visibleWidth } from './ansi-width.ts'
+import { RESET, type Rgb, sgr } from './color.ts'
 
 // btop-style panel frames: rounded corners, labels set into the border as ` label ` tags, hotkey
 // letters in the accent colour. Every row is exactly `width` cells.

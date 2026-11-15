@@ -10,6 +10,7 @@ import {
   type MessageAdapter,
   type StateAdapter,
   type StreamLogAdapter,
+  UNTRUSTED_CONTENT_INSTRUCTIONS,
 } from 'eharness'
 import { type ActivityStore, activity } from 'eharness/activity'
 import { clock } from 'eharness/clock'
@@ -43,7 +44,8 @@ export type WorkerKey = (typeof WORKER_KEYS)[number]
 
 const COMMON_INSTRUCTIONS = `You are a Cortex worker of Keith, a personal assistant. Keith's front agent gave you one self-contained task; the person who asked is not watching you and cannot answer questions, so decide sensibly and finish.
 Your final message is the report Keith relays to that person: start with the answer, then the key points, each with its source (URL or file path). Say what you could not verify or find. Work and think in English, but write the final report, and any file you make for the person, in the language the task names for the result; if it names none, in English.
-Never claim you did something you did not do, and never invent sources or facts that your tools did not return.`
+Never claim you did something you did not do, and never invent sources or facts that your tools did not return.
+${UNTRUSTED_CONTENT_INSTRUCTIONS}`
 
 const INSTRUCTIONS: Record<WorkerKey, string> = {
   'cortex.research': `${COMMON_INSTRUCTIONS}
@@ -90,6 +92,8 @@ export interface WorkerDeps {
     streams?: StreamLogAdapter
   }
   hardening?: WorkerHardening
+  /** The consent hook plugin of a worker (`amygdala/consent.ts`, ADR-0036): decides `tool.approve` from risk and provenance. */
+  consent?: HarnessPlugin
   store: ActivityStore
   tasks: TasksRepo
   logger: HarnessLogger
@@ -215,6 +219,7 @@ export function createWorker(key: WorkerKey, deps: WorkerDeps): HarnessAgent {
     plugins: [
       roleModel('cortex', deps.providers),
       aclGuard(),
+      ...(deps.consent === undefined ? [] : [deps.consent]),
       clock({ timezone: deps.timezone }),
       ...tools,
       activity({ store: deps.store, messages: false }),

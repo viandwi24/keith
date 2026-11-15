@@ -29,6 +29,34 @@ const workspaces = new Map<string, Workspace>([
       ['ink-testing-library'],
     ),
   ],
+  [
+    'apps/web',
+    ws(
+      'apps/web',
+      '@keith/web',
+      [],
+      [
+        'svelte',
+        '@sveltejs/kit',
+        'bits-ui',
+        '@ai-sdk/svelte',
+        '@keith/client',
+        '@keith/app-model',
+        '@keith/ui',
+        'zod',
+        'hono',
+      ],
+    ),
+  ],
+  [
+    'packages/app-model',
+    ws('packages/app-model', '@keith/app-model', [
+      '@keith/client',
+      '@keith/contracts',
+      '@keith/ui',
+      'ai',
+    ]),
+  ],
   ['packages/contracts', ws('packages/contracts', '@keith/contracts', ['zod'])],
   ['packages/db', ws('packages/db', '@keith/db', ['zod', 'eharness'])],
   ['packages/host', ws('packages/host', '@keith/host', ['ink', 'chalk', 'react', '@keith/ui'])],
@@ -319,6 +347,130 @@ describe('checkEdge', () => {
         unresolved: true,
       }),
     ).toEqual(['unresolvable'])
+  })
+})
+
+describe('scanSpecifiers of a Svelte component', () => {
+  test('reads the instance and module scripts and ignores the markup', () => {
+    const code = [
+      '<script lang="ts">',
+      "  import { base } from '$app/paths'",
+      "  import type { Row } from '@keith/contracts'",
+      '</script>',
+      '<script module>',
+      "  import Child from './child.svelte'",
+      '</script>',
+      "<p>import x from 'not-an-import'</p>",
+    ].join('\n')
+    expect(scanSpecifiers('apps/web/src/a.svelte', code)).toEqual([
+      { specifier: '$app/paths', typeOnly: false },
+      { specifier: './child.svelte', typeOnly: false },
+      { specifier: '@keith/contracts', typeOnly: true },
+    ])
+  })
+})
+
+describe('apps/web', () => {
+  const from = 'apps/web/src/lib/features/chat/chat.svelte'
+  const npm = (specifier: string) => ({
+    from,
+    specifier,
+    pkg: packageName(specifier),
+    typeOnly: false,
+  })
+
+  test('may import Svelte, SvelteKit, the client and the contracts', () => {
+    expect(rules(npm('svelte'))).toEqual([])
+    expect(rules(npm('svelte/store'))).toEqual([])
+    expect(rules(npm('@sveltejs/kit'))).toEqual([])
+    expect(rules(npm('bits-ui'))).toEqual([])
+    expect(rules(npm('bits-ui/internal'))).toEqual([])
+    expect(rules(npm('@ai-sdk/svelte'))).toEqual([])
+    expect(
+      rules({
+        ...npm('@keith/client'),
+        to: 'packages/client/src/index.ts',
+      }),
+    ).toEqual([])
+  })
+
+  test('other npm packages are refused', () => {
+    expect(rules(npm('zod'))).toEqual(['web-npm-allowlist'])
+    expect(rules(npm('hono'))).toEqual(['web-npm-allowlist'])
+  })
+
+  test('other apps and the database are refused', () => {
+    expect(
+      rules({ ...npm('@keith/db'), to: 'packages/db/src/index.ts' }).includes(
+        'web-only-client-contracts',
+      ),
+    ).toBe(true)
+    expect(
+      rules({
+        from,
+        specifier: '../../../../core/src/x.ts',
+        to: 'apps/core/src/x.ts',
+        typeOnly: false,
+      }),
+    ).toContain('web-only-client-contracts')
+  })
+
+  test('SvelteKit virtual modules are not edges', () => {
+    for (const specifier of ['$app/state', '$env/static/public', './$types', '#lib/x.ts'])
+      expect(buildEdge('/repo', from, specifier, false)).toBeUndefined()
+    expect(buildEdge('/repo', 'apps/tui/src/a.ts', '$app/state', false)).toBeDefined()
+  })
+})
+
+describe('apps/web and the shared logic', () => {
+  const from = 'apps/web/src/lib/features/chat/chat.svelte.ts'
+  const edge = (specifier: string, to: string) => ({
+    from,
+    specifier,
+    pkg: packageName(specifier),
+    to,
+    typeOnly: false,
+  })
+
+  test('the web app may import app-model and the Ink-free ui files', () => {
+    expect(rules(edge('@keith/app-model', 'packages/app-model/src/index.ts'))).toEqual([])
+    expect(rules(edge('@keith/ui/markdown', 'packages/ui/src/markdown-parse.ts'))).toEqual([])
+    expect(rules(edge('@keith/ui/tokens', 'packages/ui/src/tokens.ts'))).toEqual([])
+    expect(rules(edge('@keith/ui/orb', 'packages/ui/src/orb/index.ts'))).toEqual([])
+  })
+
+  test('the web app may not import the Ink side of the ui package', () => {
+    expect(rules(edge('@keith/ui', 'packages/ui/src/index.ts'))).toEqual(['web-ui-pure-subpaths'])
+    // a file inside the orb folder is not the subpath: only its index is public
+    expect(rules(edge('@keith/ui/orb/color', 'packages/ui/src/orb/color.ts'))).toEqual([
+      'web-ui-pure-subpaths',
+    ])
+  })
+})
+
+describe('packages/app-model', () => {
+  const from = 'packages/app-model/src/message-text.ts'
+  const edge = (specifier: string, to?: string, typeOnly = false) => ({
+    from,
+    specifier,
+    pkg: packageName(specifier),
+    ...(to === undefined ? {} : { to }),
+    typeOnly,
+  })
+
+  test('imports the contracts, the client, the tokens and its own files', () => {
+    expect(rules(edge('@keith/contracts', 'packages/contracts/src/index.ts'))).toEqual([])
+    expect(rules(edge('@keith/client/browser', 'packages/client/src/browser.ts'))).toEqual([])
+    expect(rules(edge('@keith/ui/tokens', 'packages/ui/src/tokens.ts'))).toEqual([])
+    expect(rules(edge('ai', undefined, true))).toEqual([])
+  })
+
+  test('refuses Ink, React, Svelte, a runtime ai import and the rest of ui', () => {
+    expect(rules(edge('ink'))).toContain('app-model-npm-allowlist')
+    expect(rules(edge('react'))).toContain('app-model-npm-allowlist')
+    expect(rules(edge('svelte'))).toContain('app-model-npm-allowlist')
+    expect(rules(edge('ai'))).toContain('app-model-npm-allowlist')
+    expect(rules(edge('@keith/ui', 'packages/ui/src/index.ts'))).toContain('app-model-pure-imports')
   })
 })
 

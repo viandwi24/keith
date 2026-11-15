@@ -5,7 +5,7 @@
 import { type LanguageModel, type LanguageModelMiddleware, wrapLanguageModel } from 'ai'
 
 /** The calls that may run without thinking. Each name is a call kind the core passes to `roleModel` or `resolveRoleModel`. */
-export const NO_THINKING_CALLS = ['dream-judge', 'compaction'] as const
+export const NO_THINKING_CALLS = ['dream-judge', 'compaction', 'consent'] as const
 export type ThinkingCall = (typeof NO_THINKING_CALLS)[number]
 
 /** `off`: DeepSeek thinking is disabled for the call. `auto`: the provider default (on for DeepSeek V4). */

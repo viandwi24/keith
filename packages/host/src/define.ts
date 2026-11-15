@@ -209,6 +209,8 @@ export function defineKeithPlugin(manifest: PluginManifest): KeithPlugin {
       bad(`${at}: audience is user or public`)
     if (op.risk !== undefined && !['read', 'write', 'dangerous'].includes(op.risk))
       bad(`${at}: risk is read, write or dangerous`)
+    if (op.source !== undefined && op.source !== 'trusted' && op.source !== 'outside')
+      bad(`${at}: source is trusted or outside`)
     if (op.rateLimit !== undefined) {
       const { max, windowMs } = op.rateLimit
       if (!Number.isInteger(max) || max < 1 || !Number.isInteger(windowMs) || windowMs < 1_000)
@@ -235,6 +237,7 @@ export function defineKeithPlugin(manifest: PluginManifest): KeithPlugin {
       permission: op.permission as ResolvedOperation['permission'],
       audience: op.audience ?? 'user',
       risk: op.risk ?? 'write',
+      source: op.source ?? 'outside',
       expose,
       rateLimit: op.rateLimit,
       review: op.review as ResolvedOperation['review'],

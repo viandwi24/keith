@@ -34,6 +34,8 @@ const shares = (view: View): z.infer<typeof Shares> => ({
 
 export const share = defineOperation({
   name: 'share',
+  // the person's own data: what it returns is not outside text (ADR-0036 §3)
+  source: 'trusted',
   description:
     'Let someone read (or edit) one of your notes: target user:<name>, group:<name>, @users or @public. Or use deny=true to shut a person or group out. Only the note owner can. Widening to @users or @public is refused here (FORBIDDEN): a tool approval never confirms a widening and a chat turn is never elevated. The owner makes that change at the TUI or with keith-core acl share.',
   input: z.object({
@@ -61,6 +63,8 @@ export const share = defineOperation({
 
 export const unshare = defineOperation({
   name: 'unshare',
+  // the person's own data: what it returns is not outside text (ADR-0036 §3)
+  source: 'trusted',
   description:
     'Take back what you shared on a note: remove the entry for a user, group, @users or @public (deny=true removes a deny entry). Only the note owner can.',
   input: z.object({ id, target, deny: z.boolean().default(false) }),
@@ -81,6 +85,8 @@ export const unshare = defineOperation({
 
 export const sharesOf = defineOperation({
   name: 'shares',
+  // the person's own data: what it returns is not outside text (ADR-0036 §3)
+  source: 'trusted',
   description: 'Show who a note is shared with (only its owner can look).',
   input: z.object({ id }),
   output: Shares,

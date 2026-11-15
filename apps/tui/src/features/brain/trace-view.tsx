@@ -1,14 +1,9 @@
+import { traceText } from '@keith/app-model'
 import { ScrollView, Txt, useFooter } from '@keith/ui'
 import { Box } from 'ink'
-import type { BrainState, TraceEntry } from './brain-state.ts'
+import type { BrainState } from './brain-state.ts'
 
 const clock = (at: number): string => new Date(at).toTimeString().slice(0, 8)
-
-/** The event text without its region name, which has its own column. */
-export function traceText(e: TraceEntry): string {
-  const rest = e.text.startsWith(e.region) ? e.text.slice(e.region.length) : e.text
-  return rest.replace(/^[. ]/, '')
-}
 
 const FOOTER = [{ key: 'esc', action: 'back' }] as const
 

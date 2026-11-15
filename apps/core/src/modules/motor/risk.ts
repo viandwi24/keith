@@ -1,6 +1,6 @@
 import type { NodeCapabilityRegistry } from '../nodes/index.ts'
 import { createNodeCapabilityRegistry } from '../nodes/index.ts'
-import { callOf, MOTOR_REMOTE_TOOL, runsUnasked } from './remote.ts'
+import { callOf, MOTOR_REMOTE_TOOL, riskOf, runsUnasked } from './remote.ts'
 
 /** What an approval for a machine action shows the person who answers (never node state). */
 export interface MotorAsk {
@@ -40,4 +40,24 @@ export function ownerAnswers(
   if (ask === undefined) return false
   const call = callOf(input)
   return !runsUnasked(capabilities, ask.capability, call?.input)
+}
+
+/**
+ * The risk consent reads for a `motor_remote` call (ADR-0036 §4, `amygdala/consent.ts`): the tool is `external` as a whole, but a call
+ * that runs unasked (`system.info`, a read capability) is a `read`, and a capability whose risk for this input is `destructive` is
+ * `destructive`. Every other call, an unknown capability or an unreadable input included, is `external`. Any other tool: undefined.
+ * Pure over the registry; `motorRemote`'s own `tool.approve` keeps deciding who is asked and what is denied (most restrictive wins).
+ */
+export function motorConsentRisk(
+  capabilities: NodeCapabilityRegistry = BUILTIN_CAPABILITIES,
+): (toolName: string, input: unknown) => 'read' | 'destructive' | 'external' | undefined {
+  return (toolName, input) => {
+    if (toolName !== MOTOR_REMOTE_TOOL) return undefined
+    const call = callOf(input)
+    if (call === undefined) return 'external'
+    if (runsUnasked(capabilities, call.capability, call.input)) return 'read'
+    return riskOf(capabilities, call.capability, call.input) === 'destructive'
+      ? 'destructive'
+      : 'external'
+  }
 }

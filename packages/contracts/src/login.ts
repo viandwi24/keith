@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { CredentialDeliverySchema } from './web-session.ts'
 
 /**
  * Error code of a call that needs a recent step-up (PIN or password). `/rpc` answers with an oRPC
@@ -23,15 +24,29 @@ export type LoginResponse = z.infer<typeof LoginResponseSchema>
  * sets the flag, an older one does not and keeps its credential.
  */
 export const StepUpRequestSchema = z.union([
-  z.object({ pin: z.string().min(1).max(64), rotate: z.boolean().optional() }).strict(),
-  z.object({ password: z.string().min(1).max(1024), rotate: z.boolean().optional() }).strict(),
+  z
+    .object({
+      pin: z.string().min(1).max(64),
+      rotate: z.boolean().optional(),
+      deliver: CredentialDeliverySchema.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      password: z.string().min(1).max(1024),
+      rotate: z.boolean().optional(),
+      deliver: CredentialDeliverySchema.optional(),
+    })
+    .strict(),
 ])
 export type StepUpRequest = z.infer<typeof StepUpRequestSchema>
 
 export const StepUpResponseSchema = z.object({
   elevatedUntil: z.number(),
-  /** The new credential, shown once; only when the request had `rotate: true`. */
+  /** The new credential, shown once; only when the request had `rotate: true` and did not ask for `deliver: 'cookie'`. */
   credential: z.string().optional(),
+  /** True when the rotated credential went into the session cookie instead (ADR-0035). */
+  cookie: z.literal(true).optional(),
 })
 export type StepUpResponse = z.infer<typeof StepUpResponseSchema>
 

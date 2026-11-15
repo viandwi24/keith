@@ -25,6 +25,7 @@ describe('checkSizes', () => {
 
   test('checks source extensions only', () => {
     expect(isChecked('a.ts')).toBe(true)
+    expect(isChecked('apps/web/src/a.svelte')).toBe(true)
     expect(isChecked('a.md')).toBe(false)
     expect(isChecked('scripts/exports.snapshot.json')).toBe(false)
   })

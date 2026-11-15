@@ -14,7 +14,8 @@
     "eval:agenda": "bun evals/agenda/run.ts",
     "eval:room": "bun evals/room/run.ts",
     "eval:persona": "bun evals/persona/run.ts",
-    "eval:dreaming": "bun evals/dreaming/run.ts"
+    "eval:dreaming": "bun evals/dreaming/run.ts",
+    "eval:consent": "bun evals/consent/run.ts"
   },
   "dependencies": {
     "@ai-sdk/deepseek": "catalog:",
@@ -24,6 +25,7 @@
     "@keith/client": "workspace:*",
     "@keith/contracts": "workspace:*",
     "@keith/db": "workspace:*",
+    "@keith/eh-ext": "workspace:*",
     "@keith/host": "workspace:*",
     "@keith/plugin-notes": "workspace:*",
     "@keith/plugin-reminders": "workspace:*",

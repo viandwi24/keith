@@ -23,6 +23,8 @@ function mustEdit(k: KeithCtx, noteId: string): void {
 
 export const create = defineOperation({
   name: 'create',
+  // the person's own data: what it returns is not outside text (ADR-0036 §3)
+  source: 'trusted',
   description:
     'Write a new private note (title and text). Only you can read it until you share it. Returns the note id.',
   input: z.object({ title: z.string().min(1).max(TITLE_MAX), body: z.string().max(BODY_MAX) }),
@@ -54,6 +56,8 @@ export const create = defineOperation({
 
 export const update = defineOperation({
   name: 'update',
+  // the person's own data: what it returns is not outside text (ADR-0036 §3)
+  source: 'trusted',
   description:
     'Change the title and/or the text of a note you may edit (yours, or one shared with you for editing). Give only what changes.',
   input: z
@@ -77,6 +81,8 @@ export const update = defineOperation({
 
 export const append = defineOperation({
   name: 'append',
+  // the person's own data: what it returns is not outside text (ADR-0036 §3)
+  source: 'trusted',
   description:
     'Add text at the end of a note you may edit (a new line is inserted first). Use it for "add this to my note".',
   input: z.object({ id, text: z.string().min(1).max(5_000) }),
@@ -96,6 +102,8 @@ export const append = defineOperation({
 
 export const remove = defineOperation({
   name: 'delete',
+  // the person's own data: what it returns is not outside text (ADR-0036 §3)
+  source: 'trusted',
   description:
     'Delete a note for good. Only the owner of a note can delete it (someone it is shared with cannot).',
   input: z.object({ id }),

@@ -1,3 +1,10 @@
-// Public API of @keith/eh-ext: nothing yet. The eharness adapters Keith owns (stream log, inbox,
+// Public API of @keith/eh-ext: Keith-only glue on top of eharness. The eharness adapters Keith owns (stream log, inbox,
 // activity store, person store, budget ledger) live in packages/db/src/eh; see AGENTS.md here.
-export {}
+export {
+  declaresSource,
+  EHARNESS_TOOL_TRAITS,
+  eharnessConsentRisk,
+  toolReversible,
+  toolSelfConfirmed,
+  toolSource,
+} from './tool-source.ts'

@@ -90,7 +90,7 @@ function fixture(
   const planner = createPresencePlanner({ parietal, front })
   const wrapped = {
     plan: async (person: string, n: DeliveryNeeds) => {
-      const routes = await planner.plan(person, n)
+      const routes = (await planner.plan(person, n)) as DeliveryRoute[]
       return routes.map((r) => ({
         ...r,
         send: async (request: Parameters<DeliveryRoute['send']>[0], ctx: { attempt: number }) => {
@@ -234,12 +234,12 @@ describe('createPresencePlanner', () => {
       },
       front: { id: 'front', send: async () => ({ ok: true }) },
     })
-    const routes = await planner.plan('ana', {
+    const routes = (await planner.plan('ana', {
       mode: 'wake',
       capabilities: [],
       fanout: 'best',
       urgency: 'normal',
-    })
+    })) as DeliveryRoute[]
     expect(routes.map((r) => r.id)).toEqual(['front'])
     expect(f.frontCalls).toHaveLength(0)
   })

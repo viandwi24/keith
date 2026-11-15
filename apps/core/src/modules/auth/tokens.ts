@@ -13,6 +13,8 @@ export interface CredentialRef {
   assurance?: Assurance
   /** The methods that made it (`password`, `pin`, `device`, `token`; `legacy` on an older row). */
   methods?: string[]
+  /** End of the step-up (epoch ms), when the session is stepped up. */
+  elevatedUntil?: number | null
 }
 
 export interface Principal {
@@ -28,6 +30,8 @@ export interface Principal {
    * (`credentials.elevated_until`). Absent counts as false (a principal built by hand, a legacy token).
    */
   elevated?: boolean
+  /** Internal: the request authenticated with the `keith_s` cookie, not a bearer (the CSRF check reads it). */
+  viaCookie?: boolean
 }
 
 /** Only an active person has access: suspended and left people are denied (no guest in P9). */

@@ -87,8 +87,7 @@ packages/
   eh-ext/               local extensions on top of eharness (no upstream)
   host/                 host plugin contract and loader
   client/               typed client SDK: eharness/client + Keith contract
-plugins/
-  web-ui/               SvelteKit, next phase (folder prepared, not filled yet)
+plugins/              big features (the web UI became apps/web, ADR-0035)
 docs/
   ARCHITECTURE.md  decisions/  specs/  plans/active/  plans/done/
 .claude/skills/         add-feature, add-brain-region, add-node-capability, release
@@ -133,7 +132,7 @@ The third rule guarantees the web UI will later be equal to the TUI: both only h
 
 ### Keeping a large codebase efficient
 
-Keith grows by adding plugins and modules, not by enlarging the core. The core holds only contracts, wiring and brain regions; every new capability (voice, web UI, display, other harnesses) comes in as a plugin. Each rule below is enforced by machine from M0, because rules added after the codebase is large are expensive to catch up on.
+Keith grows by adding plugins and modules, not by enlarging the core. The core holds only contracts, wiring and brain regions; every new capability (voice, display, other harnesses) comes in as a plugin. Clients are the exception: the TUI and the web UI are built-in apps (ADR-0035). Each rule below is enforced by machine from M0, because rules added after the codebase is large are expensive to catch up on.
 
 | Area | Rule | Enforced by |
 | --- | --- | --- |
@@ -427,7 +426,7 @@ Versions checked on npm as of Oct 26, 2026. The agent must still re-check at ini
 | `apps/core` | `bun create hono@latest apps/core --template bun --pm bun` | create-hono 0.19.5 |
 | `apps/tui` | `bunx create-ink-app --typescript apps/tui` | create-ink-app 3.0.2, Ink 8. Replace its default tooling (test runner, linter) with `bun test` and Biome |
 | `apps/node` and every `packages/*` | `bun init -y` in its folder | The official Bun generator for an empty project |
-| `plugins/web-ui` (later) | `bunx sv create plugins/web-ui --template minimal --types ts --install bun` | sv 1.1.1, replaces `create-svelte`. Official add-ons through `--add`, for example `tailwindcss` |
+| `apps/web` (ADR-0035) | `bunx sv create apps/web --template minimal --types ts --install bun` | sv 1.1.1, replaces `create-svelte`. Official add-ons through `--add`, for example `tailwindcss` |
 | Changesets | `bunx changeset init` | @changesets/cli 3.0.3 |
 | eharness | `bun add eharness@0.9.0 ai zod` in `apps/core` | Per the eharness README; `@ai-sdk/mcp` only when using MCP |
 | Drizzle | `bun add drizzle-orm` + `bun add -d drizzle-kit` in `packages/db` | No project generator; `drizzle.config.ts` follows the Drizzle docs for `bun:sqlite` |

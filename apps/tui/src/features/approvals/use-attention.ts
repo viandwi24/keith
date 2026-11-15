@@ -1,7 +1,7 @@
+import { approvalsOf, isWaitingForOwner as waitsForOwner } from '@keith/app-model'
 import type { AttentionItem, KeithClient } from '@keith/client'
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { isWaitingForOwner, WAITING_TEXT } from '../stepup/index.ts'
-import { approvalsOf, isWaitingForOwner as waitsForOwner } from './approval-state.ts'
 
 export interface Approvals {
   /** Approvals waiting for this person, oldest first (a member's owner-routed items included). */

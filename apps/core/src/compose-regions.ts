@@ -17,6 +17,7 @@ import type { KeithPlugin } from '@keith/host'
 import type { Server } from 'bun'
 import type { HarnessAgent, InboxAdapter } from 'eharness'
 import type { ActivityCapture } from './compose-activity.ts'
+import { createConsentPort } from './compose-consent.ts'
 import type { DreamingRegion } from './compose-dreaming.ts'
 import { createGuestFetch, createGuests } from './compose-guests.ts'
 import type { createIdentity } from './compose-identity.ts'
@@ -36,7 +37,14 @@ import { createAclActors } from './modules/acl/actors.ts'
 import { adminProcedures, type Network } from './modules/admin/index.ts'
 import {
   attentionOptions,
+  type ClientAuth,
+  type Consent,
+  type ConsentNotes,
   createApprovalSettings,
+  createClientAuth,
+  createConsent,
+  createConsentNotes,
+  createUndoPlugin,
   type watchPending,
 } from './modules/amygdala/index.ts'
 import { activityLogsProcedures } from './modules/audit/activity-logs/procedures.ts'
@@ -73,7 +81,12 @@ import {
   type SuccessionService,
   successionProcedures,
 } from './modules/hypothalamus/index.ts'
-import { createNodeCallLimit, createNodeCallLimitSettings } from './modules/motor/index.ts'
+import {
+  createNodeCallLimit,
+  createNodeCallLimitSettings,
+  motorConsentRisk,
+  ownerAnswers,
+} from './modules/motor/index.ts'
 import {
   BUILTIN_CAPABILITY_SPECS,
   createNodeCapabilityRegistry,
@@ -90,8 +103,17 @@ import {
 } from './modules/parietal/index.ts'
 import { coreRemoval } from './modules/people/index.ts'
 import { createPluginRoutes, createWake } from './modules/plugins/index.ts'
-import { guestUnavailableLine } from './modules/prefrontal/index.ts'
-import { type createProviderService, providerProcedures } from './modules/providers/index.ts'
+import {
+  createOnboarding,
+  createPersonaToolsPlugin,
+  guestUnavailableLine,
+} from './modules/prefrontal/index.ts'
+import {
+  createModelToolsPlugin,
+  type createProviderService,
+  providerProcedures,
+} from './modules/providers/index.ts'
+import { type PushService, pushProcedures } from './modules/push/index.ts'
 import { announceFinished, taskProcedures } from './modules/tasks/index.ts'
 import { createApp, createRequestGuard, isForwarded } from './modules/thalamus/index.ts'
 import {
@@ -110,6 +132,7 @@ import type { pruneRetention } from './platform/retention.ts'
 import { rpc } from './platform/rpc.ts'
 
 import { frontSessionId } from './platform/sessions.ts'
+import { createUndoLog } from './platform/undo-log.ts'
 
 type Identity = ReturnType<typeof createIdentity>
 type Store = ReturnType<typeof watchPending>
@@ -156,6 +179,8 @@ export interface Wiring {
   delivery: Delivery
   /** The parietal region: clients and presence (`compose-parietal.ts`). */
   parietal: ParietalService
+  /** Web Push: subscriptions and the `push.preview` setting (`compose-push.ts`). */
+  push: PushService
   /** The shared-room region: the service and its RPC procedures (`compose-rooms.ts`). */
   rooms: RoomsRegion
   /** The memory dreaming: the run service and the `dream` procedures (`hippocampus/dream`, compose-dreaming.ts). */
@@ -188,6 +213,12 @@ export interface Front {
   protocolTools: ProtocolToolSlot
   /** The context reset and compaction (docs/specs/chat-context.md): the service the `chat.*` procedures call. */
   context: ContextService
+  /** Conversational consent (ADR-0036): the hooks of the front agent and the workers; the attention list reads its registry. */
+  consent: Consent
+  /** The notes of the person's answers to a worker's request, read by the front agent (`consent-note.ts`). */
+  consentNotes: ConsentNotes
+  /** The step-up of the client each person last wrote from: the consent hook reads it for the persona and model tools. */
+  clientAuth: ClientAuth
 }
 
 export async function wireFront(w: Wiring): Promise<Front> {
@@ -288,7 +319,18 @@ export async function wireFront(w: Wiring): Promise<Front> {
     return p === undefined ? undefined : { name: p.name, username: p.username, role: p.role }
   }
   const lead = (): HarnessAgent => holder.lead as HarnessAgent
+  // conversational consent (ADR-0036): one registry for the front agent and its workers (a worker is clean only when the front
+  // call that delegated it was), and one undo log for the reversible tools
+  const clientAuth = createClientAuth()
+  const consent = createConsent({
+    riskOf: motorConsentRisk(nodes.capabilities),
+    elevatedOf: clientAuth.elevatedOf,
+    stepUpCall: (toolName, input) => ownerAnswers(toolName, input, nodes.capabilities),
+  })
+  const undo = createUndoLog()
+  const consentNotes = createConsentNotes()
   const cortex = createCortex({
+    consent: consent.plugin('worker'),
     providers: w.providers,
     storage,
     store,
@@ -315,6 +357,22 @@ export async function wireFront(w: Wiring): Promise<Front> {
     // the persona (system prompt block) and the style of the turn's person (turn reminder), docs/specs/prefrontal.md
     persona: w.prefrontal.persona,
     style: (personId) => w.prefrontal.styles.get({ by: personId, via: 'local', elevated: false }),
+    // onboarding while the person has no style row, and the persona and style tools (ADR-0034 §3, §4)
+    onboarding: createOnboarding({ styles: w.prefrontal.styles, people }),
+    personaTools: createPersonaToolsPlugin({
+      persona: w.prefrontal.persona,
+      styles: w.prefrontal.styles,
+      undo,
+    }),
+    undoTool: createUndoPlugin(undo),
+    consent: consent.plugin('front'),
+    // the owner's model tools: read the role picks, switch one after approval (ADR-0034 §8)
+    modelTools: createModelToolsPlugin({
+      providers: w.providers,
+      audit: identity.audit,
+      isOwner: async (personId) => (await whois(personId))?.role === 'owner',
+      undo,
+    }),
     // the person's clients (read only): their channel and second screen choose the answer mode (P33.4.1)
     clients: (personId) => w.parietal.list(personId),
     // the client in use of the person (host, OS, device, network, local time), docs/decisions/0033 §5
@@ -326,8 +384,14 @@ export async function wireFront(w: Wiring): Promise<Front> {
     onDeadLetter,
     hardening: { ...w.hardening, dataDir: config.dataDir },
     delegation: { cortex, tasks, store, self: lead, nodes: nodes.hub },
-    plugins: pluginHost.harnessPlugins(),
-    presence: presenceTool({ parietal: w.parietal, people, actors: createAclActors({ people }) }),
+    plugins: [...pluginHost.harnessPlugins(), consentNotes.plugin],
+    presence: presenceTool({
+      parietal: w.parietal,
+      people,
+      actors: createAclActors({ people }),
+      audit,
+      undo,
+    }),
     // `client_call` (P31.5.3): the person's own clients only, through the one route `callClient`
     clientCall: clientCallTool({
       parietal: w.parietal,
@@ -352,7 +416,18 @@ export async function wireFront(w: Wiring): Promise<Front> {
     store,
     warn: (message) => logger.warn(message),
   })
-  return { nodes, pluginHost, care, cortex, agent, protocolTools, context }
+  return {
+    nodes,
+    pluginHost,
+    care,
+    cortex,
+    agent,
+    protocolTools,
+    context,
+    consent,
+    clientAuth,
+    consentNotes,
+  }
 }
 
 /** The HTTP edge: guests, plugin views, the core-tables removal, the RPC router, the Hono app and the entry points. */
@@ -493,10 +568,13 @@ export function wireEdge(w: Wiring, front: Front, succession: SuccessionService)
   const router = rpc.router({
     budget: budgetProcedures(budget, people),
     // the network of a client is derived from the listener and the peer, with the same LAN subnets and proxy setting as the login
-    presence: presenceProcedures(w.parietal, {
-      lan: () => lanNets,
-      proxy: () => network().proxy,
-    }),
+    presence: {
+      ...presenceProcedures(w.parietal, {
+        lan: () => lanNets,
+        proxy: () => network().proxy,
+      }),
+      push: pushProcedures(w.push),
+    },
     protocols: protocolProcedures({
       settings: protocolSettings,
       service: protocolService,
@@ -592,6 +670,21 @@ export function wireEdge(w: Wiring, front: Front, succession: SuccessionService)
     guestLine: () => guestUnavailableLine(w.prefrontal.persona),
     ...(w.guestHosts === undefined ? {} : { ownNames: w.guestHosts }),
     ...(w.guestClock === undefined ? {} : { now: w.guestClock }),
+    // the guest chat page of the web build, on the guest listener (`/app/guest`)
+    ...(config.web ? { web: { dir: config.webDir } } : {}),
+  })
+  const attention = attentionOptions({
+    generations: w.generations,
+    lead,
+    cortex,
+    tasks,
+    people,
+    store,
+    lock,
+    approvals: createApprovalSettings(w.settings),
+    capabilities: nodes.capabilities,
+    consent: front.consent.registry,
+    conversationTtlMs: () => w.timing.conversationTtlMs,
   })
   const app = createApp({
     generations: w.generations,
@@ -599,6 +692,7 @@ export function wireEdge(w: Wiring, front: Front, succession: SuccessionService)
     tokens,
     credentials,
     audit,
+    ...(config.web ? { web: { dir: config.webDir } } : {}),
     capabilities: identity.capabilities,
     streams: identity.streams,
     local,
@@ -606,6 +700,7 @@ export function wireEdge(w: Wiring, front: Front, succession: SuccessionService)
     auth: createAuthRoutes({
       secrets,
       credentials,
+      tokens,
       hasher,
       audit,
       proxy: () => network().proxy,
@@ -619,16 +714,21 @@ export function wireEdge(w: Wiring, front: Front, succession: SuccessionService)
     health: () => w.health,
     lock,
     activity: { store, bootId: w.health.boot, warn: (message) => logger.warn(message) },
-    attention: attentionOptions({
+    attention,
+    consent: createConsentPort({
+      attention,
+      consent: front.consent,
+      clients: front.clientAuth,
       generations: w.generations,
-      lead,
-      cortex,
-      tasks,
-      people,
       store,
+      audit,
+      providers: w.providers,
+      observe: (name, personId, model) => w.activity.observeAux(name, personId, model),
+      ttlMs: () => w.timing.conversationTtlMs,
+      logger,
+      agent: lead(),
       lock,
-      approvals: createApprovalSettings(w.settings),
-      capabilities: nodes.capabilities,
+      notes: front.consentNotes,
     }),
     join: (request, clientKey) => nodes.pairing.join(request, clientKey),
     onRouted: (personId) => w.parietal.recordActivity(personId),

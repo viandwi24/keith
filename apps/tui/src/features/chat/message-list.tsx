@@ -1,14 +1,12 @@
+import type { ChatItem, Settled } from '@keith/app-model'
+import { CONTEXT_PENDING_TEXT, type ContextKind, toolLineOf } from '@keith/app-model'
 import type { Task } from '@keith/contracts'
 import { G, GUTTER, Markdown, Message, Notice, Rich, ToolLine, Txt, useNow } from '@keith/ui'
 import { Box } from 'ink'
 import type { ReactNode } from 'react'
 import { isActive } from '../tasks/index.ts'
 import { ContextDivider } from './context-divider.tsx'
-import { CONTEXT_PENDING_TEXT, type ContextKind } from './context-pending.ts'
-import type { ChatItem } from './message-text.ts'
 import { QuestionCard } from './question-card.tsx'
-import type { Settled } from './question-state.ts'
-import { toolLineOf } from './tool-view.ts'
 
 /** A pasted message longer than this shows its first `PASTE_SHOWN` lines and `… +n lines`. */
 const PASTE_LIMIT = 12

@@ -66,6 +66,19 @@ function setup(
 }
 
 describe('plugin wake (an adapter over the delivery service)', () => {
+  test('an immediate wake (a reminder) is stored with needs.immediate, so the reach ladder never holds it', async () => {
+    const t = setup()
+    expect(
+      await t.wake.deliver('reminders', request('ana', undefined, { immediate: true })),
+    ).toEqual({ delivered: true })
+    // `needs` is stored as a JSON column
+    const needsOf = (raw: unknown) => JSON.parse(String(raw)) as { immediate?: boolean }
+    expect(needsOf(t.deliveries.get('fire-1')?.needs).immediate).toBe(true)
+    const plain = setup()
+    await plain.wake.deliver('notes', request('ana'))
+    expect(needsOf(plain.deliveries.get('fire-1')?.needs).immediate).toBeUndefined()
+  })
+
   test('an active recipient is woken in their own front session, keyed by the run id', async () => {
     const t = setup()
     expect(await t.wake.deliver('notes', request('ana'))).toEqual({ delivered: true })

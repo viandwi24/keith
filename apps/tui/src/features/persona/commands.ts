@@ -1,11 +1,12 @@
 // The `/persona` forms (docs/specs/tui.md, "Commands and keys"). `/persona` shows the character to anyone; `style` opens the Me screen;
 // `template <id>` (owner) changes the template through the step-up; `edit` (owner) opens the Manage section. A refused call (a member's
 // template change) shows the core's own words as an error toast, never a crash.
+
+import { summaryOf } from '@keith/app-model/manage'
 import type { PersonaApi } from '@keith/client'
 import { BUILTIN_PERSONA_TEMPLATE_IDS, type PersonaTemplate } from '@keith/contracts'
 import type { ToastLevel } from '@keith/ui'
 import type { StepUp } from '../stepup/index.ts'
-import { summaryOf } from './persona-state.ts'
 
 export type PersonaCommand =
   | { kind: 'show' }

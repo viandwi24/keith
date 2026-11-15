@@ -10,7 +10,7 @@ import { resolve } from 'node:path'
 export const WARN_LINES = 400
 export const MAX_LINES = 800
 
-const SOURCE = /\.(?:ts|tsx|js|mjs|cjs)$/
+const SOURCE = /\.(?:ts|tsx|js|mjs|cjs|svelte)$/
 const SKIPPED = [/(^|\/)drizzle\//, /\.snapshot\.json$/, /(^|\/)bun\.lock$/]
 
 export interface SizeReport {

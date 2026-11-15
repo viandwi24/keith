@@ -1,7 +1,7 @@
+import { mergeTasks } from '@keith/app-model'
 import type { KeithClient } from '@keith/client'
 import type { Task } from '@keith/contracts'
 import { useCallback, useEffect, useState } from 'react'
-import { mergeTasks } from './tasks-state.ts'
 
 export interface Tasks {
   tasks: readonly Task[]

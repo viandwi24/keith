@@ -3,8 +3,8 @@ import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 /**
  * One row per delivery run. `id` is the run id: a second create with the same id returns the stored row, which is the
- * exactly-once guard. `text` is blanked when the row becomes `delivered`. `status` is `pending`, `delivered` or
- * `failed`. JSON columns are text. No foreign keys: a removed person's rows follow the removal registry (ADR-0027 §26).
+ * exactly-once guard. `text` is blanked when the row becomes `delivered`. `status` is `pending`, `held` (kept for the return digest), `delivered`
+ * or `failed`. JSON columns are text. No foreign keys: a removed person's rows follow the removal registry (ADR-0027 §26).
  */
 export const deliveries = sqliteTable(
   'deliveries',

@@ -6,9 +6,13 @@ import type { Person } from '@keith/contracts'
 import { tool } from 'ai'
 import { definePlugin, type HarnessContext, type HarnessPlugin } from 'eharness'
 import { z } from 'zod'
+import type { UndoLog } from '../../platform/undo-log.ts'
 import type { AclActors } from '../acl/index.ts'
+import type { Audit } from '../audit/index.ts'
 import type { PeopleService } from '../people/index.ts'
 import type { ParietalPorts } from './ports.ts'
+import type { ParietalService } from './service.ts'
+import { PRESENCE_STATUS_SET_TOOL, presenceStatusSetToolOf } from './status-tool.ts'
 
 export const PRESENCE_TOOL = 'presence'
 
@@ -19,9 +23,15 @@ export interface PresenceAnswer {
 }
 
 export interface PresenceToolOptions {
-  parietal: Pick<ParietalPorts, 'disclosedFor'>
+  /** `setStatus` is present in the core (the whole service): it adds the `presence_status_set` tool (ADR-0034 §5). */
+  parietal: Pick<ParietalPorts, 'disclosedFor'> &
+    Partial<Pick<ParietalService, 'setStatus' | 'status'>>
   people: Pick<PeopleService, 'get' | 'list'>
   actors: AclActors
+  /** Writes `presence.status.set` for the status tool; absent in tests that do not audit. */
+  audit?: Pick<Audit, 'record'>
+  /** Where a status change records how to take itself back (`undo_last`). Absent: no undo is kept. */
+  undo?: UndoLog
 }
 
 const NOT_DISCLOSED: PresenceAnswer = { disclosed: false }
@@ -54,7 +64,7 @@ export function presenceToolOf(options: PresenceToolOptions) {
       inputSchema: z.object({
         person: z.string().min(1).max(100).describe('a username, a name, or "me"'),
       }),
-      metadata: { risk: 'read' },
+      metadata: { risk: 'read', source: 'trusted' },
       execute: async ({ person }: { person: string }): Promise<PresenceAnswer> => {
         try {
           const viewer = await options.actors.of(ctx.principal)
@@ -71,12 +81,32 @@ export function presenceToolOf(options: PresenceToolOptions) {
     })
 }
 
-/** Plugin of `presence`: added to the front agent only (`modules/wernicke-broca/agent.ts`). */
+/**
+ * Plugin of `presence` and `presence_status_set` (the speaker's own status): added to the front agent only
+ * (`modules/wernicke-broca/agent.ts`).
+ */
 export function presenceTool(
   options: PresenceToolOptions,
 ): HarnessPlugin<'keith-parietal-presence'> {
   return definePlugin({
     name: 'keith-parietal-presence',
-    setup: () => ({ tools: { [PRESENCE_TOOL]: presenceToolOf(options) } }),
+    setup: () => {
+      const { setStatus, status } = options.parietal
+      return {
+        tools: {
+          [PRESENCE_TOOL]: presenceToolOf(options),
+          ...(setStatus === undefined
+            ? {}
+            : {
+                [PRESENCE_STATUS_SET_TOOL]: presenceStatusSetToolOf({
+                  parietal: { setStatus, ...(status === undefined ? {} : { status }) },
+                  ...(options.undo === undefined ? {} : { undo: options.undo }),
+                  actors: options.actors,
+                  ...(options.audit === undefined ? {} : { audit: options.audit }),
+                }),
+              }),
+        },
+      }
+    },
   })
 }

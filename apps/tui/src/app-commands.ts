@@ -11,7 +11,16 @@ export interface CommandEnv {
   exit(): void
   /** Open a screen (Esc comes back to where this was typed). */
   go(
-    screen: 'help' | 'tasks' | 'trace' | 'nodes' | 'budget' | 'presence' | 'manage' | 'history',
+    screen:
+      | 'help'
+      | 'tasks'
+      | 'trace'
+      | 'nodes'
+      | 'budget'
+      | 'presence'
+      | 'manage'
+      | 'history'
+      | 'inbox',
   ): void
   /** `/login` and `/logout` open the Sign in and Sign out screens (Esc comes back). */
   openLogin(): void
@@ -49,6 +58,7 @@ export interface CommandEnv {
 const NEEDS_CORE = new Set([
   'manage',
   'tasks',
+  'inbox',
   'room',
   'persona',
   'dream',
@@ -116,7 +126,13 @@ export function runCommand(line: string, env: CommandEnv): void {
   } else if (name === 'manage') {
     env.resetManage()
     env.go('manage')
-  } else if (name === 'help' || name === 'tasks' || name === 'nodes' || name === 'budget') {
+  } else if (
+    name === 'help' ||
+    name === 'tasks' ||
+    name === 'nodes' ||
+    name === 'budget' ||
+    name === 'inbox'
+  ) {
     env.go(name)
   } else if (name === 'room') {
     env.room(line.slice(1 + name.length).trim())

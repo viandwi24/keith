@@ -43,6 +43,38 @@ const toolNames = async (
     .filter((n) => n.startsWith('echo_'))
     .sort()
 
+describe('provenance (ADR-0036)', () => {
+  test('an operation result reaches the model inside an untrusted-content frame by default; the call itself is a trusted write', async () => {
+    const model = scriptedModel([
+      { toolCalls: [call('c1', 'echo_say', { text: 'hello there' })] },
+      { text: 'ok' },
+    ])
+    const host = memoryHost({ plugins: [echoPlugin()] })
+    host.add('ana')
+    const agent = defineHarnessAgent({
+      id: 'front',
+      model,
+      contextWindow: 100_000,
+      plugins: [
+        compilePlugin(host.plugin('echo'), { guard: host.guard, directory: host.directory }),
+      ] as never,
+    })
+    closers.push(() => agent.close())
+    await agent.session('s-prov', { principal: { id: 'ana' } }).send('say it').result
+    const second = JSON.stringify(model.prompts[1])
+    expect(second).toContain('untrusted-content source=\\"plugin\\"')
+    expect(second).toContain('hello there')
+    expect(second).toContain('name=\\"echo_say\\"')
+  })
+
+  test('the operations carry their source in the tool metadata: undeclared is outside', async () => {
+    const host = memoryHost({ plugins: [echoPlugin()] })
+    const plugin = host.plugin('echo')
+    expect(plugin.operations.length).toBeGreaterThan(0)
+    for (const op of plugin.operations) expect(op.source).toBe('outside')
+  })
+})
+
 describe('compiled plugin', () => {
   test('is one eharness plugin named k-<id>', () => {
     const { host } = build([{ text: 'x' }])

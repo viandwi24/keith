@@ -55,3 +55,6 @@ Index:
 - [0031](0031-memory-dreaming.md) Memory dreaming: an offline consolidation pass of one person's memory (built in P35)
 - [0032](0032-activity-logs-and-session-kinds.md) Activity logs: every model call is recorded per session, and a session has a registered kind (built in P36)
 - [0033](0033-client-context.md) Client context: the front agent knows which client the person uses, from where and when (the environment a client reports, the network the core derives, always on: the per-person switch was removed Nov 12, 2026)
+- [0034](0034-reach-and-address.md) Reach and address: presence-aware delivery with a hold and return digest, persona addressing, persona and style set in conversation (built in P37)
+- [0035](0035-web-client.md) Web client: `apps/web` is a built-in SvelteKit SPA served by the core at `/app`, signed in with an HttpOnly cookie (P38)
+- [0036](0036-conversational-consent.md) Conversational consent: risk × clean/tainted decides between running with undo, asking in conversation and a trusted-device confirmation (P39)

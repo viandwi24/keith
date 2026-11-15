@@ -1,6 +1,5 @@
+import type { Dialog, LogsLevel, LogsScope } from '@keith/app-model/manage'
 import type { Hint } from '@keith/ui'
-import type { Dialog } from './dialog-state.ts'
-import type { LogsLevel, LogsScope } from './logs/logs-state.ts'
 import type { ActionSpec } from './manage-types.ts'
 
 /** Priorities of the Manage legend: on a narrow terminal the lowest goes first, never a cut label. */

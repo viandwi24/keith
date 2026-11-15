@@ -32,12 +32,14 @@ import {
   sealedProfileStore,
 } from 'eharness/providers'
 import { createActivityCapture } from './compose-activity.ts'
+import { createConsentVoiceHook } from './compose-consent.ts'
 import { createDeliveryService } from './compose-delivery.ts'
 import { createDreaming } from './compose-dreaming.ts'
 import { createIdentity } from './compose-identity.ts'
 import { createParietal } from './compose-parietal.ts'
 import { createPrefrontal } from './compose-prefrontal.ts'
 import { createProtocols } from './compose-protocols.ts'
+import { createPush } from './compose-push.ts'
 import { type Wiring, wireEdge, wireFront } from './compose-regions.ts'
 import { createRooms } from './compose-rooms.ts'
 import {
@@ -54,6 +56,7 @@ import { effectiveNetwork, type Network } from './modules/admin/index.ts'
 import {
   attentionOptions,
   createApprovalSettings,
+  type FreshApproval,
   openQueueSession,
   watchPending,
 } from './modules/amygdala/index.ts'
@@ -271,8 +274,11 @@ export async function createCore(options: CoreOptions): Promise<Core> {
   // every event of the feed goes through the amygdala's watch of `pending-changed`; a new wait carries
   // its id and expiry (ADR-0027 §10)
   const approvals = createApprovalSettings(settings)
+  // a request asked in conversation is voiced from the same watch (`consentHooks`, set once the front is wired)
+  const consentHooks: { onApproval?: (fresh: FreshApproval) => Promise<void> } = {}
   const store = watchPending(sqliteActivityStore(sqlite), (message) => logger.warn(message), {
     ttlMs: () => approvals.ttlMs(),
+    onApproval: (fresh) => consentHooks.onApproval?.(fresh),
   })
   // an access change is a record on the person's own front session: the feed shows it to them only
   identity.onIdentityChanged(({ personId, reason }) =>
@@ -319,6 +325,16 @@ export async function createCore(options: CoreOptions): Promise<Core> {
   }
   // the delivery service of the plugins' wakes (docs/specs/delivery.md): its front route reads `holder.lead` lazily
   const holder: { lead?: HarnessAgent } = {}
+  // Web Push (docs/specs/push.md): the VAPID pair, the subscriptions and the push route of the reach ladder
+  const push = await createPush({
+    sqlite,
+    settings,
+    vault,
+    config,
+    audit,
+    removal: identity.removal,
+    logger,
+  })
   const delivery = createDeliveryService({
     sqlite,
     generations,
@@ -331,6 +347,7 @@ export async function createCore(options: CoreOptions): Promise<Core> {
     lock,
     timing,
     parietal,
+    push,
   })
   // an unpriced warning is logged and noted for `budget.get` (ADR-0027 §23)
   const harnessLogger = routeUnpriced(toHarnessLogger(logger), unpriced)
@@ -429,6 +446,7 @@ export async function createCore(options: CoreOptions): Promise<Core> {
     holder,
     delivery,
     parietal,
+    push,
     // a guest principal resolves to an actor only while its session is live; the registry exists later
     guestRegistry: {},
     local,
@@ -456,7 +474,17 @@ export async function createCore(options: CoreOptions): Promise<Core> {
     store,
     lock,
     capabilities: nodes.capabilities,
+    consent: front.consent.registry,
+    conversationTtlMs: () => timing.conversationTtlMs,
   }
+  consentHooks.onApproval = createConsentVoiceHook({
+    attention: attentionOptions(attentionDeps),
+    consent: front.consent,
+    audit,
+    delivery,
+    ttlMs: () => timing.conversationTtlMs,
+    logger,
+  })
   // the protocol engine (docs/specs/hypothalamus.md): reaches the nodes, the plugins, the delivery and the presence
   const protocols = await createProtocols({
     sqlite,
@@ -486,6 +514,8 @@ export async function createCore(options: CoreOptions): Promise<Core> {
     peek: attentionOptions(attentionDeps).peek,
     open: (sessionId) => openQueueSession(attentionDeps, sessionId),
     approvals,
+    consent: front.consent.registry,
+    conversationTtlMs: () => timing.conversationTtlMs,
     store,
     audit,
     warn: (message) => logger.warn(message),

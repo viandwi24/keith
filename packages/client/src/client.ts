@@ -33,7 +33,12 @@ import { StepUpError, stepUp } from './password.ts'
 import { type PersonaApi, personaApiOf } from './persona.ts'
 import { type RoomsApi, roomsApiOf } from './rooms.ts'
 import { fetchViewMenu, ViewMenuError } from './view/menu.ts'
-import { type OpenViewOptions, openView, type ViewConnection } from './view/open-view.ts'
+import {
+  type OpenViewOptions,
+  openView,
+  type ViewConnection,
+  type ViewConnector,
+} from './view/open-view.ts'
 
 /** An approval (or other item) that waits for the owner, as `GET /attention` lists it. */
 export type AttentionItem = AttentionItemWire
@@ -68,6 +73,14 @@ export interface KeithClientOptions {
    * token can open one: the socket's principal is resolved as for HTTP (a locked socket answers 423, trust `none` needs a token).
    */
   socketPath?: string
+  /**
+   * `cookie`: the browser holds the session in an HttpOnly cookie, so there is no token: no `Authorization` header is sent,
+   * `stepUp`, `viewMenu` and `openView` do not need one, and a step-up renews the cookie (ADR-0035). Use the `fetch` of the
+   * page (credentials `same-origin`); `@keith/client/browser` wires this.
+   */
+  auth?: 'cookie'
+  /** The WebSocket factory of `openView` (default: Bun's, which takes request headers). The browser entry passes the platform one. */
+  connectView?: ViewConnector
 }
 
 export interface KeithClient {
@@ -102,7 +115,8 @@ export interface KeithClient {
   /**
    * Step up this client's session with the PIN or the password (`POST /auth/step-up`); resolves with
    * `elevatedUntil` (epoch ms). Rejects with a `StepUpError` (also `unauthorized` when the client
-   * has no token: the local socket is always elevated and never needs it).
+   * has no token: the local socket is always elevated and never needs it). In cookie mode it renews
+   * the session cookie and needs no token.
    */
   stepUp(secret: { pin: string } | { password: string }): Promise<{ elevatedUntil: number }>
   /**
@@ -115,8 +129,14 @@ export interface KeithClient {
    * (`socketPath`, no token needed). Without either it throws `ViewMenuError('unauthorized')`.
    */
   openView(options: Omit<OpenViewOptions, 'core' | 'credential'>): ViewConnection
-  /** A chat session for an AI SDK `Chat` / `useChat` (eharness/client). */
-  chat(sessionId: string): ChatSession
+  /**
+   * A chat session for an AI SDK `Chat` / `useChat` (eharness/client). `notify` receives the session's toasts (a failed send, a
+   * busy core); an error one also makes the client ask the core whether the turn runs (`reportChatNotice`, called for you here).
+   */
+  chat(
+    sessionId: string,
+    options?: { notify?: (level: 'info' | 'error', text: string) => void },
+  ): ChatSession
   /**
    * Keep a chat session in step with the feed (a session from `chat()` is attached already; call
    * this for one a UI hook created). While it is busy the feed pings the core; after a core
@@ -175,6 +195,8 @@ export const frontSessionOf = (personId: string, generation = 0): string =>
 
 export function createKeithClient(options: KeithClientOptions): KeithClient {
   const baseUrl = options.baseUrl.replace(/\/+$/, '')
+  // a call may go without a token on the local socket, and in cookie mode (the browser holds the session)
+  const keyless = options.socketPath !== undefined || options.auth === 'cookie'
   const headers = (): Record<string, string> =>
     options.token === undefined ? {} : { authorization: `Bearer ${options.token}` }
   const harness = createHarnessClient({
@@ -326,11 +348,12 @@ export function createKeithClient(options: KeithClientOptions): KeithClient {
     logs: logsApiOf({ rpc }),
     audit: { mine: (input = {}) => rpc.admin.audit.mine(input) },
     stepUp: (secret) => {
-      if (options.token === undefined)
+      if (options.token === undefined && options.auth !== 'cookie')
         return Promise.reject(new StepUpError('unauthorized', 'this client has no credential'))
       return stepUp({
         core: baseUrl,
-        token: options.token,
+        ...(options.token === undefined ? {} : { token: options.token }),
+        ...(options.auth === 'cookie' ? { deliver: 'cookie' as const } : {}),
         ...secret,
         ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
       })
@@ -339,7 +362,7 @@ export function createKeithClient(options: KeithClientOptions): KeithClient {
       await rpc.auth.logout()
     },
     viewMenu: () => {
-      if (options.token === undefined && options.socketPath === undefined)
+      if (options.token === undefined && !keyless)
         return Promise.reject(new ViewMenuError('unauthorized', 'this client has no credential'))
       return fetchViewMenu({
         core: baseUrl,
@@ -348,13 +371,16 @@ export function createKeithClient(options: KeithClientOptions): KeithClient {
       })
     },
     openView: (viewOptions) => {
-      if (options.token === undefined && options.socketPath === undefined)
+      if (options.token === undefined && !keyless)
         throw new ViewMenuError('unauthorized', 'this client has no credential')
       return openView({
         ...viewOptions,
         core: baseUrl,
         ...(options.token === undefined ? {} : { credential: options.token }),
         ...(options.socketPath === undefined ? {} : { socketPath: options.socketPath }),
+        ...(options.connectView === undefined || viewOptions.connect !== undefined
+          ? {}
+          : { connect: options.connectView }),
       })
     },
     feed: feedOf,
@@ -382,8 +408,21 @@ export function createKeithClient(options: KeithClientOptions): KeithClient {
     reportChatNotice: (session, level) => {
       if (level === 'error') sendFailed.get(session)?.()
     },
-    chat: (sessionId) => {
-      const session = createChatSession({ client: harness, sessionId, clip: CHAT_CLIP })
+    chat: (sessionId, options) => {
+      const notify = options?.notify
+      const session: ChatSession = createChatSession({
+        client: harness,
+        sessionId,
+        clip: CHAT_CLIP,
+        ...(notify === undefined
+          ? {}
+          : {
+              notify: (level, text) => {
+                notify(level, text)
+                if (level === 'error') sendFailed.get(session)?.()
+              },
+            }),
+      })
       attachChat(session)
       return session
     },

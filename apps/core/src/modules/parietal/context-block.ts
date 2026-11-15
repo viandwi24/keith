@@ -2,7 +2,12 @@
 // "Front turn"). It is built from the person's own clients only: the host, OS, device, network and local time of the client
 // in use. It is not a location: a host name says where a machine is named, not where the person sits. Every text it holds
 // comes from a client, so it is cleaned and cut before it reaches the model.
-import { type ClientKind, type ClientRecord, stripControlText } from '@keith/contracts'
+import {
+  type ClientKind,
+  type ClientRecord,
+  type PresenceWhere,
+  stripControlText,
+} from '@keith/contracts'
 import type { ParietalService } from './service.ts'
 
 /** The first line of the block (the block is at most six lines). */
@@ -13,6 +18,15 @@ const KIND_NAME: Record<ClientKind, string> = {
   tui: 'the terminal app',
   web: 'the web app',
   mobile: 'the mobile app',
+}
+
+/** The words of the `where` hint (ADR-0034 §5): what the facts suggest, never a place. `unknown` says nothing. */
+export const WHERE_HINT: Record<PresenceWhere, string | undefined> = {
+  desk: 'Hint: the person is probably at a computer (the app runs on this machine or its network); a guess, not a place.',
+  mobile:
+    'Hint: the person is probably on a phone or away from the local network; a guess, not a place.',
+  out: 'Hint: the person said they are out, away from their desk; their own words, not a place.',
+  unknown: undefined,
 }
 
 /** Text from a client, in a reminder: no control characters, no quotes or angle brackets, cut to `max` characters. */
@@ -57,6 +71,8 @@ export interface ClientContextFacts {
   /** The presence's active client id, or null. */
   activeClient: string | null
   now: number
+  /** The presence's `where` hint (ADR-0034 §5), or undefined when presence did not give one. */
+  where?: PresenceWhere | undefined
 }
 
 /**
@@ -82,6 +98,8 @@ export function clientContextBlock(facts: ClientContextFacts): string | undefine
   const clock = env === undefined ? undefined : localClockOf(env.timezone, facts.now)
   if (env !== undefined && clock !== undefined)
     lines.push(`- Local time: ${clock} (${plain(env.timezone, 60)}).`)
+  const hint = facts.where === undefined ? undefined : WHERE_HINT[facts.where]
+  if (hint !== undefined) lines.push(`- ${hint}`)
   const sensor = facts.clients.some((c) => c.online && c.capabilities.includes('location.share'))
   if (!sensor)
     lines.push(
@@ -96,9 +114,11 @@ export function clientContextFor(
   personId: string,
   now: number = Date.now(),
 ): string | undefined {
+  const presence = service.presence(personId)
   return clientContextBlock({
     clients: service.list(personId),
-    activeClient: service.presence(personId).activeClient,
+    activeClient: presence.activeClient,
     now,
+    where: presence.where,
   })
 }

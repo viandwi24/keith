@@ -390,7 +390,13 @@ async function main(): Promise<void> {
     const list = async () =>
       (
         (await (await fetch(`${coreUrl}/attention`, { headers })).json()) as {
-          items: Array<{ id: string; sessionId: string; toolName?: string; kind: string }>
+          items: Array<{
+            id: string
+            sessionId: string
+            toolName?: string
+            kind: string
+            extra?: Record<string, unknown>
+          }>
         }
       ).items
     lastContext = () =>
@@ -407,6 +413,12 @@ async function main(): Promise<void> {
       lastContext,
     )
     assert(item?.toolName === 'motor_remote', `unexpected attention item ${JSON.stringify(item)}`)
+    // P39 (ADR-0036): the request carries its consent tier (a shell command is never run at once)
+    const tier = item.extra?.consent
+    assert(
+      tier === 'conversation' || tier === 'device',
+      `the attention item has no consent tier: ${JSON.stringify(item)}`,
+    )
     const res = await fetch(`${coreUrl}/attention/${item.id}/answer`, {
       method: 'POST',
       headers,
@@ -513,7 +525,7 @@ async function main(): Promise<void> {
     output: () => core?.output() ?? '',
   })
 
-  await step('audit lists device.approved and credential.created', async () => {
+  await step('audit lists device.approved, credential.created and consent.asked', async () => {
     const out = await ok(admin('audit', '--limit', '200'), 'audit')
     for (const kind of [
       'device.approved',
@@ -521,6 +533,7 @@ async function main(): Promise<void> {
       'person.create',
       'auth.login.ok',
       'auth.login.failed',
+      'consent.asked',
     ])
       assert(out.includes(kind), `audit does not list ${kind}:\n${out}`)
   })

@@ -287,6 +287,40 @@ and ends their PIN sessions; the owner sets anyone's with `admin.people.setPin` 
 **Actor, flow, assurance** (`Actor` contracts only until a later step maps the principal): `Actor`, `MethodDescriptor`, `Step`, `IdentifyResponse`,
 `FlowResult`. Assurance: 0 device code or token, 1 PIN, 2 password. A PIN session (assurance 1) cannot step up.
 
+## Browser sessions (ADR-0035, `modules/auth/web-session.ts`, `web-routes.ts`)
+
+The web client never holds a credential: the core keeps it in an HttpOnly cookie and reads it back. Nothing changes for the CLI, the TUI
+and nodes, which send `Authorization: Bearer`.
+
+- **The cookie.** `keith_s=<credential>; HttpOnly; SameSite=Strict; Path=/`, plus `Secure` when the request came over HTTPS (its URL, or
+  `X-Forwarded-Proto: https` / `Forwarded: proto=https` from a proxy such as `tailscale serve`). A `remember` session gets
+  `Max-Age` = the time left to its absolute expiry (a token has none: the remembered-device lifetime, 180 days); every other cookie has no
+  `Max-Age` and ends with the browser session. The value is the same `keith_s_…` credential (or a legacy token) a bearer would carry.
+- **Reading it.** When a request has **no `Authorization` header**, the resolver reads the cookie and resolves it exactly like a bearer
+  (same `verifyCredential`, same revocation, expiry and active-person checks). **A bearer always wins**: with an `Authorization` header
+  the cookie is ignored, even when the header is wrong. A principal that came from the cookie carries the internal flag `viaCookie`. The
+  local socket never reads it.
+- **Issuing (`deliver`).** `deliver: 'cookie'` in the body of `POST /auth/flow/:id` (the final answer, with `remember`),
+  `POST /auth/device/poll` (the approved answer) and `POST /auth/step-up` with `rotate: true` puts the new credential in `Set-Cookie`
+  and answers `{ cookie: true }` (a step-up answer is `{ elevatedUntil, cookie: true }`; a poll answer `{ status: 'approved', cookie: true }`).
+  **The body never carries the credential then.** `deliver` absent or `'body'` is the answer of before. A device session is a browser-session
+  cookie; a rotated session stays persistent only when it was remembered (its absolute expiry is more than a working week away).
+- **`POST /auth/web/adopt`** `{ credential, remember? }` (open route, 4 KB cap, the 60 per 5 minutes per address budget of `/auth/flow`
+  answers): validates a pasted credential (a `token`, a legacy token, or a session) like a bearer and sets the cookie; `200 { cookie: true }`.
+  An unknown, revoked or expired credential is `401 invalid_credentials` and sets nothing.
+- **`POST /auth/web/logout`** (cookie or bearer): revokes the session of the call (`credential.revoked`, `by: 'logout'`; legacy tokens
+  included) and clears the cookie (`Max-Age=0`); `200 { ok: true }`.
+- **A rejected cookie is cleared.** When a request authenticated by a cookie alone gets no principal and the answer is `401`, the response
+  also carries `Set-Cookie: keith_s=; Max-Age=0`. A `401` for a wrong step-up answer does not (the session is valid).
+- **CSRF.** A request whose principal came from the cookie and whose method is not `GET`, `HEAD` or `OPTIONS` (`/rpc`, `/auth`,
+  `/sessions`, `/plugins`, every route) is `403 { error: { code: 'CROSS_SITE' } }` unless `Sec-Fetch-Site: same-origin` or an `Origin`
+  whose host is the request's `Host` (the Host and Origin allowlist of `thalamus.md` runs first). Bearer requests are unaffected.
+- **WebSocket.** An upgrade of `/plugins/views/ws` without `Authorization` authenticates with the cookie only when it has an `Origin` that
+  names the `Host`; otherwise it is refused like a missing credential. The socket's re-check (`stillAllowed`) re-reads the cookie, so a
+  logout or revocation closes the view.
+- **`auth.whoami.elevatedUntil`**: epoch ms at which the step-up of this session ends; `null` when the session is not stepped up and on the
+  local socket.
+
 ## Public API
 
 | Export | Contract |
@@ -309,6 +343,7 @@ and ends their PIN sessions; the owner sets anyone's with `admin.people.setPin` 
 | `createPolicyStore(settings, warn?)`, `policyProblem(policy, zones)`, `POLICY_SETTING` | The stored policy with the default fallback, and the lockout guard |
 | `createPinMethod(options)`, `createSecretLogin(config, options)` | The PIN adapter and the check it shares with the password |
 | `createFlowRoutes({...})`, `createLimiter({ limit, windowMs, now? })`, `candidatesOf`, `normalizeEmail`, `normalizePhone` | The identifier-first routes (`identify`, `answer`), the sliding-window limiter and the identifier normalisers; `createAuthRoutes` also returns `identify(request, peer)` and `flow(request, peer, flowId)` |
+| `createWebRoutes({ credentials, tokens?, audit, cookies, now })`, `createCookieIssuer(credentials, now?)`, `sessionCookieOf`, `setCookieValue`, `clearCookieValue`, `crossSiteWrite`, `sameOriginUpgrade` | Browser sessions (above); `createAuthRoutes` also returns `webAdopt(request, peer)` and `webLogout(request, peer, principal)` and takes `tokens?` |
 | `ensureOwner(repo)` | Create person `owner` if missing (idempotent, runs every boot, issues nothing) |
 
 `CredentialsRepo`, `DeviceRequestsRepo`, `AuditRepo`, `TokensRepo` live in `@keith/db`.
@@ -499,6 +534,8 @@ returns a recorder that never throws (a failed write goes to `warn`). Read with 
 | `audit.pruned` | the retention prune deleted rows (`actor: system`, `via: local` for the running core, `offline` only where a stopped core prunes; `deleted`, `retentionDays`) | `createAuditRetention` |
 | `plugin.view.open` / `plugin.view.close` / `plugin.view.throttled` | a plugin terminal view opened or ended (`plugin-views.md`): detail `viewId`; on close also `reason` (`view`, `idle`, `revoked`, `limit`, `error`, `refused`, `disconnected`) and `openMs`; never a frame, a key or a parameter. At most 20 rows per person a minute, then the rows are counted and the next window opens with one `plugin.view.throttled { dropped }`; `via` says `tcp` or `local` | view socket gateway (`modules/plugins/view-audit.ts`) |
 | `approval.answered` | an attention item was answered: attention id, session, decision, `remember` as applied (not as asked: a member's `session` is `once`), and for an approval `node`, `capability`, `driver` (the capability's first id segment) and `command` (redacted by `redactString`, capped at 200 characters); no free text | `auditAnswer` (`modules/audit/attention.ts`), read before the answer by `readAnswer`; the trail is `attentionOptions` (`modules/amygdala/attention.ts`) |
+| `consent.asked` | a request was created that waits for the person's yes in the conversation (ADR-0036): `tier` (`conversation`), `tool`, `session`, `callId`; `actor: system`; no input, summary or message text | `createConsentVoice` (`modules/amygdala/consent-voice.ts`), from `watchPending` |
+| `consent.answered` | a request asked in the conversation ended: `answer` (`yes`, `no`, `other` from the person's next chat message, or `expired` from the sweeper), `tier`, `tool`, `session`, `callId`; actor the person (`system` for `expired`); never the message text. A `yes` or `no` also writes `approval.answered` | `createConsentConversation` (`consent-conversation.ts`), `expireApprovals` (`expiry.ts`) |
 
 **Subject key.** Every `person.*` and `credential.*` row carries `subject`, the person it is about (`person.*` rows also keep `personId`, which the person timeline reads), and every ACL change row carries `resourceOwner` (above). There is no column for it: the member view (`audit.mine`) reads the JSON detail.
 
@@ -531,6 +568,7 @@ When the request carried proxy headers the detail also has `forwarded: true`.
 - The client address used for rate limits, `last_ip` and audit is the socket peer, never a forwarding header.
 - `ensureOwner` runs on every boot and is idempotent; it creates no credential.
 - `via: 'local'` is set only by the server code that owns the Unix socket, never from a header.
+- A cookie never authorizes a cross-site write, and never when the call has an `Authorization` header.
 
 ## Tests
 
@@ -539,4 +577,5 @@ token never matches, recover); `modules/auth/tokens.test.ts` (legacy); `modules/
 flow end to end over the socket and TCP, single use, deny, expiry, rate limits, 4 KB cap, hashes only,
 client helper); `modules/audit/audit.test.ts` (every recorded kind, no secrets, approval answers); `modules/audit/{retention,acl-audit}.test.ts` (prune window and setting, owner-access dedupe, deny counting, allow-listed ACL details);
 `modules/auth/{hasher,password-rules,network-rule,network-rule.parity,zone,policy,login,step-up,flow,sessions,pin}.test.ts`, `modules/auth/policy-store.test.ts` (fallback, corrupt value, the guard cases), `modules/auth/policy-admin.e2e.test.ts` (owner only, step-up, audit, effect on the next request, refusal keeps the stored policy), `cli/auth-commands.test.ts` (`auth policy show|set|reset`, reset from a locking policy, help), `modules/auth/local-lock.e2e.test.ts` (the lock over the real socket: 423, `/health`, unlock, audit, the routes absent on TCP), `modules/auth/local-trust.test.ts` (the policy table: each trust level x PIN set or not x idle or locked first; the admin session with a fake clock, assurance, step-up, expiry, audit without secrets), `modules/auth/local-trust.e2e.test.ts` (none over the real socket: 401, refusal without a PIN, the PIN buys a session, `full` needs the acknowledgement, logout ends it) and `modules/auth/pin.e2e.test.ts` (PIN session assurance and lifetimes, LAN and Tailscale zones with injected subnets, never public even with the insecure flag, shared throttle, equal work for a decoy, the person-wide delay and alert, PIN session step-up refusal, PIN change ends PIN sessions, `auth.pin.set` over a listener), `modules/auth/sessions.e2e.test.ts` (list and revoke over a listener, step-up for another session, rotation over HTTP; lifetimes, grace, cap and hash-only storage with a fake clock in `sessions.test.ts`) and `login.e2e.test.ts` (pinned argon2 cost, concurrency cap, rules and blocklist, uniform failures, throttling, lock and unlock, persistence across a reopen, network matrix over HTTP, step-up window with a fake clock); `modules/people/secrets.test.ts` (CLI, step-up over TCP, revocation); `modules/thalamus/principal.test.ts` (one lookup per request); `cli/auth-commands.test.ts`;
-`packages/db/src/repos/repos.test.ts`; `apps/core/src/e2e.test.ts` (401 without a token, `/health` open).
+`packages/db/src/repos/repos.test.ts`; `modules/auth/web-session.e2e.test.ts` (cookie sign-in by flow, device poll and step-up rotation; Set-Cookie flags, no credential in the body, bearer wins, CSRF, adopt, logout, a rejected cookie cleared, `elevatedUntil`, the view socket's same-origin rule);
+`apps/core/src/e2e.test.ts` (401 without a token, `/health` open).

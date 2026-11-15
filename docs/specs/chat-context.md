@@ -3,7 +3,7 @@
 Status: **built (P34)**. Decision: ADR-0030. Code: `apps/core/src/modules/wernicke-broca/context-service.ts`, `generations.ts`,
 `procedures.ts`, `removal.ts`; `apps/core/src/platform/sessions.ts`; `packages/db/src/schema/front-generations.ts` and
 `repos/front-generations.ts`; `packages/contracts/src/chat-context.ts`; `packages/client/src/chat-context.ts`;
-`apps/tui/src/features/chat/context-commands.ts`. Region: `wernicke-broca` (no new region, ADR-0004).
+`packages/app-model/src/context-commands.ts`. Region: `wernicke-broca` (no new region, ADR-0004).
 
 Every rule below is the contract the code meets. The tests named in "Tests" hold each rule.
 
@@ -264,7 +264,7 @@ generation only.
 ## TUI
 
 - Commands `/new`, `/new --no-flush`, `/compact`. `/new` and `/compact` are parsed and run in
-  `apps/tui/src/features/chat/context-commands.ts`. `/history` lists the generations (see ADR-0030 §6).
+  `packages/app-model/src/context-commands.ts`. `/history` lists the generations (see ADR-0030 §6).
 - While a change runs, the chat shows a row where `thinking…` shows: `starting a new context…` (`/new`) or
   `compacting the conversation…` (`/compact`). The source is this TUI's own call (set before the RPC, cleared when it settles) or the
   person's `chat.context.pending` records (`watchChatContextPending`; a resync forgets the feed's state only; this TUI's own call

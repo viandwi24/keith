@@ -24,7 +24,10 @@ tested by CI; try it and run `keith-core doctor` afterwards.
 | `KEITH_DATA_DIR` | Data folder (database, `secret.key`, memory, logs, `core.sock`). Keep it mode 0700. |
 | `KEITH_PORT`, `KEITH_HOST` | Listen port and bind address. Setup stores them; the variables override. |
 | `KEITH_PUBLIC_URL` | URL other devices use. Its host joins the Host allowlist. |
+| `KEITH_PUSH_SUBJECT` | Web Push VAPID subject: a `mailto:` or https URL. Default: the public URL when it is https (`docs/specs/push.md`). |
 | `KEITH_ALLOWED_HOSTS` | Extra host names core answers to (comma list), for proxies. |
+| `KEITH_WEB` | `off` stops core serving the web client at `/app` (default `on`). |
+| `KEITH_WEB_DIR` | Folder of the built web client (default `apps/web/build`; build it with `bun run --cwd apps/web build`). |
 | `KEITH_SECRET_KEY` | 32 bytes base64. Replaces the key file; use it when the data folder is disposable. |
 | `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `DEEPSEEK_API_KEY` | Read-only provider connections from the environment. |
 

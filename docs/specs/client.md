@@ -15,7 +15,7 @@ core only through this package.
 - `stepUp({ pin } | { password })`: step this client's session up (`POST /auth/step-up` with its own token and base
   URL, see "Password login and step-up"); resolves with `{ elevatedUntil }`, rejects with `StepUpError` (`unauthorized`
   when the client has no token). The TUI calls it from its step-up prompt.
-- `viewMenu()` and `openView(options)`: the plugin terminal views this person may open and a connection to one (`parseFrame`, `fetchViewMenu` and `openView` are also exported on their own). `viewMenu` rejects with `ViewMenuError`; both need a token or the `socketPath` option (the local socket upgrades `/plugins/views/ws` as `ws+unix`; a socket whose trust is `none` needs a token, a locked one answers 423). Spec: `plugin-views.md`, "Sanitiser rules" and "Client API".
+- `viewMenu()` and `openView(options)`: the plugin terminal views this person may open and a connection to one (`parseFrame`, `fetchViewMenu` and `openView` are also exported on their own, with `keyBytes`, `isLeave`, `isHome` and `KeyLike`: the terminal bytes of a key event, shared by the TUI and the web client). `viewMenu` rejects with `ViewMenuError`; both need a token or the `socketPath` option (the local socket upgrades `/plugins/views/ws` as `ws+unix`; a socket whose trust is `none` needs a token, a locked one answers 423). Spec: `plugin-views.md`, "Sanitiser rules" and "Client API".
 - `revokeSelf()`: log out. Calls `rpc.auth.logout()`, which revokes the credential this client uses (device, token or legacy); every later call is `401`. A no-op on the local socket. The caller deletes the stored token.
 - `audit.mine(input?)`: the lines about this person (`rpc.admin.audit.mine`, every role): `{ limit?, before?, person? }` in, `MyAuditEvent[]` out (newest first; `before` is the id of the last line of the previous page; `person` is the owner showing another person their lines).
 - `chat(sessionId)`: required (a person's front session is `frontSessionOf(personId)`, `personId` from
@@ -23,6 +23,9 @@ core only through this package.
   created with `clip: CHAT_CLIP` (2000: the core clips a tool or data payload over 2000
   characters in a history read, so a big tool history never floods a UI; `session.loadFull(id)`
   fetches one message whole) and attached with `attachChat`.
+- `chat(sessionId, { notify? })`: the optional `notify(level, text)` receives the session's toasts (a failed send, a busy core);
+  an error one also makes the client check whether the turn runs, as `reportChatNotice` does for a hook-made session. The browser
+  entry (`@keith/client/browser`) exports `describeChatError` (eharness) beside the stop and notice codes, for the shared chat logic.
 - `attachChat(session)`: keeps a chat session in step with the feed and returns a detach
   function. A session from `chat()` is attached already; call it for one a UI hook created
   (`useChatSession`). It does four things, all through the feed's own options:
@@ -159,7 +162,7 @@ The cycle: **drop** (status not `live` after `live`) is `reconnecting` for 5 s; 
 
 ## Presence reporter
 
-`createPresenceReporter(client, { kind, label, capabilities, version, store? })` (`presence.ts`) makes this client one of the person's clients (docs/specs/parietal.md, "Reporter and clients"). The client id is a uuid kept by `fileClientIdStore(configPath, personId)` in `client-state.json` beside `client.json` (`clientStatePath`): one id per person on this machine (`clientIds[personId]`), so each person who signs in on the terminal is their own client. A person with no entry reads the legacy single `clientId` of older files; the first successful register claims it. A stored value that is not a uuid is replaced. The TUI names the person with `auth.whoami` before it creates the reporter. A `CONFLICT` for an id that belongs to another person (a stale or foreign id) gets one new id, saved for this person, and one more register; a full list (`CONFLICT`, 20 clients) does not. Known limit: two TUI processes of the same person share one id. `start()` registers and then runs one step every 20 s: it reads the core's boot id from `/health`, registers again when the boot id changed or after any failed step (a 401, a removed client, a core that is down), then sends `presence.clients.heartbeat { id, active }`, with `active: true` only when `touch()` ran in the last 30 s. The UI calls `touch()` on each key press and each chat send. `stop()` cancels the timer and releases the activity feed it holds for `onNotify`. It first waits for a step that is in flight (the first register may still be running, the environment probe takes up to about 2 s), then sends `presence.clients.goodbye` once if that step registered; the whole wait is 3 s at most. A step that finishes after `stop()` never heartbeats; if it registered after the stop gave up waiting, it sends the goodbye itself (one goodbye per reporter). The reporter never throws: a failed step is retried on the next one.
+`createPresenceReporter(client, { kind, label, capabilities, version, store? })` (`presence.ts`) makes this client one of the person's clients (docs/specs/parietal.md, "Reporter and clients"). The client id is a uuid kept by `fileClientIdStore(configPath, personId)` in `client-state.json` beside `client.json` (`clientStatePath`): one id per person on this machine (`clientIds[personId]`), so each person who signs in on the terminal is their own client. A person with no entry reads the legacy single `clientId` of older files; the first successful register claims it. A stored value that is not a uuid is replaced. The TUI names the person with `auth.whoami` before it creates the reporter. A `CONFLICT` for an id that belongs to another person (a stale or foreign id) gets one new id, saved for this person, and one more register; a full list (`CONFLICT`, 20 clients) does not. Known limit: two TUI processes of the same person share one id. `start()` registers and then runs one step every 20 s: it reads the core's boot id from `/health`, registers again when the boot id changed or after any failed step (a 401, a removed client, a core that is down), then sends `presence.clients.heartbeat { id, active }`, with `active: true` only when `touch()` ran in the last 30 s. The UI calls `touch()` on each key press and each chat send. `stop()` cancels the timer and releases the activity feed it holds for `onNotify`. It first waits for a step that is in flight (the first register may still be running, the environment probe takes up to about 2 s), then sends `presence.clients.goodbye` once if that step registered; the whole wait is 3 s at most. A step that finishes after `stop()` never heartbeats; if it registered after the stop gave up waiting, it sends the goodbye itself (one goodbye per reporter). The reporter never throws: a failed step is retried on the next one. The web app (kind `web`, `apps/web` `features/presence`) elects one reporting tab per browser and gives the page's client a `fetch` that marks the goodbye request `keepalive`, so it still leaves on `pagehide` (`docs/specs/web.md`, "Presence").
 
 Rendering ids (ADR-0029 §5, P33.1.3): a client that renders Markdown declares `render.markdown` in `capabilities`; a client whose channel is
 spoken declares `render.speech-only`. The ids are the closed set of `RENDER_CAPABILITY_IDS` (`presence.ts`); a client declares neither
@@ -346,7 +349,43 @@ session cannot be reached (the core's sweeper ends it). `baseUrl` is the guest l
 `GUEST_SESSION_ENDED` `ended` (`reason` is the `GuestEndReason`), `GUEST_NOT_FOUND` `not-found`, `GUEST_BAD_REQUEST` `bad-request`; with no code the status decides (409 `turn-running`, 401, 410, 404, 429 `busy`, 400/413, 403, else `unavailable`).
 A network failure is `unreachable`, an answer that does not parse is `protocol`. `message` is one English sentence (`guestFailureText`; a `410` uses `GUEST_END_TEXT[reason]`, one sentence per end reason). A `410` or `401` on `chat` drops the session.
 
+**In the browser.** `createGuestClient` is in both entries (it reaches only `@keith/contracts`). It reads the answer stream with `body.getReader()` (async iteration of a `ReadableStream` is missing in some browsers); the web guest page passes `baseUrl: location.origin` and `clientKind: 'web'` (`web.md`, "Guest").
+
 Tests: `guest.test.ts` (fake fetch: status, open with no token exposed, the chat request and every event type, the headers, interrupt and end, every error code, every end reason, bare statuses, network failure, a dropped stream).
+
+## Browser entry
+
+`@keith/client/browser` (`src/browser.ts`) is the entry of the web client (ADR-0035). The root entry `.` is unchanged for the TUI, CLI
+and nodes. The browser entry reaches no `node:*` or `bun:*` import and no `Bun.*` API, directly or through `@keith/contracts`;
+`src/browser.test.ts` walks its import graph and fails on one.
+
+- **Contains:** the typed client (`createKeithClient`, rooms, persona, chat context, dreaming, logs, attention, feed, chat), the
+  pure sign-in controller, device login, step-up, the presence reporter, plugin views (`openView`, `fetchViewMenu`, `parseFrame`, `keyBytes`), the guest client (`createGuestClient`),
+  the connection monitor, and re-exports of `isClippedPart`, `HarnessHttpError`, `isHarnessHttpError`, `isNetworkError`,
+  `ChatSession` and the other eharness client types, so `apps/web` never imports eharness.
+- **Cookie mode:** `createKeithClient({ baseUrl?, auth: 'cookie', fetch? })`. `baseUrl` defaults to the page origin. No
+  `Authorization` header is ever sent; every call goes with `credentials: 'same-origin'`, so the HttpOnly `keith_s` cookie travels by
+  itself and page script holds no secret. `stepUp`, `viewMenu` and `openView` do not need a token in this mode. `stepUp` sends
+  `{ pin | password, rotate: true, deliver: 'cookie' }` and accepts `{ elevatedUntil, cookie: true }`. `openView` uses the platform
+  `WebSocket` with no header (the cookie goes with the same-origin upgrade; `ws` or `wss` follows the page).
+- **Sign-in:** `createCookieSignIn(options?)` is `createSignIn` with `deliver: 'cookie'`: the flow and the device poll ask for the
+  cookie, `{ cookie: true }` ends the sign-in, nothing is stored by the page, and a pasted token is checked with `auth.whoami`
+  and then turned into the cookie (`POST /auth/web/adopt`, `remember` from `setRememberDevice`). A cookie answer to a body-mode
+  sign-in, or an approved device poll with no credential in body mode, is an error. A core without the flow routes is refused
+  in cookie mode.
+- **Session calls:** `adoptToken(credential, remember?)` (`POST /auth/web/adopt`, `WebSessionError` `invalid` for a refused
+  token) and `logout()` (`POST /auth/web/logout`: revokes the session and clears the cookie; `revokeSelf` does not clear it).
+- **Browser pieces:** `WEB_CAPABILITIES` (`chat`, `notify`, `open.view`, `render.markdown`);
+  `detectBrowserEnvironment(navigator?)` (time zone and locale from `Intl`; OS, browser name and `phone` from `navigator`, with
+  `userAgentData` first; no fingerprinting, no IP, no high-entropy hints; the host is `<browser> browser`; a laptop and a desktop
+  are not told apart, so the device is `unknown`); `localStorageClientIdStore()` and `localStorageIdentifierMemory()` (every access
+  in a try/catch, memory when the storage is blocked).
+- **Injection instead of defaults:** `createSignIn` (sign-in.ts) takes `store` and keeps nothing without one; `createPresenceReporter`
+  (presence.ts) takes `store` and defaults to `memoryClientIdStore()`. The root entry exports wrappers (`sign-in-node.ts`,
+  `presence-node.ts`) that add the file defaults (`writeClientConfig`, `fileClientIdStore`), so callers there see no change.
+- **Node-only (root entry only):** `config.ts` (the login file), `environment.ts` (host probes), `identifier-memory.ts`,
+  `socket.ts` (the local socket) and the Node defaults named above. `local-lock.ts` serves the local socket and the CLI, so the browser entry does not export it (`guest.ts` is exported: it uses no Node API). `deviceLogin`,
+  `passwordLogin` and `stepUp` are in both entries (they take `fetch`).
 
 ## Config file
 
@@ -366,6 +405,7 @@ HTTP failures surface as the `harness` errors (e.g. `status: 401`/`404`) and oRP
 
 ## Tests
 
+`view/key-bytes.test.ts` (the xterm bytes of every key, modifiers, paste filtering, the reserved keys; moved from the TUI),
 `sign-in.test.ts` and `sign-in-methods.test.ts` (the sign-in controller against a fake core with `sign-in-fake.ts`: address and health, identify (zone, default method, decoy-shaped answers identical for known and unknown identifiers, 429 with a waiting resend, 503, unreachable, bad body), flow answers (PIN, password, 401, 429, 403, 503, expired flow restarting at identify, save failure, a multi-step method with an unknown id), device code, token, an older core without `/auth/identify` (404, 405, 401), `client.json` mode 0600, the remembered identifier, secrets absent from every state snapshot),
 `password.test.ts` (passwordLogin and stepUp against a fake fetch: request shape, every failure reason, retry-after, hint; `client.stepUp` uses the client's token),
 `login.test.ts` (device login against a fake core: code reported once, polling until approved, retries on network errors, denied/expired/aborted/rejected/unreachable; the real flow is `apps/core/src/modules/auth/device.test.ts`), `client.test.ts` (every call carries the bearer token, against a fake server), `socket.test.ts` (path rules, a probe and a tokenless call over a Unix socket), `config.test.ts`

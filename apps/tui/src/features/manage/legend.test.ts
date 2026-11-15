@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
+import { openAction, openMenu } from '@keith/app-model/manage'
 import { fitLegend } from '@keith/ui'
-import { openAction, openMenu } from './dialog-state.ts'
 import { dialogHints, logsHints, NAV_HINTS, rowHints } from './legend.ts'
 import type { ActionSpec } from './manage-types.ts'
 
