@@ -171,6 +171,16 @@ describe('client_call: the clients', () => {
     })
   })
 
+  test('open.view names the view in the delivery, since the delivery carries no input', async () => {
+    const h = harness({
+      clients: [client({ id: ANA_PHONE, label: 'ana-web', capabilities: ['chat', 'open.view'] })],
+    })
+    expect(
+      await h.run('ana', { capability: 'open.view', input: { view: 'plugin:notes:list' } }),
+    ).toMatchObject({ ok: true })
+    expect(h.asked[0]?.target).toMatchObject({ name: 'plugin:notes:list' })
+  })
+
   test('no client online for the capability: no-client, and nothing is asked', async () => {
     const h = harness({ clients: [client({ id: ANA_LAPTOP, label: 'ana', online: false })] })
     expect(await h.run('ana', { capability: 'notify', input: { text: 'hi' } })).toMatchObject({

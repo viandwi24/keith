@@ -14,7 +14,13 @@ export {
   riskOf,
   runsUnasked,
 } from './remote.ts'
-export { type MotorAsk, motorAskOf, motorConsentRisk, ownerAnswers } from './risk.ts'
+export {
+  type MotorAsk,
+  motorAskOf,
+  motorConsentEffect,
+  motorConsentRisk,
+  ownerAnswers,
+} from './risk.ts'
 export {
   createNodeCallLimit,
   createNodeCallLimitSettings,

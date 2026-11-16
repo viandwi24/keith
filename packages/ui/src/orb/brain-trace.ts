@@ -27,7 +27,7 @@ export interface BrainColors {
 }
 
 // Two columns, read top to bottom, like the Brain panel in the TUI.
-const LIST_ORDER: readonly (readonly Region[])[] = [
+export const LIST_ORDER: readonly (readonly Region[])[] = [
   ['thalamus', 'broca', 'motor', 'ras', 'parietal', 'corpus-callosum'],
   ['wernicke', 'cortex', 'amygdala', 'hippocampus', 'hypothalamus', 'prefrontal'],
 ]
@@ -54,6 +54,9 @@ export const MAX_SAMPLES = 600
 const MAX_TRAIL = 4
 
 const titled = (r: Region): string => r.charAt(0).toUpperCase() + r.slice(1)
+
+/** A region's name in the list (`Thalamus`, `Hypothal.`, `Rooms`). */
+export const regionLabel = (r: Region): string => SHORT_NAME[r] ?? titled(r)
 
 export class BrainTrace {
   private energy = Object.fromEntries(REGIONS.map((r) => [r, 0])) as Record<Region, number>
@@ -173,7 +176,7 @@ export class BrainTrace {
   renderList(colors: BrainColors, env: ColorEnv): string[] {
     const cell = (r: Region) => {
       const e = this.energy[r]
-      const name = (SHORT_NAME[r] ?? titled(r)).padEnd(NAME_WIDTH)
+      const name = regionLabel(r).padEnd(NAME_WIDTH)
       if (e < 0.08) return paint(`○ ${name}  `, colors.muted, env.depth)
       const bar = BARS[Math.min(BARS.length - 1, Math.floor(e * BARS.length))] ?? ' '
       return paint(`● ${name} ${bar}`, colors.regions[r], env.depth)

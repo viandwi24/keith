@@ -118,6 +118,11 @@ registerMySummary('client.call', (d) =>
     ? `Keith asked one of your apps to ${text(d.capability) ?? 'do something'}`
     : `Keith asked your apps to ${text(d.capability) ?? 'do something'}, and none answered`,
 )
+registerMySummary('workspace.keith', (d) =>
+  d.ok === true
+    ? `Keith changed your workspace (${text(d.action) ?? 'a change'})`
+    : `Keith tried to change your workspace (${text(d.action) ?? 'a change'}) and did not`,
+)
 registerMySummary('workspace.file.send', (d) =>
   text(d.path) === undefined
     ? 'Keith sent one of your files to a machine to work on'

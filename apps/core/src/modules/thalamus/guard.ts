@@ -4,6 +4,8 @@
  */
 
 import { isIP } from 'node:net'
+import { isPluginNetPath } from './plugin-net.ts'
+import { isPluginWebPath } from './plugin-web.ts'
 
 export interface GuardOptions {
   /** Host of the public URL (`access.publicUrl` or `KEITH_PUBLIC_URL`), read per request. */
@@ -55,6 +57,21 @@ export interface RequestGuard {
   check(request: Request, listenPort: number | undefined): Response | undefined
 }
 
+/**
+ * A plugin page runs in a sandboxed iframe with an opaque origin, so its own script, style and font loads come with
+ * `Origin: null`. Those reads are let through for bundle files and the plugin net route only (public, cookie-free, read-only); every other
+ * request with `Origin: null` is still refused.
+ */
+function opaqueBundleRead(request: Request, origin: string): boolean {
+  if (origin !== 'null' || (request.method !== 'GET' && request.method !== 'HEAD')) return false
+  try {
+    const path = decodeURIComponent(new URL(request.url).pathname)
+    return isPluginWebPath(path) || isPluginNetPath(path)
+  } catch {
+    return false
+  }
+}
+
 export function createRequestGuard(options: GuardOptions): RequestGuard {
   const extra = (): readonly string[] =>
     typeof options.extraHosts === 'function' ? options.extraHosts() : options.extraHosts
@@ -90,7 +107,7 @@ export function createRequestGuard(options: GuardOptions): RequestGuard {
         })
       }
       const origin = request.headers.get('origin')
-      if (origin !== null) {
+      if (origin !== null && !opaqueBundleRead(request, origin)) {
         let parsed: { host: string; port: number } | undefined
         try {
           const url = new URL(origin)

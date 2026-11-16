@@ -2,7 +2,8 @@
  * P39.1 and P39.2 (ADR-0036): conversational consent on the real core in process, scripted models. A persona switch the person
  * just asked for runs with no pending approval and `undo` takes it back; the same switch after outside content, or in a wake
  * turn, waits as an approval with the tier `conversation`; a shell command of a worker delegated from a clean call is asked in
- * conversation, after outside content it goes to a device; a re-validation answers the same.
+ * conversation, after outside content it goes to a device; a re-validation answers the same. P41 (ADR-0039): looking at the workspace
+ * and a style change run after outside content; a URL the person did not give is asked, one they typed runs.
  */
 import { afterAll, describe, expect, test } from 'bun:test'
 import { cleanup, tasksOf } from './testing/core-harness.ts'
@@ -73,6 +74,51 @@ describe('a persona switch in a clean conversation', () => {
     await ask(s.r, 'undo')
     expect((await s.r.client.rpc.persona.style.get({})).address).not.toBe('Chief')
     expect(await attentionItems(s.r)).toEqual([])
+  })
+})
+
+describe('effect-based consent after outside content (ADR-0039)', () => {
+  test('looking at the workspace and changing the style run with no pending approval', async () => {
+    const s = await scenario({
+      front: [
+        { toolCalls: [outside('o1')] },
+        { toolCalls: [{ toolName: 'workspace', toolCallId: 'w1', input: { action: 'look' } }] },
+        { toolCalls: [{ toolName: 'style_set', toolCallId: 's1', input: { address: 'Chief' } }] },
+        { text: 'Done.' },
+      ],
+    })
+    await ask(s.r, 'read my notes, look at my screen and call me Chief')
+    expect(await attentionItems(s.r)).toEqual([])
+    expect((await s.r.client.rpc.persona.style.get({})).address).toBe('Chief')
+  })
+
+  test('opening a URL the person did not give waits, tier conversation; one the person typed runs', async () => {
+    const browser = (id: string, url: string) => ({
+      toolName: 'workspace',
+      toolCallId: id,
+      input: { action: 'open', app: 'web:browser', params: { url } },
+    })
+    const s = await scenario({
+      front: [
+        { toolCalls: [outside('o1')] },
+        { toolCalls: [browser('b1', 'https://found.example/page')] },
+        { text: 'Asked.' },
+      ],
+    })
+    await ask(s.r, 'read my notes and open the link in them')
+    const [item] = await waitForAttention(s.r)
+    expect(item?.toolName).toBe('workspace')
+    expect(consentOf(item ?? {})).toBe('conversation')
+
+    const typed = await scenario({
+      front: [
+        { toolCalls: [outside('o1')] },
+        { toolCalls: [browser('b2', 'https://www.detik.com/berita')] },
+        { text: 'Opened.' },
+      ],
+    })
+    await ask(typed.r, 'read my notes, then open detik.com')
+    expect(await attentionItems(typed.r)).toEqual([])
   })
 })
 

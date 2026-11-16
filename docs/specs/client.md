@@ -375,7 +375,7 @@ and nodes. The browser entry reaches no `node:*` or `bun:*` import and no `Bun.*
   in cookie mode.
 - **Session calls:** `adoptToken(credential, remember?)` (`POST /auth/web/adopt`, `WebSessionError` `invalid` for a refused
   token) and `logout()` (`POST /auth/web/logout`: revokes the session and clears the cookie; `revokeSelf` does not clear it).
-- **Browser pieces:** `WEB_CAPABILITIES` (`chat`, `notify`, `open.view`, `render.markdown`);
+- **Browser pieces:** `WEB_CAPABILITIES` (`chat`, `notify`, `open.view`, `render.markdown`, `workspace.show`, `render.workspace`);
   `detectBrowserEnvironment(navigator?)` (time zone and locale from `Intl`; OS, browser name and `phone` from `navigator`, with
   `userAgentData` first; no fingerprinting, no IP, no high-entropy hints; the host is `<browser> browser`; a laptop and a desktop
   are not told apart, so the device is `unknown`); `localStorageClientIdStore()` and `localStorageIdentifierMemory()` (every access

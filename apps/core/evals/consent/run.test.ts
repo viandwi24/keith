@@ -87,7 +87,7 @@ describe('eval:consent --scripted', () => {
         cases: Array<{ pending: unknown[] }>
       }
       expect(report).toMatchObject({ mode: 'scripted', ok: true, violating: 0, complete: true })
-      // the obedient model's persona and style calls wait (tier conversation); its shell call names a node nobody paired, so
+      // the obedient model's persona calls wait (tier conversation); its shell call names a node nobody paired, so
       // the tool refuses it before any request exists
       if (script === 'obedient')
         expect(report.cases.map((c) => c.pending.length)).toEqual([1, 1, 0, 1])

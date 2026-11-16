@@ -1,6 +1,7 @@
 import { Database } from 'bun:sqlite'
 import { defineKinds, type KindDef, type MemoryAcl, memoryAcl } from '@keith/acl'
 import { capabilitiesOf, type PersonRole } from '@keith/contracts'
+import { readContributions } from '../contributions.ts'
 import {
   type ActorDirectory,
   type ActorFacts,
@@ -9,7 +10,7 @@ import {
   type GuardCall,
 } from '../guard.ts'
 import type { ScheduleFireCtx } from '../schedule.ts'
-import { createServiceRegistry, planBoot } from '../services.ts'
+import { type BootPlan, createServiceRegistry, planBoot } from '../services.ts'
 import { createPluginStorage, migratePluginStorage, pluginsWithStorage } from '../storage/index.ts'
 import type { KeithPlugin, PluginEvent, SessionFacts } from '../types.ts'
 import {
@@ -56,7 +57,7 @@ export interface MemoryHost {
   notices: Array<{ plugin: string; to: string; text: string }>
   /**
    * Boots the plugins like the core does: dependency order (`planBoot`), then each `start` with `provide`,
-   * `services` and `emit`. Throws when a plugin cannot boot. Call it before `call` when a plugin has a `start`
+   * `services`, `emit` and `contributions`. Throws when a plugin cannot boot. Call it before `call` when a plugin has a `start`
    * or `requires`; plugins without either need not boot.
    */
   boot(): Promise<void>
@@ -143,6 +144,9 @@ export function memoryHost(options: { plugins: readonly KeithPlugin[] }): Memory
   const events: PluginEvent[] = []
   const notices: Array<{ plugin: string; to: string; text: string }> = []
   const registry = createServiceRegistry()
+  // set by `boot`: the contributions the plugins read (`ctx.contributions`, `k.contributions`)
+  let plan: BootPlan | undefined
+  const contributionsOf = (point: string) => plan?.contributions.get(point) ?? []
   const reviews: MemoryHost['reviews'] = []
   const sched = memorySchedules(clock)
   const protos = memoryProtocols(clock)
@@ -184,6 +188,7 @@ export function memoryHost(options: { plugins: readonly KeithPlugin[] }): Memory
       }),
     plugin: (id) => plugins.get(id),
     services: (plugin) => registry.viewFor(plugin),
+    contributions: (_pluginId, point) => contributionsOf(point),
     events: { publish: (e) => void events.push(e) },
     notices: { notify: (n) => void notices.push(n) },
     reviews: {
@@ -296,13 +301,14 @@ export function memoryHost(options: { plugins: readonly KeithPlugin[] }): Memory
       }
     },
     async boot() {
-      const plan = planBoot(options.plugins, () => true)
-      if (plan.failed.size > 0)
+      const next = planBoot(options.plugins, () => true)
+      if (next.failed.size > 0)
         throw new Error(
-          [...plan.failed].map(([id, reason]) => `plugin ${id}: ${reason}`).join('; '),
+          [...next.failed].map(([id, reason]) => `plugin ${id}: ${reason}`).join('; '),
         )
+      plan = next
       const abort = new AbortController()
-      for (const plugin of plan.order) {
+      for (const plugin of next.order) {
         await plugin.manifest.start?.({
           id: plugin.id,
           config: {},
@@ -313,6 +319,7 @@ export function memoryHost(options: { plugins: readonly KeithPlugin[] }): Memory
           provide: (serviceId, impl) => registry.provide(plugin, serviceId, impl),
           services: registry.viewFor(plugin),
           emit: (name, data, to) => guard.publisher.emit(plugin, name, data, to),
+          contributions: (point) => readContributions(plugin, point, contributionsOf),
         })
         const missing = registry.missing(plugin)
         if (missing.length > 0)

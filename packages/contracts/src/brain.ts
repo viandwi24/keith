@@ -215,6 +215,19 @@ export const ParietalPresencePayloadSchema = z.object({
 })
 export type ParietalPresencePayload = z.infer<typeof ParietalPresencePayloadSchema>
 
+/**
+ * Keith changed the person's workspace with the `workspace` tool (ADR-0037 §7, docs/specs/workspace.md). Emitted on the person's
+ * front session; no window titles or params.
+ */
+export const ParietalWorkspacePayloadSchema = z.object({
+  region: z.literal('parietal'),
+  personId: z.string().optional(),
+  /** The tool action: `open`, `close`, `arrange`, `focus`, `params`, `desktop`, `rename`, `move`, `show`, `undo`. */
+  action: z.string().max(20),
+  ok: z.boolean(),
+})
+export type ParietalWorkspacePayload = z.infer<typeof ParietalWorkspacePayloadSchema>
+
 /** A client was asked to do a capability for a delivery (P27.5.1, the route of `parietal.callClient`). */
 export const ParietalDeliverPayloadSchema = z.object({
   region: z.literal('parietal'),
@@ -396,6 +409,7 @@ export const BRAIN_EVENT_TYPES = [
   'brain.hippocampus.recall',
   'brain.parietal.presence',
   'brain.parietal.deliver',
+  'brain.parietal.workspace',
   'brain.hypothalamus.fire',
   'brain.hypothalamus.step',
   'brain.hypothalamus.wait',
@@ -430,6 +444,10 @@ export const BrainEventSchema = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('brain.parietal.presence'), payload: ParietalPresencePayloadSchema }),
   z.object({ type: z.literal('brain.parietal.deliver'), payload: ParietalDeliverPayloadSchema }),
+  z.object({
+    type: z.literal('brain.parietal.workspace'),
+    payload: ParietalWorkspacePayloadSchema,
+  }),
   z.object({ type: z.literal('brain.hypothalamus.fire'), payload: HypothalamusFirePayloadSchema }),
   z.object({ type: z.literal('brain.hypothalamus.step'), payload: HypothalamusStepPayloadSchema }),
   z.object({ type: z.literal('brain.hypothalamus.wait'), payload: HypothalamusWaitPayloadSchema }),

@@ -167,8 +167,15 @@ describe('persona tools', () => {
     ])
     const meta = (name: string) =>
       (resolved.tools[name] as unknown as { metadata?: unknown } | undefined)?.metadata
-    for (const name of [...PERSONA_APPROVAL_TOOLS, 'style_set'])
-      expect(meta(name)).toEqual({ risk: 'write', reversible: true, source: 'trusted' })
+    // a persona change is `behavior` (asked after outside content); a style change is `local` (ADR-0039)
+    for (const name of PERSONA_APPROVAL_TOOLS)
+      expect(meta(name)).toEqual({
+        risk: 'write',
+        reversible: true,
+        source: 'trusted',
+        effect: 'behavior',
+      })
+    expect(meta('style_set')).toEqual({ risk: 'write', reversible: true, source: 'trusted' })
     for (const name of ['persona_get', 'style_get'])
       expect(meta(name)).toEqual({ risk: 'read', source: 'trusted' })
     expect(

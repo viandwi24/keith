@@ -1,5 +1,12 @@
 import { describe, expect, test } from 'bun:test'
-import { declaresSource, eharnessConsentRisk, toolReversible, toolSource } from './tool-source.ts'
+import {
+  declaresSource,
+  effectOfRisk,
+  eharnessConsentRisk,
+  toolEffect,
+  toolReversible,
+  toolSource,
+} from './tool-source.ts'
 
 describe('toolSource', () => {
   test.each([
@@ -34,5 +41,24 @@ describe('declaresSource and toolReversible', () => {
     expect(eharnessConsentRisk('web_search')).toBe('read')
     expect(eharnessConsentRisk('agent')).toBeUndefined()
     expect(eharnessConsentRisk('toString')).toBeUndefined()
+  })
+})
+
+describe('toolEffect (ADR-0039)', () => {
+  test('declared wins; an eharness tool by name; unknown is undefined; an invalid value is ignored', () => {
+    expect(toolEffect({ effect: 'behavior' }, 'x')).toBe('behavior')
+    expect(toolEffect({ effect: 'egress' }, 'web_fetch')).toBe('egress')
+    expect(toolEffect(undefined, 'web_fetch')).toBe('none')
+    expect(toolEffect(undefined, 'memory_delete')).toBe('destructive')
+    expect(toolEffect({ effect: 'nope' }, 'x')).toBeUndefined()
+    expect(toolEffect({}, 'constructor')).toBeUndefined()
+  })
+
+  test('the risk fallback', () => {
+    expect(effectOfRisk('read')).toBe('none')
+    expect(effectOfRisk('write')).toBe('local')
+    expect(effectOfRisk('external')).toBe('egress')
+    expect(effectOfRisk('destructive')).toBe('destructive')
+    expect(effectOfRisk(undefined)).toBeUndefined()
   })
 })

@@ -45,7 +45,9 @@
       "typescript": "7.0.2",
       "vite": "8.3.8",
       "zod": "4.6.7",
-      "@ai-sdk/svelte": "5.0.153"
+      "@ai-sdk/svelte": "5.0.153",
+      "cesium": "1.147.0",
+      "satellite.js": "7.1.0"
     },
     "catalogs": {
       "web": {

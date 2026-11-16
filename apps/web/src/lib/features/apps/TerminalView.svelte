@@ -7,7 +7,19 @@ import { isOver } from './phase.ts'
 import { rowsOf } from './runs.ts'
 import { ViewSession } from './view-session.svelte.ts'
 
-let { viewId, label, back }: { viewId: string; label: string; back: string } = $props()
+let {
+  viewId,
+  label,
+  back,
+  embedded = false,
+}: {
+  viewId: string
+  label: string
+  /** Where `← Apps` leads; none inside a workspace window (`embedded`). */
+  back?: string
+  /** Drawn inside a workspace window: no back links, and the box fills the window. */
+  embedded?: boolean
+} = $props()
 
 const session = new ViewSession()
 let probe: HTMLElement | undefined = $state()
@@ -79,9 +91,9 @@ function onpaste(event: ClipboardEvent): void {
 }
 </script>
 
-<div class="terminal">
+<div class="terminal" class:embedded>
   <div class="bar">
-    <a bind:this={backLink} class="k-link-back" href={back}>← Apps</a>
+    {#if back !== undefined}<a bind:this={backLink} class="k-link-back" href={back}>← Apps</a>{/if}
     <strong>{label}</strong>
     <span class="k-muted hint">{focused ? 'Esc leaves the keyboard' : 'click the view to type'}</span>
   </div>
@@ -112,7 +124,7 @@ function onpaste(event: ClipboardEvent): void {
       {#each end.rows as line}<p>{line}</p>{/each}
       <div class="actions">
         {#if end.reopen}<button class="k-button" type="button" onclick={() => session.reopen()}>Open again</button>{/if}
-        <a class="k-button" href={back}>Back to Apps</a>
+        {#if back !== undefined}<a class="k-button" href={back}>Back to Apps</a>{/if}
       </div>
     </div>
   {/if}
@@ -123,6 +135,7 @@ function onpaste(event: ClipboardEvent): void {
   .bar { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.8rem; }
   .hint { margin-left: auto; font-size: 0.85rem; }
   .box { position: relative; flex: 1; min-height: 12rem; height: calc(100dvh - 14rem); overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); background: var(--k-bg); }
+  .embedded .box { height: auto; }
   .probe { position: absolute; visibility: hidden; white-space: pre; font: 0.9rem/1.25 var(--font-mono); pointer-events: none; }
   .status { margin: 0.6rem; }
   .grid { width: 100%; height: 100%; overflow: hidden; color: var(--k-text); outline: none; cursor: text; }

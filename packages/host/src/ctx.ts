@@ -2,6 +2,7 @@ import { aclActorOf } from '@keith/acl'
 import type { Actor } from '@keith/contracts'
 import type { PluginAccess, PluginPeople } from './access.ts'
 import { auditedAcl } from './acl-audited.ts'
+import { readContributions } from './contributions.ts'
 import { GuardError, OperationError } from './errors.ts'
 import type { Publisher } from './events.ts'
 import type { ActorFacts, Guard, GuardCall, GuardDeps } from './guard.ts'
@@ -215,6 +216,14 @@ export function buildCtx(
         share: (input) => port.share(caller, { ...input, kind: own(input.kind) }),
         unshare: (input) => port.unshare(caller, { ...input, kind: own(input.kind) }),
       }
+    },
+    contributions(point: string) {
+      const source = deps.contributions
+      return readContributions(
+        plugin(),
+        point,
+        source === undefined ? undefined : (p) => source(op.pluginId, p),
+      )
     },
     notify(text: string) {
       if (actor.kind !== 'user' || actor.personId === null)

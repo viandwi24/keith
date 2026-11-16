@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <title>World</title>
+    <link rel="stylesheet" href="./vendor/cesium/Widgets/CesiumWidget/CesiumWidget.css" />
+    <link rel="stylesheet" href="./map.css" />
+    <script src="./boot.js"></script>
+    <script src="./vendor/cesium/Cesium.js"></script>
+    <script type="module" src="./map.js"></script>
+  </head>
+  <body>
+    <div id="map" class="map" role="application" aria-label="Map">
+      <div id="globe" class="globe"></div>
+      <div id="pins" class="pins"></div>
+      <div id="step-mark" class="step-mark" hidden></div>
+      <div id="marker" class="marker" hidden>
+        <div class="pin"></div>
+        <div id="label" class="label"></div>
+      </div>
+    </div>
+
+    <!-- the left column: the route on top, the card of a picked thing under it; neither covers the other -->
+    <div class="left">
+      <section id="route" class="hud route" aria-label="Route" hidden>
+        <header class="hud-head">
+          <span class="hud-title"><span class="live"></span>Route</span>
+          <span id="r-provider" class="hud-tag"></span>
+          <button id="r-fold" class="icon-btn" type="button" aria-expanded="true" aria-label="Fold the route panel">▾</button>
+        </header>
+        <div class="modes">
+          <button type="button" data-mode="car" aria-pressed="false">Car</button>
+          <button type="button" data-mode="motorcycle" aria-pressed="false">Motor</button>
+          <button type="button" data-mode="bike" aria-pressed="false">Bike</button>
+          <button type="button" data-mode="foot" aria-pressed="false">Walk</button>
+        </div>
+        <div id="r-body" class="route-body">
+          <div id="r-status" class="r-status" hidden></div>
+          <div id="r-metrics" class="metrics">
+            <div class="metric metric-main"><span class="k">Time</span><span id="r-time" class="v"></span></div>
+            <div class="metric"><span class="k">Distance</span><span id="r-dist" class="v"></span></div>
+            <div class="metric"><span class="k">Arrive</span><span id="r-eta" class="v"></span></div>
+            <div class="metric"><span class="k">Avg speed</span><span id="r-speed" class="v"></span></div>
+          </div>
+          <ol id="r-stops" class="stops"></ol>
+          <div id="r-note" class="r-note" hidden></div>
+          <button id="r-steps-toggle" class="steps-toggle" type="button" aria-expanded="false" aria-controls="r-steps" hidden></button>
+          <ol id="r-steps" class="steps" hidden></ol>
+        </div>
+      </section>
+
+      <section id="card" class="hud card" aria-label="Details" hidden>
+        <header class="hud-head">
+          <span id="card-tag" class="hud-title"></span>
+          <button id="card-close" class="icon-btn" type="button" aria-label="Close">×</button>
+        </header>
+        <p id="card-title" class="card-title"></p>
+        <div id="card-media" class="card-media"></div>
+        <dl id="card-facts" class="facts"></dl>
+        <div class="card-actions">
+          <button id="card-focus" class="act" type="button">Zoom to</button>
+          <button id="card-follow" class="act" type="button" aria-pressed="false" hidden>Follow</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="controls">
+      <div class="hud stack">
+        <button id="zoom-in" class="icon-btn" type="button" aria-label="Zoom in">+</button>
+        <button id="zoom-out" class="icon-btn" type="button" aria-label="Zoom out">−</button>
+      </div>
+      <button id="view-btn" class="hud icon-btn solo text-btn" type="button" aria-label="Switch between the globe and the flat map" title="Globe or flat map">2D</button>
+      <button id="north" class="hud icon-btn solo" type="button" aria-label="North up, looking down" title="North up">⌖</button>
+      <button id="fit" class="hud icon-btn solo" type="button" aria-label="Show the whole route" title="Fit" hidden>⤢</button>
+      <button id="layers-btn" class="hud icon-btn solo" type="button" aria-label="Map style" aria-expanded="false" aria-controls="layers" title="Map style">◫</button>
+      <button id="data-btn" class="hud icon-btn solo" type="button" aria-label="Data layers" aria-expanded="false" aria-controls="data-layers" title="Data layers">≋<span id="data-count" class="count" hidden></span></button>
+      <button id="draw-btn" class="hud icon-btn solo" type="button" aria-label="Draw on the map" aria-expanded="false" aria-controls="draw" title="Draw">✎</button>
+      <div id="layers" class="hud layers" hidden></div>
+      <div id="data-layers" class="hud data-layers" hidden></div>
+    </div>
+
+    <div id="draw" class="hud draw" hidden>
+      <div class="draw-tools">
+        <button class="tool" type="button" data-tool="pin" aria-pressed="false">Pin</button>
+        <button class="tool" type="button" data-tool="line" aria-pressed="false">Line</button>
+        <button class="tool" type="button" data-tool="area" aria-pressed="false">Area</button>
+      </div>
+      <div class="draw-colors">
+        <button class="tone" type="button" data-color="amber" aria-pressed="true" aria-label="Amber"></button>
+        <button class="tone" type="button" data-color="red" aria-pressed="false" aria-label="Red"></button>
+        <button class="tone" type="button" data-color="green" aria-pressed="false" aria-label="Green"></button>
+        <button class="tone" type="button" data-color="cyan" aria-pressed="false" aria-label="Cyan"></button>
+        <button class="tone" type="button" data-color="indigo" aria-pressed="false" aria-label="Indigo"></button>
+        <button class="tone" type="button" data-color="white" aria-pressed="false" aria-label="White"></button>
+      </div>
+      <input id="draw-label" class="draw-label" type="text" maxlength="40" placeholder="label (optional)" aria-label="Label of the next mark" />
+      <div class="draw-actions">
+        <button id="draw-done" class="tool" type="button" hidden>Done</button>
+        <button id="draw-undo" class="tool" type="button">Undo</button>
+        <button id="draw-clear" class="tool" type="button">Clear</button>
+      </div>
+    </div>
+
+
+    <div id="zoom-level" class="zoom-level" aria-hidden="true"></div>
+    <div class="attribution">
+      <span id="credit-short">© Esri · OpenStreetMap</span>
+      <span id="credit-full" class="credit-full" hidden></span>
+      <button id="credit-btn" class="credit-btn" type="button" aria-expanded="false" aria-controls="credit-full" aria-label="Map credits">ⓘ</button>
+    </div>
+  </body>
+</html>

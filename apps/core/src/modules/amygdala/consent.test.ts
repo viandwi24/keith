@@ -1,4 +1,4 @@
-// The consent hook (ADR-0036): the trigger of a turn, the transcript, the source of each tool and the risk give an answer that is
+// The consent hook (ADR-0036, ADR-0039): the trigger of a turn, the transcript, the source of each tool and the effect give an answer that is
 // cached by call id, so a re-validation answers the same and the attention list can say how a waiting call is confirmed.
 import { describe, expect, test } from 'bun:test'
 import type { GuardTranscriptEntry, HarnessContext, ToolRisk, TurnKind } from 'eharness'
@@ -14,11 +14,12 @@ const call = (toolName: string): GuardTranscriptEntry => ({
 
 const REVERSIBLE = { risk: 'write', reversible: true, source: 'trusted' }
 const META = {
-  persona_template: REVERSIBLE,
+  persona_template: { ...REVERSIBLE, effect: 'behavior' },
   style_set: REVERSIBLE,
   persona_get: { risk: 'read', source: 'trusted' },
   web_fetch: { risk: 'external', source: 'outside' },
-  motor_remote: { risk: 'external', source: 'outside' },
+  // the core's motorConsentEffect makes a call that does not run unasked `destructive` (ADR-0039 §1)
+  motor_remote: { risk: 'external', source: 'outside', effect: 'destructive' },
   agent: undefined,
   notes_create: { risk: 'write', source: 'trusted' },
   plugin_delete: { risk: 'destructive', source: 'trusted' },
@@ -134,14 +135,14 @@ describe('a front turn started by the person', () => {
     expect(consent.registry.tierOf(FRONT, 'd1')).toBe('device')
   })
 
-  test('a plain write has no opinion when clean and asks in conversation when tainted; it never answers denied', async () => {
+  test('a plain write is local: no opinion, clean or after outside content (ADR-0039); never denied', async () => {
     const { consent, turn, approve } = await setup()
     await turn('front', FRONT, 'send')
     expect(await approve('front', FRONT, 'notes_create', 'n1', [user()])).toBeUndefined()
     expect(
       await approve('front', FRONT, 'notes_create', 'n2', [user(), call('web_fetch')]),
-    ).toMatchObject({ type: 'user-approval' })
-    expect(consent.registry.tierOf(FRONT, 'n2')).toBe('conversation')
+    ).toBeUndefined()
+    expect(consent.registry.tierOf(FRONT, 'n2')).toBeUndefined()
   })
 })
 
@@ -195,7 +196,7 @@ describe('a front turn with no message of the person', () => {
         toolName: 'persona_template',
         toolCallId: 'c1',
         input: {},
-        toolMetadata: REVERSIBLE,
+        toolMetadata: META.persona_template,
         risk: 'write',
         transcript: () => {
           throw new Error('no wire')
@@ -299,9 +300,9 @@ describe('a worker', () => {
 })
 
 describe('the risk of a call', () => {
-  test('riskOf of the options wins over the tool risk, and the web tools read as read', async () => {
+  test('effectOf of the options wins over the tool risk, and the web tools read as none', async () => {
     const { consent, turn, approve } = await setup({
-      riskOf: (name) => (name === 'motor_remote' ? 'read' : undefined),
+      effectOf: (name) => (name === 'motor_remote' ? { effect: 'none' } : undefined),
     })
     await turn('front', FRONT, 'send')
     expect(await approve('front', FRONT, 'motor_remote', 's1', [user(), call('web_fetch')])).toBe(
@@ -342,6 +343,7 @@ describe('a shell command from a client that has not stepped up', () => {
         toolName: 'motor_remote',
         toolCallId: 'sh1',
         input: {},
+        toolMetadata: META.motor_remote,
         risk: 'external',
         transcript: () => [user()],
       },

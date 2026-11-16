@@ -126,6 +126,8 @@ export function describeEvent(event: BrainEvent): string {
         : `parietal presence ${event.payload.previous} → ${event.payload.state}`
     case 'brain.parietal.deliver':
       return `parietal delivers ${event.payload.capability}: ${event.payload.name}`
+    case 'brain.parietal.workspace':
+      return `parietal workspace ${event.payload.action}${event.payload.ok ? '' : ' (refused)'}`
     case 'brain.hypothalamus.fire':
       return `hypothalamus starts a ${event.payload.trigger} protocol`
     case 'brain.hypothalamus.step':

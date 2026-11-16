@@ -15,8 +15,8 @@ afterAll(cleanup)
 
 const TIMING = { ...NODE_TIMING, scheduleTickMs: 50 }
 const configOf = (dataDir: string) => ({ dataDir, dbFile: `${dataDir}/keith.db` }) as never
-/** Per 1M tokens: a model step costs something, so the ledger moves. */
-const PRICING = { input: 1000, output: 2000 }
+/** Per 1M tokens: a model step costs something, so the ledger moves; cheap input so the up-front reserve does not track the prompt size. */
+const PRICING = { input: 10, output: 2000 }
 
 async function member(r: Booted, dataDir: string, username: string) {
   const person = await r.client.rpc.admin.people.add({ username })

@@ -37,7 +37,9 @@
     "hono": "catalog:",
     "ink": "catalog:",
     "react": "catalog:",
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "@keith/plugin-web": "workspace:*",
+    "@keith/plugin-maps": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "catalog:",

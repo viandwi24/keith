@@ -1,15 +1,31 @@
-// Conversational consent (ADR-0036, docs/specs/amygdala.md "Consent"): the `tool.approve` hook that answers from risk × clean/tainted,
+// Conversational consent (ADR-0036, ADR-0039, docs/specs/amygdala.md "Consent"): the `tool.approve` hook that answers from a call's
+// effect × clean/tainted × where its targets came from,
 // and the registry that keeps what it decided by tool call so a re-validation answers the same and the attention list can say how a
 // waiting call is confirmed. In memory: a restart forgets it, and a call whose tier is unknown counts as a device confirmation.
 import {
+  type ConsentCallEffect,
   type ConsentContext,
   type ConsentTier,
   STEP_UP_TOOLS,
+  type ToolEffect,
   type ToolSource,
 } from '@keith/contracts'
-import { eharnessConsentRisk, toolReversible, toolSelfConfirmed, toolSource } from '@keith/eh-ext'
-import { definePlugin, type HarnessPlugin, type ToolRisk, type TurnKind } from 'eharness'
+import {
+  effectOfRisk,
+  eharnessConsentRisk,
+  toolEffect,
+  toolReversible,
+  toolSelfConfirmed,
+  toolSource,
+} from '@keith/eh-ext'
+import {
+  definePlugin,
+  type GuardTranscriptEntry,
+  type HarnessPlugin,
+  type TurnKind,
+} from 'eharness'
 import { type ConsentOrigin, consentContext } from './consent-context.ts'
+import { targetsFromPerson } from './consent-provenance.ts'
 import { consentDecision } from './consent-table.ts'
 
 export const CONSENT_PLUGIN = 'keith-consent'
@@ -22,6 +38,8 @@ interface Decided {
   tier?: ConsentTier
   /** The step-up fact of the first decision (a step-up tool asked by a client that had not stepped up). */
   stepUp?: boolean
+  /** Whether the call's targets were the person's at the first decision (ADR-0039 §2). */
+  fromPerson?: boolean
 }
 
 /** Read side of the registry: what the attention list and the workers need. */
@@ -34,10 +52,10 @@ export interface ConsentRegistry {
 
 export interface ConsentOptions {
   /**
-   * The risk consent reads for a call, when the tool's own risk is too coarse: `motor_remote` is `external` as a tool, but a
-   * `system.info` call runs unasked (motor.md). Undefined: the tool's risk (`e.risk`), with eharness' web tools read as `read`.
+   * The effect of a call when it depends on the input (ADR-0039 §1): `workspace` with a URL in params is `egress`, a `motor_remote`
+   * call that runs unasked is `none`. Undefined: the tool's declared `metadata.effect`, then the eharness table, then its risk.
    */
-  riskOf?: (toolName: string, input: unknown) => ToolRisk | undefined
+  effectOf?: (toolName: string, input: unknown) => ConsentCallEffect | undefined
   /**
    * Whether the person's client that last wrote in the chat had stepped up (`false`: no, `undefined`: no client is known, which
    * counts as no). A step-up tool (`STEP_UP_TOOLS`) asked by a client that has not waits on a device whatever the conversation
@@ -73,7 +91,10 @@ export function createConsent(options: ConsentOptions = {}): Consent {
   const decided = new Map<string, Decided>()
   const triggers = new Map<string, Trigger>()
   /** Traits learned by tool name from the metadata each reviewed call carried (the transcript names tools, not their metadata). */
-  const learned = new Map<string, { source: ToolSource; reversible: boolean }>()
+  const learned = new Map<
+    string,
+    { source: ToolSource; reversible: boolean; effect: ToolEffect | undefined }
+  >()
   /** Tools seen with `selfConfirmed` metadata, by name (re-validation passes calls without their metadata). */
   const selfConfirmed = new Set<string>()
 
@@ -117,6 +138,7 @@ export function createConsent(options: ConsentOptions = {}): Consent {
                 learned.set(e.toolName, {
                   source: toolSource(e.toolMetadata, e.toolName),
                   reversible: toolReversible(e.toolMetadata),
+                  effect: toolEffect(e.toolMetadata, e.toolName),
                 })
               const known = decided.get(key)
               const reversible =
@@ -136,14 +158,25 @@ export function createConsent(options: ConsentOptions = {}): Consent {
                   context = 'tainted'
                 }
               }
-              const risk =
-                options.riskOf?.(e.toolName, e.input) ?? eharnessConsentRisk(e.toolName) ?? e.risk
+              const call = options.effectOf?.(e.toolName, e.input)
+              const declared =
+                e.toolMetadata === undefined
+                  ? (learned.get(e.toolName)?.effect ?? toolEffect(undefined, e.toolName))
+                  : toolEffect(e.toolMetadata, e.toolName)
+              const effect =
+                call?.effect ?? declared ?? effectOfRisk(eharnessConsentRisk(e.toolName) ?? e.risk)
+              const fromPerson =
+                known?.fromPerson ??
+                ((effect === 'egress' || effect === 'destructive') &&
+                  call?.targets !== undefined &&
+                  provenance(e, call, effect === 'destructive' ? 'newest' : 'any'))
               const stepUp = known?.stepUp ?? needsStepUp(e.toolName, e.input, ctx.principal?.id)
-              const decision = consentDecision({ risk, reversible, context, stepUp })
+              const decision = consentDecision({ effect, reversible, context, fromPerson, stepUp })
               if (known === undefined)
                 remember(key, {
                   context,
                   ...(stepUp ? { stepUp } : {}),
+                  ...(fromPerson ? { fromPerson } : {}),
                   ...(decision?.status === 'user-approval' ? { tier: decision.tier } : {}),
                 })
               if (decision === undefined) return undefined
@@ -156,6 +189,24 @@ export function createConsent(options: ConsentOptions = {}): Consent {
           },
         }),
       }),
+  }
+
+  /** Whether every target of the call is the person's, from their messages in the restricted transcript (never a tool output). */
+  function provenance(
+    e: { transcript: () => readonly GuardTranscriptEntry[] },
+    call: ConsentCallEffect,
+    scope: 'any' | 'newest',
+  ): boolean {
+    try {
+      return targetsFromPerson({
+        targets: call.targets,
+        ...(call.targetKind === undefined ? {} : { kind: call.targetKind }),
+        transcript: e.transcript(),
+        scope,
+      })
+    } catch {
+      return false
+    }
   }
 
   /** A step-up tool asked while the client of the person has not stepped up (or is not known). */

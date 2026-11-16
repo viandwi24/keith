@@ -11,6 +11,7 @@ import { NODE_CHANGED, NodeChangedPayloadSchema } from './nodes.ts'
 import { PERSONA_CHANGED, PersonaChangedRecordSchema } from './persona.ts'
 import { RoomIdSchema } from './rooms.ts'
 import { TASK_CHANGED, TaskChangedPayloadSchema } from './tasks.ts'
+import { WORKSPACE_CHANGED, WorkspaceChangedRecordSchema } from './workspace.ts'
 
 /** The activity-feed type of the record that says a person's access changed. */
 export const IDENTITY_CHANGED = 'identity.changed' as const
@@ -102,4 +103,5 @@ export const ACTIVITY_RECORD_SCHEMAS = {
   [PERSONA_CHANGED]: PersonaChangedRecordSchema,
   [CHAT_CONTEXT_CHANGED]: ChatContextChangedRecordSchema,
   [CHAT_CONTEXT_PENDING]: ChatContextPendingRecordSchema,
+  [WORKSPACE_CHANGED]: WorkspaceChangedRecordSchema,
 } as const

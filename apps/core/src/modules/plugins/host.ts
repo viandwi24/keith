@@ -6,6 +6,7 @@ import {
   type ActorDirectory,
   type AuditPort,
   type Clock,
+  type Contribution,
   createGuard,
   createServiceRegistry,
   type EventPort,
@@ -19,6 +20,7 @@ import {
   planBoot,
   type ResolvedOperation,
   type ReviewPort,
+  readContributions,
   type SchedulePort,
   type Surface,
 } from '@keith/host'
@@ -90,6 +92,11 @@ export interface PluginHost {
   visibleOperations(principalId: string | undefined, surface: Surface): Promise<ResolvedOperation[]>
   /** The capabilities the loaded plugins added to the closed set (the owner sees them). */
   capabilities(): DeclaredCapability[]
+  /**
+   * The contributions to any extension point (ADR-0038), for the platform: only between plugins that loaded (the
+   * declaring plugin and the contributor), each entry parsed by the point's schema and tagged with its contributor.
+   */
+  contributions(point: string): readonly Contribution[]
   close(): Promise<void>
 }
 
@@ -112,6 +119,7 @@ export async function createPluginHost(deps: PluginHostDeps): Promise<PluginHost
     log: deps.logger,
     plugin: (id) => byId.get(id),
     services: (plugin) => registry.viewFor(plugin),
+    contributions: (_pluginId, point) => liveContributions(point),
     ...(deps.storage === undefined ? {} : { storage: deps.storage }),
     ...(deps.transaction === undefined ? {} : { transaction: deps.transaction }),
     ...(deps.events === undefined ? {} : { events: deps.events }),
@@ -140,13 +148,17 @@ export async function createPluginHost(deps: PluginHostDeps): Promise<PluginHost
   const abort = new AbortController()
   const registry = createServiceRegistry()
   const byId = new Map<string, KeithPlugin>()
+  const dropped = new Set<string>() // plugins that failed: their points and their contributions are gone
   const fail = (plugin: KeithPlugin, reason: string): void => {
     deps.logger.warn(`plugins: ${plugin.id} failed: ${reason}`)
     put(plugin, { state: 'failed', reason })
+    dropped.add(plugin.id)
   }
 
   // which plugins may boot at all: unique ids, enabled, table prefixes that do not nest
+  const unique: KeithPlugin[] = []
   const candidates: KeithPlugin[] = []
+  const clashed = new Map<string, string>()
   const prefixes: string[] = []
   for (const plugin of deps.plugins) {
     if (rowOf.has(plugin.id)) {
@@ -161,6 +173,7 @@ export async function createPluginHost(deps: PluginHostDeps): Promise<PluginHost
     }
     rowOf.set(plugin.id, rows.length)
     rows.push({ id: plugin.id, version: plugin.manifest.version, state: 'failed' })
+    unique.push(plugin)
     if (!deps.isEnabled(plugin.id)) {
       put(plugin, { state: 'disabled' })
       continue
@@ -170,19 +183,29 @@ export async function createPluginHost(deps: PluginHostDeps): Promise<PluginHost
       const prefix = tablePrefix(plugin.id)
       const clash = prefixes.find((p) => p.startsWith(prefix) || prefix.startsWith(p))
       if (clash !== undefined) {
-        fail(plugin, `its table prefix nests with ${clash}`)
+        const reason = `its table prefix nests with ${clash}`
+        fail(plugin, reason)
+        clashed.set(plugin.id, reason)
         continue
       }
       prefixes.push(prefix)
     }
     candidates.push(plugin)
   }
-  // provider before consumer; a missing provider, a duplicate provider or a cycle fails the plugin with the reason
-  const plan = planBoot(candidates, () => true)
+  // provider and declaring plugin before the plugins that lean on them; a missing provider or point, a duplicate
+  // provider, a contribution that does not fit or a cycle fails the plugin with the reason. Disabled plugins are
+  // passed too, so a contribution to their points is ignored (not failed) and a missing provider says "off".
+  const plan = planBoot(unique, (id) => deps.isEnabled(id), { failed: clashed })
   for (const plugin of candidates) {
     const reason = plan.failed.get(plugin.id)
     if (reason !== undefined) fail(plugin, reason)
   }
+  for (const line of plan.ignored) deps.logger.warn(`plugins: ${line}`)
+  const ownerOfPoint = (point: string): string => point.slice(0, point.indexOf('.'))
+  const liveContributions = (point: string): readonly Contribution[] =>
+    dropped.has(ownerOfPoint(point))
+      ? []
+      : (plan.contributions.get(point) ?? []).filter((c) => !dropped.has(c.contributor))
 
   for (const plugin of plan.order) {
     try {
@@ -207,6 +230,7 @@ export async function createPluginHost(deps: PluginHostDeps): Promise<PluginHost
         provide: (serviceId, impl) => registry.provide(plugin, serviceId, impl),
         services: registry.viewFor(plugin),
         emit: (name, data, to) => guard.publisher.emit(plugin, name, data, to),
+        contributions: (point) => readContributions(plugin, point, liveContributions),
       })
       let timer: ReturnType<typeof setTimeout> | undefined
       const stop = await Promise.race([
@@ -247,6 +271,7 @@ export async function createPluginHost(deps: PluginHostDeps): Promise<PluginHost
       return guard.catalog(loaded, facts, surface)
     },
     capabilities: () => deps.capabilities.declared(),
+    contributions: (point) => [...liveContributions(point)],
     async close() {
       abort.abort()
       for (const { id, stop } of stops.reverse()) {

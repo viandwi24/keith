@@ -71,7 +71,7 @@ export function modelToolsOf(deps: ModelToolsDeps) {
         description:
           'Owner only. Pick the model of a role: role is front (talks with people), cortex (works in the background) or guest (guest chats); model is connection:model, for example openrouter:anthropic/claude-sonnet-5.5. An unknown connection or model is refused. Runs at once when the owner just asked for it; "undo_last" takes it back.',
         inputSchema: SetInput,
-        metadata: { risk: 'write', reversible: true, source: 'trusted' },
+        metadata: { risk: 'write', reversible: true, source: 'trusted', effect: 'behavior' },
         execute: async ({ role, model }: z.infer<typeof SetInput>) => {
           const who = await ownerOf(ctx)
           if (typeof who !== 'string') return who

@@ -106,6 +106,7 @@ describe('brain events', () => {
         capability: 'notify',
         name: 'reminder',
       },
+      'brain.parietal.workspace': { region: 'parietal', action: 'open', ok: true },
       'brain.hypothalamus.fire': {
         region: 'hypothalamus',
         protocolId: 'p1',

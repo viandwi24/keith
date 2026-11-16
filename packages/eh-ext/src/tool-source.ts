@@ -1,7 +1,7 @@
 // Why it lives here: eharness reads a tool's risk from its metadata (`toolTraits`) but has no notion of where a result comes from
 // or whether a write can be undone; Keith declares both next to `risk` (ADR-0036). Replace with an upstream trait if eharness
 // ever adds a provenance trait.
-import type { ToolSource } from '@keith/contracts'
+import type { ToolEffect, ToolSource } from '@keith/contracts'
 
 const SOURCES: ReadonlySet<string> = new Set<ToolSource>(['trusted', 'outside'])
 
@@ -11,33 +11,66 @@ const SOURCES: ReadonlySet<string> = new Set<ToolSource>(['trusted', 'outside'])
  * nothing, so eharness' `external` risk does not make it ask). Everything not listed here and not declared in metadata is `outside`.
  */
 export const EHARNESS_TOOL_TRAITS: Readonly<
-  Record<string, { source: ToolSource; consentRisk?: 'read' }>
+  Record<string, { source: ToolSource; consentRisk?: 'read'; effect?: ToolEffect }>
 > = {
-  web_fetch: { source: 'outside', consentRisk: 'read' },
-  web_search: { source: 'outside', consentRisk: 'read' },
-  // a delegation: the worker's report comes back as the result
-  agent: { source: 'outside' },
-  agent_output: { source: 'outside' },
-  agent_stop: { source: 'trusted' },
-  send_message: { source: 'outside' },
+  // a GET to a URL from outside text could carry data in its query; asking before every fetch would break research, so this
+  // channel is accepted (ADR-0039 §5)
+  web_fetch: { source: 'outside', consentRisk: 'read', effect: 'none' },
+  web_search: { source: 'outside', consentRisk: 'read', effect: 'none' },
+  // a delegation: the worker's report comes back as the result; the worker's own calls pass the same guard
+  agent: { source: 'outside', effect: 'none' },
+  agent_output: { source: 'outside', effect: 'none' },
+  agent_stop: { source: 'trusted', effect: 'none' },
+  send_message: { source: 'outside', effect: 'egress' },
   // the person's own memory: Keith's state
-  memory_view: { source: 'trusted' },
-  memory_create: { source: 'trusted' },
-  memory_str_replace: { source: 'trusted' },
-  memory_insert: { source: 'trusted' },
-  memory_delete: { source: 'trusted' },
-  memory_rename: { source: 'trusted' },
-  todo_write: { source: 'trusted' },
-  datetime: { source: 'trusted' },
-  sleep: { source: 'trusted' },
-  // workspace files hold what the worker downloaded: reading them is reading outside text
-  list_files: { source: 'outside' },
-  read_file: { source: 'outside' },
-  grep: { source: 'outside' },
-  glob: { source: 'outside' },
-  write_file: { source: 'trusted' },
-  edit_file: { source: 'trusted' },
-  delete_file: { source: 'trusted' },
+  memory_view: { source: 'trusted', effect: 'none' },
+  memory_create: { source: 'trusted', effect: 'local' },
+  memory_str_replace: { source: 'trusted', effect: 'local' },
+  memory_insert: { source: 'trusted', effect: 'local' },
+  memory_delete: { source: 'trusted', effect: 'destructive' },
+  memory_rename: { source: 'trusted', effect: 'local' },
+  todo_write: { source: 'trusted', effect: 'local' },
+  datetime: { source: 'trusted', effect: 'none' },
+  sleep: { source: 'trusted', effect: 'none' },
+  // workspace files hold what the worker downloaded: reading them is reading outside text; the worker's folder is scratch space
+  list_files: { source: 'outside', effect: 'none' },
+  read_file: { source: 'outside', effect: 'none' },
+  grep: { source: 'outside', effect: 'none' },
+  glob: { source: 'outside', effect: 'none' },
+  write_file: { source: 'trusted', effect: 'local' },
+  edit_file: { source: 'trusted', effect: 'local' },
+  delete_file: { source: 'trusted', effect: 'local' },
+}
+
+const EFFECTS: ReadonlySet<string> = new Set<ToolEffect>([
+  'none',
+  'local',
+  'behavior',
+  'egress',
+  'destructive',
+])
+
+/**
+ * The declared effect of a tool (ADR-0039 §1): `metadata.effect` when valid, else the table of eharness tools by name, else undefined
+ * (consent then falls back to the tool's risk). Pure; never throws.
+ */
+export function toolEffect(metadata: unknown, toolName?: string): ToolEffect | undefined {
+  if (metadata !== null && typeof metadata === 'object') {
+    const declared = (metadata as { effect?: unknown }).effect
+    if (typeof declared === 'string' && EFFECTS.has(declared)) return declared as ToolEffect
+  }
+  if (toolName !== undefined && Object.hasOwn(EHARNESS_TOOL_TRAITS, toolName))
+    return EHARNESS_TOOL_TRAITS[toolName]?.effect
+  return undefined
+}
+
+/** The effect a tool's eharness risk stands for when nothing declares one (ADR-0039 §1). */
+export function effectOfRisk(risk: string | undefined): ToolEffect | undefined {
+  if (risk === 'read') return 'none'
+  if (risk === 'write') return 'local'
+  if (risk === 'external') return 'egress'
+  if (risk === 'destructive') return 'destructive'
+  return undefined
 }
 
 /**

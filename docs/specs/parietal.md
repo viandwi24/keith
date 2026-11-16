@@ -7,6 +7,8 @@ Code: `apps/core/src/modules/parietal/` (built in P27 phase 2 to 5: `compute.ts`
 Decisions: ADR-0025 (presence and ecosystem context), ADR-0023 §5 (clients are nodes for a person), ADR-0020 §2 and §3 (isolation,
 one principal per turn), ADR-0027 §9 (nodes are Keith's self layer, clients are the person's ecosystem layer).
 
+The person's workspace document (P40.2) lives in this region too: `workspace.ts`, `workspace-procedures.ts`, spec `workspace.md`.
+
 Status: the contracts, the tables, the computation, the service, the disclosure rule, the client and disclosure procedures and
 the client route with its planner exist (P27.1 to P27.5.1). The owner's `admin.presence.read` is built in P27.2.4.
 
@@ -29,6 +31,8 @@ over the repos and registers its removal part (`removal.ts`, "Settings, audit, e
   (`client.registered`).
 - `heartbeat`: an id the caller does not own, or an unknown id, is `NOT_FOUND`. A heartbeat sooner than 5 seconds after the last
   one of the same client is ignored (nothing is written). `active: true` writes `client.active` (the repo keeps one a minute).
+  An optional `view` (what the client shows of the workspace, `workspace.md` "Client view") is kept in memory even from a beat that
+  comes too soon, shown on the online client by `list` and never in the owner's raw read; goodbye, removal and a restart drop it.
 - `goodbye` writes `client.disconnected` and the client is offline at once (no wait for `clientTimeoutMs`): it leaves the online clients, the "Where the person is now" block and `client_call`'s choice. Offline is derived from the signal, so no column is stored: a client is online when its last heartbeat is within the timeout and no goodbye is at or after that heartbeat (`isClientOnline`, `compute.ts`). A heartbeat or register after the goodbye brings it back. `remove` deletes the client (audited `client.removed`); an unknown or foreign id is `NOT_FOUND`.
 - `setStatus`: a stated status (ADR-0034 §5) or free (`/free`, `busy: false`, nothing kept). The kind is `busy` (default; do not
   disturb) or `out` (away from the desk, reachable on a phone or chat). `from` (epoch ms, at most 7 days ahead; default now) is the
@@ -116,11 +120,14 @@ Exported by `modules/parietal/index.ts`. They are the only entry points other re
 | `notify` | write | `{ title?, text (at most 500), level? }` | none (the ack `ok`) |
 | `open.view` | write | `{ view: 'plugin:<id>:<view>' \| 'room:<id>' \| 'tasks' \| 'protocols', args? }` | none |
 | `location.share` | external | `{ precision: 'city' \| 'coarse' }`, opt-in on the client | the client's answer |
+| `workspace.show` | write | `{ desktopId, windowId? }` or `{ overview: true }` | `shown` or `held` |
 
-`location.share` is in the registry; no client serves it yet, and the TUI never announces it. The `open.view` delivery record carries the caller's target `name`, so for `open.view` that name is the view to open (`plugin:<id>:<view>` or `tasks`; the TUI, P31.5.4). P31 reuses this registry for `client_call`.
+`location.share` is in the registry; no client serves it yet, and the TUI never announces it. The `open.view` delivery record carries the caller's target `name`, so for `open.view` that name is the view to open (`plugin:<id>:<view>` or `tasks`; the TUI, P31.5.4). P31 reuses this registry for `client_call`, which sends `input.view` as that
+name (`deliveryNameOf`; other capabilities get `client_call`). `workspace.show` is called only by the `workspace` tool (`workspace.md`, Keith), never
+through `client_call` (its schema and the "Apps online now" line leave it out); its delivery `name` is the target (`workspaceShowName`).
 
-Rendering ids (ADR-0029 §5, P33.1.3) are declared, not asked: `render.markdown` (the client's screen renders Markdown) and
-`render.speech-only` (the client's channel is spoken). They are not rows of the table above and `CLIENT_CAPABILITY_IDS` does not
+Rendering ids (ADR-0029 §5, P33.1.3) are declared, not asked: `render.markdown` (the client's screen renders Markdown),
+`render.speech-only` (the client's channel is spoken) and `render.workspace` (the client draws the person's workspace, ADR-0037 §6). They are not rows of the table above and `CLIENT_CAPABILITY_IDS` does not
 hold them. `modules/parietal/capabilities.ts` exposes `CLIENT_RENDER_IDS` and `isClientRenderId`. The mode of an answer is chosen
 from them in code (`prefrontal`, `mode.ts`); a client that declares neither gets plain text in `chat` mode.
 

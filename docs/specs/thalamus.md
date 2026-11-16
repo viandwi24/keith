@@ -21,6 +21,9 @@ The single entry of the core: one Hono app that authenticates and routes every r
 | `POST /auth/step-up` | credential (a `device` or `token` session) | `auth` option: PIN or password → `elevatedUntil` (`auth.md`); same network rule and counters |
 | `POST /auth/web/adopt`, `POST /auth/web/logout` | none (the credential in the body) / cookie or bearer | `auth` option: turn a credential into the session cookie, end the session and clear it (`auth.md`, "Browser sessions") |
 | `GET /app`, `GET /app/*`, `GET /` | none | the web client build ("Web client" below), only when `web` is set; `/` redirects a browser (`Accept: text/html`) to `/app`, an API client gets the usual 404 |
+| `GET /plugins/<id>/web/*` | none | `pluginWeb` option (`createPluginWeb`, `plugin-web.ts`): the static web bundle of a loaded plugin ("Plugin web bundles" below); matched before the plugin routes |
+| `POST /plugins/mcp` | credential | the plugin routes: the MCP endpoint over the caller's HTTP-visible operations (`plugins.md` "MCP") |
+| `GET /plugins/<id>/net/<host>/<path>` | none | `pluginWeb.net` (`createPluginNet`, `plugin-net.ts`): an image from a host the plugin's window apps declared, fetched by the core ("Plugin net route" below); matched before the plugin routes |
 | `/activity`, `/activity/*` | credential with `chat` | activity feed of `eharness/http` (stream and resync), only when `activity` is set; filtered per principal ("`/activity/*`" below) |
 | `/attention`, `/attention/*` | token with `approvals.answer` | what waits for a person (approvals), `eharness/http` `attention`, only when `attention` is set (`amygdala.md`) |
 | `POST /plugins/<id>/<op>`, `GET /plugins/openapi.json`, `GET /plugins/tui/menu` | credential, or the implicit owner of the local socket (opt-in) | `plugins` option (`createPluginRoutes`, `plugins.md`): thalamus resolves the principal and hands over `{ principal, via }`; the plugin module runs the operation through the same guard as the AI tool and answers; body at most 64 KB; every refusal of a hidden or denied operation is one `404`; the menu is the terminal views the caller may open (`plugin-views.md`) |
@@ -28,7 +31,7 @@ The single entry of the core: one Hono app that authenticates and routes every r
 | `GET /nodes/ws` | node token | not Hono: the core `fetch` upgrades it to a Bun WebSocket before Hono (`nodes.md`) |
 | `GET /plugins/views/ws` | credential (bearer header, or the session cookie from the same origin) | not Hono: upgraded by the core `fetch` like `/nodes/ws`; also the one upgrade the local Unix socket serves (`fetchLocal`: 423 while locked, a bearer when trust is `none`); a plugin terminal view per socket (`plugin-views.md`) |
 
-`createApp({ agent, tokens, credentials, router, health, audit?, device?, auth?, now?, lock?, activity?, attention?, plugins?, join?, web? })` builds it. It is a
+`createApp({ agent, tokens, credentials, router, health, audit?, device?, auth?, now?, lock?, activity?, attention?, plugins?, join?, web?, pluginWeb? })` builds it. It is a
 `Hono<{ Bindings: CoreBindings; Variables: { principal } }>`: the server passes `{ via, ip, forwarded, keepAlive }` as `env` (`via`: `'local'` for the Unix socket, else TCP; `ip`: the socket peer address (`'local'` on the socket), used by the rate limits of `/nodes/join` and device login and by `last_ip`, never a forwarded header; `forwarded`: the request carried proxy headers; `keepAlive`: lifts the server idle timeout for this request). `lock` is the shared
 `SessionLock` (SQLite, owned by the core's instance id, `resume.md`) passed to every session. With the stream log configured, `GET /sessions/:id/chat/stream` also replays turns that run in another process (`resume.md`). `activity` is `{ store, bootId, warn? }`.
 
@@ -64,6 +67,9 @@ else the bearer header is checked (a `keith_s_` credential, or a legacy token; `
   `tailscale serve` (Host `<machine>.ts.net`, set as the public URL).
 - **Origin.** A request with an `Origin` header whose host is not allowed by the same rule (or `null`)
   is `403`. Requests without `Origin` (the CLI, nodes) are unaffected.
+  One exception: `Origin: null` on a `GET` or `HEAD` of a plugin bundle file (`/plugins/<id>/web/*`) or the plugin net route passes, because a plugin page
+  runs in a sandboxed iframe with an opaque origin and its own script, style and font loads carry it. Those files are public and
+  cookie-free; every other `Origin: null` request is still `403`.
 - **Proxies.** Core trusts no proxy. A request with `Forwarded`, any `X-Forwarded-*` or any
   `Tailscale-User-*` or `Tailscale-Funnel-Request` header is marked `env.forwarded = true` (`isForwarded`). It is still a TCP request
   (only the socket is local, so it is never owner-without-token) and needs a credential; its audit
@@ -189,6 +195,7 @@ in the row. Every record type the core writes is in this table; a new writer add
 | `delivery.failed` | `delivery/delivery.ts` (`finalFailure`), on the recipient's front session | the recipient only (no text) | `DeliveryFailedRecordSchema` `{ personId, deliveryId, source, reason }` (`delivery.ts`) |
 | `plugin.<plugin>.<event>` (also `plugin.<id>.notice`, `plugin.reviews.<event>`) | `plugins/feed.ts`, one record per recipient | `to` only; `to: '*'` for everyone; the owner never gets another person's | `PluginEventPayload` `{ plugin, event, to, data }` (`plugin-events.ts`) |
 | `chat.context.pending` | `wernicke-broca/context-service.ts` (`newContext`, `compact`), on the person's current front session: `start` before the flush or compaction, `end` in a `finally` | own only (the session rule; the owner never gets another person's) | `ChatContextPendingRecordSchema` `{ kind: 'new' \| 'compact', state: 'start' \| 'end', ok? }` (`chat-context.ts`), no text |
+| `workspace-changed` | `modules/parietal/workspace.ts` (P40.2, once per applied `workspace.apply` that changed the document), on the person's current front session | own only (the session rule) | `WorkspaceChangedRecordSchema` `{ version, ops, by: 'person' \| 'keith', clientId? }` (`workspace.ts`); window titles and params are in the operations, never message text |
 | `brain.thalamus.routed` | `thalamus/app.ts` (`chat.validate`) | own; the owner never gets it (previews) | `ThalamusRoutedPayloadSchema` (`brain.ts`) |
 | `brain.wernicke.start` | `brain-events/plugin.ts` (front `turn.start`) | own | `WernickeStartPayloadSchema` |
 | `brain.broca.start` | `brain-events/plugin.ts` (front `turn.start`) | own | `BrocaStartPayloadSchema` |
@@ -284,7 +291,7 @@ authenticated) and runs after the Host and Origin guard.
 - **Not built.** When the folder or `200.html` is missing, every `/app` request is `404` with a short text naming
   `bun run --cwd apps/web build`.
 - **Headers on every `/app` answer.** `Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-…'; connect-src 'self';
-  img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'`,
+  img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-src 'self' https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'`,
   `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`. SvelteKit's single-page shell has one inline
   bootstrap `<script>`, so the core computes the SHA-256 of every inline script of `200.html` when it loads the file (again whenever the
   file changes) and lists the hashes in `script-src`: no `'unsafe-inline'` for scripts, and `apps/web` needs no `kit.csp`.
@@ -292,6 +299,51 @@ authenticated) and runs after the Host and Origin guard.
   `KEITH_WEB_DIR` (an absolute or relative folder).
 - **Cookie rules** of the middleware (`cookie-guard.ts`): the CSRF refusal of a cookie-authenticated write and the clearing of a rejected
   cookie (`auth.md`, "Browser sessions").
+- **Frames.** `frame-src 'self' https:` lets the workspace load plugin window apps from `/plugins/<id>/web/` and the built-in browser app's
+  https pages, always in a sandboxed iframe without `allow-same-origin` (ADR-0038 §6 and §9).
+
+### Plugin web bundles (`/plugins/<id>/web/*`, `modules/thalamus/plugin-web.ts`, ADR-0038 §5)
+
+`pluginWeb: { plugins, contributions }` (the composition passes the plugin host's `loaded()` and `contributions(point)`) serves the static
+files of a loaded plugin whose manifest names `web: { dir }`. No plugin code runs: this is the one narrowing of ADR-0016 §5.
+
+- **Auth: none, like `/app`.** The middleware resolves no principal for these paths (`isPluginWebPath`). The files are public code shipped
+  with the plugin, the answer never depends on who asks, and a window app runs in a sandboxed iframe with an opaque origin, so its own
+  requests for scripts and styles would carry no `SameSite` cookie anyway. Every call the app makes goes through the SPA's bridge as the viewer.
+- **Files.** `GET`/`HEAD` only (`405` otherwise). The path is URL-decoded; a NUL, a backslash, an absolute path, a `.`, `..` or empty segment,
+  a path that normalises outside `web.dir`, or a real path (symlinks resolved) outside the real folder is `404`. Only regular files of the
+  types `.html .js .css .png .jpg .gif .svg .json .woff2 .wasm .xml` are served, with their content type; a directory, any other extension, a plugin that is not
+  loaded or has no `web` is `404`. No listing.
+- **Mounts** (ADR-0040 §2). `web.mounts` `{ 'vendor/<name>': <absolute path> }`: a path under `vendor/<name>/` is served from that folder with
+  the same rules (its own real root), never an `.html` file, with `Cache-Control: public, max-age=86400`.
+- **Headers.** `Content-Security-Policy: default-src 'none'; script-src 'self' <core>; style-src 'self' <core>; img-src 'self' <core>
+  <network>; connect-src <network>; frame-ancestors 'self'` (`connect-src 'none'` when the network is empty). A page of a `gpu` app
+  (ADR-0040 §3) also gets `'wasm-unsafe-eval'` in `script-src`, `blob: data:` in `img-src`, `<core>/plugins/<id>/` in `connect-src` and
+  `worker-src 'self' <core> blob: data:` (a module worker's static imports are checked against `worker-src`; an opaque-origin frame can start a module worker only from `data:`); a `media` app gets `media-src https:` (`pluginContentSecurityPolicy(network, core, { gpu, media, pluginId })`). `<core>` is the request's
+  own origin (its Host was already checked): in a sandboxed frame the page's origin is opaque and WebKit (Safari) then matches `'self'`
+  against nothing, which refused the page's own script and style; Chrome matches the URL's origin either way. `X-Content-Type-Options: nosniff`,
+  `Cache-Control: no-cache`, `Referrer-Policy: no-referrer`, and `Access-Control-Allow-Origin: *` (the sandboxed frame's module scripts and
+  fonts are CORS requests from origin `null`; the files are public). No `X-Frame-Options`: the SPA frames these pages.
+- **`<network>`.** For an HTML file, the `network` of the plugin's `web.window` contribution whose `entry.path` is `./web/<that file>`
+  (none when no app names it); for any other file, the union of the networks of that plugin's apps. Only bare https origins are written.
+
+### Plugin net route (`/plugins/<id>/net/<host>/<path>`, `modules/thalamus/plugin-net.ts`)
+
+A plugin page loads public images (map tiles) from its own core instead of from the internet: the core fetches
+`https://<host>/<path>` through the net proxy (`net-proxy.md`), so the upstream sees Keith's User-Agent, at most two requests at a time
+and a cache, whatever the browser would have sent. Mounted when `pluginWeb.net` is set (the composition passes `w.net`).
+
+- **Auth: none,** like the bundle files (`isPluginNetPath`): the page is sandboxed and its image requests carry no cookie. Only what a
+  plugin declared can be fetched, only images, and the per-host limit and the queue bound what a stranger can make the core do.
+- **What is fetched.** `<host>` (`name[:port]`) must be the host of an https origin in the `network` of one of that plugin's `web.window`
+  contributions, else `404` and nothing is fetched. `<path>` is `[A-Za-z0-9._~@=,+-/]`, at most 512 characters, with no empty, `.` or `..`
+  segment; the query is dropped. Accepted types: `image/png`, `image/jpeg`, `image/webp`, `image/gif`, `image/avif` (no SVG); an answer sent as `application/octet-stream` (Singapore's traffic
+  cameras) is relayed only when its first bytes are one of those (`sniffImage`), under that type.
+- **Live hosts** (ADR-0040 §5). A host in the `live` list of one of the plugin's apps (camera snapshots) is kept 20 s (`LIVE_MS`, the
+  proxy's `liveMs`) and answered with `Cache-Control: no-cache` instead of a day.
+- **Answers.** `GET`/`HEAD` only (`405`). A proxy refusal keeps its status with a one-line reason (`404`, `413`, `415`, `502`, `503`, `504`).
+  Success headers: the upstream type, `Cache-Control: public, max-age=86400` (`no-cache` for a live host), `Content-Security-Policy: default-src 'none'`,
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Access-Control-Allow-Origin: *`, `X-Keith-Cache: cache|upstream|stale`.
 
 ### `/rpc/*`
 

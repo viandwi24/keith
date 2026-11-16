@@ -1,0 +1,8 @@
+export { BUILTIN_APPS, type WindowApp } from './apps.ts'
+export { default as Desktop } from './Desktop.svelte'
+export { default as Dock } from './Dock.svelte'
+export { keyAction, SHORTCUTS } from './keys.ts'
+export { NARROW_WIDTH } from './layout.ts'
+export { default as Overview } from './Overview.svelte'
+export { default as PhoneDesktops } from './PhoneDesktops.svelte'
+export { type WorkspaceMode, workspace } from './workspace.svelte.ts'

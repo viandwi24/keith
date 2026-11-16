@@ -225,6 +225,11 @@ export interface KeithCtx {
   readonly people: PluginPeople
   /** Timed protocols of the plugin, as the actor (docs/specs/plugins/reminders.md, "Internals"); throws without the port. */
   readonly protocols: PluginProtocols
+  /**
+   * The contributions of loaded plugins to one of **this plugin's** extension points (ADR-0038), each tagged with its
+   * contributor; any other point throws `extension point "<p>" is not declared by <id>`.
+   */
+  contributions(point: string): readonly Contribution[]
 }
 
 /** One operation, declared once; the tool, route, call and UI data all derive from it. */
@@ -272,6 +277,20 @@ export interface PluginStartCtx {
   provide(serviceId: string, impl: unknown): void
   readonly services: PluginServices
   emit(name: string, data: unknown, to: EventAudience): void
+  /** The contributions to one of this plugin's extension points (as `k.contributions`); any other point throws. */
+  contributions(point: string): readonly Contribution[]
+}
+
+/** One entry a plugin lists under `contributes`: data with an id unique per point within the plugin. */
+export type ContributionEntry = { readonly id: string } & Readonly<Record<string, unknown>>
+
+/** A contribution as the declaring plugin reads it: `entry` is the value after the point's schema parsed it. */
+export interface Contribution {
+  readonly point: string
+  /** The id of the plugin that contributed it. */
+  readonly contributor: string
+  readonly id: string
+  readonly entry: unknown
 }
 
 export type Stop = () => void | Promise<void>
@@ -336,6 +355,19 @@ export interface PluginManifest {
   // biome-ignore lint/suspicious/noConfusingVoidType: an async start that returns nothing is `Promise<void>`
   start?(ctx: PluginStartCtx): Promise<Stop | void> | Stop | void
   tui?: TuiSlot
+  /**
+   * Extension points this plugin opens (ADR-0038): `{ '<this id>.<name>': zod schema of ONE entry }`, name
+   * `[a-z][a-z0-9-]{0,31}`. Other plugins (and this one) fill them through `contributes`.
+   */
+  extensionPoints?: Record<string, z.ZodType>
+  /** Data for other plugins' points: `{ '<point>': [{ id, ... }] }`, validated against the point's schema at boot. */
+  contributes?: Record<string, readonly ContributionEntry[]>
+  /**
+   * The plugin's static web bundle folder (an absolute path; served by the core under `/plugins/<id>/web/`). `mounts` adds read-only
+   * folders under it, `{ 'vendor/cesium': <absolute path> }`: a library's built files served at `/plugins/<id>/web/vendor/cesium/*`
+   * without copying them (ADR-0040).
+   */
+  web?: { dir: string; mounts?: Record<string, string> }
 }
 
 /** An operation after validation: the one record every projection reads. */

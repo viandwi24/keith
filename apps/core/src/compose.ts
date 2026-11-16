@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import {
   type Health,
   IDENTITY_CHANGED,
@@ -88,6 +89,7 @@ import { frontGenerations } from './modules/wernicke-broca/index.ts'
 import type { Config } from './platform/config.ts'
 import { openKeithDatabase } from './platform/db.ts'
 import { type Logger, toHarnessLogger } from './platform/logger.ts'
+import { createNetProxy } from './platform/net-proxy.ts'
 import { frontSessionId } from './platform/sessions.ts'
 import { createVault } from './platform/vault.ts'
 import { buildInfo } from './platform/version.ts'
@@ -439,6 +441,11 @@ export async function createCore(options: CoreOptions): Promise<Core> {
     version,
     health,
     network,
+    // the outbound fetch for public files: Keith's User-Agent, per-host limit, disk cache (docs/specs/net-proxy.md)
+    net: createNetProxy({
+      cacheDir: join(config.dataDir, 'cache', 'net'),
+      userAgent: `keith/${version} (self-hosted personal agent)`,
+    }),
     bound,
     timing,
     plugins: options.plugins ?? BUILTIN_PLUGINS,

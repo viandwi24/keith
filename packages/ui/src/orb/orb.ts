@@ -58,6 +58,11 @@ export class Orb {
     this.color = [...colors.idle]
   }
 
+  /** The current wave amplitude (design units): the base of the mode plus the voice level; a glow can follow it. */
+  get amplitude(): number {
+    return this.amp
+  }
+
   /** Advance by `dt` seconds (clamped like the design) and return the particles. */
   step(dt: number): Particle[] {
     dt = Math.min(0.05, Math.max(0, dt))

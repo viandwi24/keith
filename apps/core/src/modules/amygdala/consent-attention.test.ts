@@ -48,7 +48,7 @@ describe('attention items carry the consent tier', () => {
         toolName: 'persona_template',
         toolCallId: 'c1',
         input: {},
-        toolMetadata: { risk: 'write', reversible: true, source: 'trusted' },
+        toolMetadata: { risk: 'write', reversible: true, source: 'trusted', effect: 'behavior' },
         risk: 'write',
         transcript: () => [
           { role: 'user', text: 'x' },

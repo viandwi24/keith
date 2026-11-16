@@ -5,6 +5,7 @@ import type { HarnessAgent, SessionLock } from 'eharness'
 import type { ActivityStore } from 'eharness/activity'
 import { createHarnessHttp, type HttpDeny } from 'eharness/http'
 import { Hono } from 'hono'
+import type { NetProxy } from '../../platform/net-proxy.ts'
 import type { RpcContext } from '../../platform/rpc.ts'
 import { type FrontGenerationOf, frontSessionId, principalOf } from '../../platform/sessions.ts'
 import type { AttentionOptions } from '../amygdala/index.ts'
@@ -23,6 +24,8 @@ import { emit } from '../brain-events/index.ts'
 import { activityFilter } from './activity-filter.ts'
 import { clearCookie, cookieRejected, csrfRefusal } from './cookie-guard.ts'
 import type { OpenStreams } from './open-streams.ts'
+import { createPluginNet, isPluginNetPath } from './plugin-net.ts'
+import { createPluginWeb, isPluginWebPath, type PluginWebDeps } from './plugin-web.ts'
 import { acceptsHtml, createWebStatic, isWebPath } from './web-static.ts'
 
 /** `/plugins/*` (docs/specs/plugins.md): the plugin module answers; thalamus only resolves who asks. */
@@ -90,6 +93,9 @@ export interface ThalamusOptions {
   join?: (request: Request, clientKey: string) => Promise<Response>
   /** Build folder of the web client, served at `/app` (absent: no `/app`). */
   web?: { dir: string }
+  /** Static web bundles of the loaded plugins at `/plugins/<id>/web/*` (open, like `/app`; absent: none). */
+  /** Plugin bundles, and with `net` the plugin net route (`/plugins/<id>/net/*`). */
+  pluginWeb?: PluginWebDeps & { net?: NetProxy }
 }
 
 /** What the server hands to `app.fetch` as `env`: the caller's address (rate limit of pairing). */
@@ -282,7 +288,13 @@ export function createApp(options: ThalamusOptions): Hono<{
       }
       local.touch(c.req.method, path)
     }
-    if (!OPEN_PATHS.has(path) && !path.startsWith('/auth/flow/') && !isWebPath(path)) {
+    if (
+      !OPEN_PATHS.has(path) &&
+      !path.startsWith('/auth/flow/') &&
+      !isWebPath(path) &&
+      !isPluginWebPath(path) &&
+      !isPluginNetPath(path)
+    ) {
       const principal = await principals.resolve(c.req.raw, c.env?.via, c.env?.ip)
       const refused = csrfRefusal(c.req.raw, principal)
       if (refused !== undefined) return refused
@@ -409,6 +421,16 @@ export function createApp(options: ThalamusOptions): Hono<{
   const join = options.join
   if (join !== undefined) {
     app.post('/nodes/join', (c) => join(c.req.raw, c.env?.ip ?? 'unknown'))
+  }
+  const pluginWeb = options.pluginWeb === undefined ? undefined : createPluginWeb(options.pluginWeb)
+  if (pluginWeb !== undefined) app.all('/plugins/:id/web/*', (c) => pluginWeb.serve(c.req.raw))
+  const net = options.pluginWeb?.net
+  if (net !== undefined && options.pluginWeb !== undefined) {
+    const pluginNet = createPluginNet({
+      proxy: net,
+      contributions: options.pluginWeb.contributions,
+    })
+    app.all('/plugins/:id/net/*', (c) => pluginNet.serve(c.req.raw))
   }
   const plugins = options.plugins
   if (plugins !== undefined) {

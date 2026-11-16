@@ -8,6 +8,7 @@ import type {
   ClientEnvironment,
   ClientKind,
   ClientRegister,
+  ClientView,
 } from '@keith/contracts'
 import { brainEventOf, type KeithClient } from './client.ts'
 
@@ -67,6 +68,8 @@ export interface PresenceReporterOptions {
    * reader or one that fails sends no environment.
    */
   environment?: () => Promise<ClientEnvironment | undefined>
+  /** What this client shows of the workspace (ADR-0037 §4), read at each heartbeat; absent for a client that renders none. */
+  view?: () => ClientView | undefined
 }
 
 export interface PresenceReporter {
@@ -76,6 +79,8 @@ export interface PresenceReporter {
   start(): void
   /** The person gave the client input: the next heartbeat says `active`, for `activeWindowMs`. */
   touch(): void
+  /** Heartbeat now, off the cadence (the view changed); one at a time, a call during a step runs one more step after it. */
+  reportNow(): void
   /**
    * Subscribe to the deliveries of one capability this client declared; returns the unsubscribe. Starts the activity feed
    * (idempotent). A delivery with no handler, or of a capability not declared, is acked `unsupported`.
@@ -133,6 +138,8 @@ export function createPresenceReporter(
   let registered = false
   /** The step that runs now (one at a time); `stop()` waits for it before it decides on the goodbye. */
   let inFlight: Promise<void> | undefined
+  /** A `reportNow` came while a step ran: one more step follows it. */
+  let again = false
   let goodbyeSent = false
   let lastTouch = Number.NEGATIVE_INFINITY
   let lastBoot: string | undefined
@@ -160,11 +167,15 @@ export function createPresenceReporter(
     }
   }
 
-  /** A tick: one step at a time; a tick while one runs does nothing. */
+  /** A tick: one step at a time; a tick while one runs does nothing, except a `reportNow` one, which runs right after it. */
   function tick(): Promise<void> {
     if (stopped || inFlight !== undefined) return Promise.resolve()
     inFlight = step().finally(() => {
       inFlight = undefined
+      if (again) {
+        again = false
+        void tick()
+      }
     })
     return inFlight
   }
@@ -190,7 +201,10 @@ export function createPresenceReporter(
       // a step that finishes after the stop never starts the heartbeat
       if (stopped) return
       const active = now() - lastTouch <= activeWindowMs
-      await client.rpc.presence.clients.heartbeat({ id, active })
+      const view = options.view?.()
+      await client.rpc.presence.clients.heartbeat(
+        view === undefined ? { id, active } : { id, active, view },
+      )
     } catch {
       // a 401 (signed out), a removed client, a core that is down: register again on the next step
       registered = false
@@ -331,6 +345,11 @@ export function createPresenceReporter(
     },
     touch() {
       lastTouch = now()
+    },
+    reportNow() {
+      if (!started || stopped) return
+      if (inFlight !== undefined) again = true
+      else void tick()
     },
     onDeliver,
     onNotify: (handler) => onDeliver('notify', handler),

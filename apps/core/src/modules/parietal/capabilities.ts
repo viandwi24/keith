@@ -7,11 +7,17 @@ import {
   RENDER_CAPABILITY_IDS,
   type RenderCapability,
   RenderCapabilitySchema,
+  WorkspaceShowInputSchema,
 } from '@keith/contracts'
 import { z } from 'zod'
 
 /** The client capabilities the core knows. A client that announces another id is never asked. */
-export const CLIENT_CAPABILITY_IDS = ['notify', 'open.view', 'location.share'] as const
+export const CLIENT_CAPABILITY_IDS = [
+  'notify',
+  'open.view',
+  'location.share',
+  'workspace.show',
+] as const
 export type ClientCapabilityId = (typeof CLIENT_CAPABILITY_IDS)[number]
 
 /** The most text a `notify` shows (the client's toast); a longer delivery text is clipped for the client only. */
@@ -49,6 +55,13 @@ export const CLIENT_CAPABILITIES: Record<ClientCapabilityId, ClientCapabilitySpe
     id: 'location.share',
     risk: 'external',
     input: LocationShareInputSchema,
+    deliverable: false,
+  },
+  // switch what the person sees (ADR-0037 §6): asked only by the `workspace` tool, never by `client_call`
+  'workspace.show': {
+    id: 'workspace.show',
+    risk: 'write',
+    input: WorkspaceShowInputSchema,
     deliverable: false,
   },
 }

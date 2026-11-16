@@ -7,6 +7,11 @@ in the same commit. Write the spec and the `packages/contracts` change before th
 ## Index
 
 - [hypothalamus](hypothalamus.md): protocols (data, triggers, conditions, steps, limits), the engine, authoring rules, proposals, the agenda, audit kinds, events, settings and ports (P28).
+- [workspace](workspace.md): the workspace of one person (ADR-0037, P40): desktops and windows as one versioned document in the core, the operations shared with the clients, RPC, the `workspace-changed` record, the client view, storage and removal.
+- [plugin-web-apps](plugin-web-apps.md): window apps from plugins (ADR-0038, P40.5): the `workspace.apps` listing, the sandboxed iframe, the versioned bridge between the SPA and an app, the built-in apps with params.
+- [net-proxy](net-proxy.md): the core's outbound fetch for public files: User-Agent, per-host limit, disk cache, stale copy on failure; first used by the plugin net route.
+- [plugins/web](plugins/web.md): the plugin `web`: the extension points `web.window` and `web.hud`, its built-in apps, `web.apps`.
+- [plugins/maps](plugins/maps.md): the plugin `maps`: `maps_search`, `maps_route`, `maps_nearby` and the `maps:map` window (OpenStreetMap services, with fallbacks).
 - [web](web.md): the browser client `apps/web` (SvelteKit SPA at `/app`): sign-in with the cookie, shell, chat, approvals and step-up, Home and the orb, screens, Manage, plugin views, the guest page, PWA and push, tests (P38, ADR-0035).
 - [app-model](app-model.md): `packages/app-model`, the framework-free logic the TUI and the web share (chat items, tool lines, approvals and consent, step-up, presence, style, rooms, Manage section models) (P38).
 - [push](push.md): Web Push: subscriptions, the VAPID key pair (sealed in the vault), the RFC 8291 sender, the neutral payload, failure handling and the push route of the reach ladder (W9, ADR-0035).

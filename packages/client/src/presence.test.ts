@@ -160,6 +160,41 @@ test('the reporter registers once, then heartbeats on each tick with the bearer 
   await reporter.stop()
 })
 
+test('reportNow heartbeats off the cadence with the new view; one during a step runs right after it', async () => {
+  let view: { mode: 'ambient' | 'workspace'; desktopId?: string } = { mode: 'ambient' }
+  const { reporter } = reporterFor({ view: () => view })
+  reporter.reportNow()
+  await settle()
+  // not started: nothing
+  expect(paths()).toEqual([])
+  reporter.start()
+  // the first step (register, heartbeat) is in flight: this one waits for it
+  view = { mode: 'workspace', desktopId: 'd1' }
+  reporter.reportNow()
+  reporter.reportNow()
+  await settle()
+  const views = calls.filter((c) => c.path.endsWith('/heartbeat')).map((c) => c.body?.view)
+  expect(views.at(-1)).toEqual({ mode: 'workspace', desktopId: 'd1' })
+  expect(views).toHaveLength(2)
+  await reporter.stop()
+})
+
+test('the view reader is read at each heartbeat; without one the beat carries no view', async () => {
+  let view: { mode: 'ambient' | 'workspace'; desktopId?: string } | undefined = { mode: 'ambient' }
+  const { reporter, ticks } = reporterFor({ view: () => view })
+  reporter.start()
+  await settle()
+  view = { mode: 'workspace', desktopId: 'd2' }
+  ticks[0]?.()
+  await settle()
+  view = undefined
+  ticks[0]?.()
+  await settle()
+  const views = calls.filter((c) => c.path.endsWith('/heartbeat')).map((c) => c.body?.view)
+  expect(views).toEqual([{ mode: 'ambient' }, { mode: 'workspace', desktopId: 'd2' }, undefined])
+  await reporter.stop()
+})
+
 test('active is sent only when touch() ran in the last 30 seconds', async () => {
   const { reporter, ticks, clock } = reporterFor()
   clock.set(1_000)

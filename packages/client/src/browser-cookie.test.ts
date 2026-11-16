@@ -365,7 +365,14 @@ describe('browser environment', () => {
     expect(env).toMatchObject({ host: 'web browser', os: 'other', device: 'unknown' })
   })
 
-  test('the web capabilities are the terminal four', () => {
-    expect([...WEB_CAPABILITIES]).toEqual(['chat', 'notify', 'open.view', 'render.markdown'])
+  test('the web capabilities are the terminal four plus the workspace (ADR-0037 §6)', () => {
+    expect([...WEB_CAPABILITIES]).toEqual([
+      'chat',
+      'notify',
+      'open.view',
+      'render.markdown',
+      'workspace.show',
+      'render.workspace',
+    ])
   })
 })

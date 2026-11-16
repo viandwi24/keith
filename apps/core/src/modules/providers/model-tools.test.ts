@@ -104,6 +104,7 @@ describe('model tools', () => {
       risk: 'write',
       reversible: true,
       source: 'trusted',
+      effect: 'behavior',
     })
     expect(meta(MODEL_ROLES_GET_TOOL)).toEqual({ risk: 'read', source: 'trusted' })
     expect(

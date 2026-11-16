@@ -1,3 +1,4 @@
+import type { ConsentCallEffect } from '@keith/contracts'
 import type { NodeCapabilityRegistry } from '../nodes/index.ts'
 import { createNodeCapabilityRegistry } from '../nodes/index.ts'
 import { callOf, MOTOR_REMOTE_TOOL, riskOf, runsUnasked } from './remote.ts'
@@ -59,5 +60,23 @@ export function motorConsentRisk(
     return riskOf(capabilities, call.capability, call.input) === 'destructive'
       ? 'destructive'
       : 'external'
+  }
+}
+
+/**
+ * The consent effect of a `motor_remote` call (ADR-0039 §1): a call that runs unasked (`system.info`, a read capability) is `none`;
+ * every other call runs code or changes a machine, so it is `destructive`. No targets: `motor_remote` runs in a worker, whose transcript
+ * never holds the person's own words, and its own `tool.approve` asks the owner for every such call anyway (motor.md); consent only sets
+ * the tier (conversation when the delegating turn was clean, device when tainted). Any other tool: undefined.
+ */
+export function motorConsentEffect(
+  capabilities: NodeCapabilityRegistry = BUILTIN_CAPABILITIES,
+): (toolName: string, input: unknown) => ConsentCallEffect | undefined {
+  return (toolName, input) => {
+    if (toolName !== MOTOR_REMOTE_TOOL) return undefined
+    const call = callOf(input)
+    if (call !== undefined && runsUnasked(capabilities, call.capability, call.input))
+      return { effect: 'none' }
+    return { effect: 'destructive' }
   }
 }

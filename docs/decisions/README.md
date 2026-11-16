@@ -58,3 +58,7 @@ Index:
 - [0034](0034-reach-and-address.md) Reach and address: presence-aware delivery with a hold and return digest, persona addressing, persona and style set in conversation (built in P37)
 - [0035](0035-web-client.md) Web client: `apps/web` is a built-in SvelteKit SPA served by the core at `/app`, signed in with an HttpOnly cookie (P38)
 - [0036](0036-conversational-consent.md) Conversational consent: risk × clean/tainted decides between running with undo, asking in conversation and a trusted-device confirmation (P39)
+- [0037](0037-workspace-modes-desktops-windows.md) Workspace: ambient, workspace and overview modes; one versioned workspace per person in the core; Keith drives it with manners in code (proposed, P40)
+- [0038](0038-extension-points-and-plugin-window-apps.md) Extension points: a plugin opens a point, others contribute; the plugin `web` and sandboxed plugin window apps (proposed, P40)
+- [0039](0039-effect-based-consent.md) Effect-based consent: consent reads what a call can do (none, local, behavior, egress, destructive) and where its targets came from; amends ADR-0036 (P41)
+- [0040](0040-gpu-window-apps-and-live-layers.md) GPU window apps, library mounts and live data layers: the maps globe (CesiumJS), `gpu`/`media`/`live` window flags, plugin config from the environment, an MCP endpoint (proposed)

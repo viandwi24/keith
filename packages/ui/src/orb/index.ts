@@ -3,10 +3,12 @@
 export {
   type BrainColors,
   BrainTrace,
+  LIST_ORDER,
   LIST_ROWS,
   MAX_SAMPLES,
   REGIONS,
   type Region,
+  regionLabel,
   type Sample,
 } from './brain-trace.ts'
 export { fade, hexToRgb, type Rgb } from './color.ts'
@@ -23,5 +25,11 @@ export {
 } from './orb.ts'
 export { type OrbPaletteColors, orbPaletteOf } from './palette.ts'
 export { advanceShown, CATCH_UP, DEFAULT_CPS, retargetShown } from './typewriter.ts'
+export {
+  type HudPanelColors,
+  VOICE_ORB_PALETTE,
+  type VoiceOrbPalette,
+  voiceOrbColorOf,
+} from './voice-palette.ts'
 export { pointCells, pureCells } from './width.ts'
 export { subtitleRowsWith, type WidthOf, wordWrapWith } from './wrap.ts'

@@ -145,6 +145,22 @@ describe('createRequestGuard', () => {
     expect(check('localhost:7420/x')).toBe(421)
     expect(check('LOCALHOST:7420')).toBeUndefined()
   })
+  test('Origin null passes only for GET or HEAD of a plugin bundle file (a sandboxed plugin page)', () => {
+    const at = (path: string, method = 'GET') =>
+      guard.check(
+        new Request(`http://localhost:7420${path}`, {
+          method,
+          headers: { host: 'localhost:7420', origin: 'null' },
+        }),
+        7420,
+      )?.status
+    expect(at('/plugins/maps/web/map.js')).toBeUndefined()
+    expect(at('/plugins/maps/web/map.css', 'HEAD')).toBeUndefined()
+    expect(at('/plugins/maps/web/map.js', 'POST')).toBe(403)
+    expect(at('/plugins/maps/search', 'POST')).toBe(403)
+    expect(at('/rpc/workspace/get')).toBe(403)
+    expect(check('localhost:7420', 7420, 'null')).toBe(403)
+  })
   test('without a known listening port the port is not compared', () => {
     expect(guard.check(new Request('http://localhost:1/x'), undefined)).toBeUndefined()
   })

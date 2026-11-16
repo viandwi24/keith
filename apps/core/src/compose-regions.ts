@@ -3,8 +3,6 @@ import {
   agendaRepo,
   type deviceRequestsRepo,
   frontGenerationsRepo,
-  nodesRepo,
-  pairingRepo,
   protocolProposalsRepo,
   protocolRunsRepo,
   protocolsRepo,
@@ -21,6 +19,7 @@ import { createConsentPort } from './compose-consent.ts'
 import type { DreamingRegion } from './compose-dreaming.ts'
 import { createGuestFetch, createGuests } from './compose-guests.ts'
 import type { createIdentity } from './compose-identity.ts'
+import { wireNodes } from './compose-nodes.ts'
 import { createPlugins } from './compose-plugins.ts'
 import type { PrefrontalRegion } from './compose-prefrontal.ts'
 import type { RoomsRegion } from './compose-rooms.ts'
@@ -33,6 +32,7 @@ import {
   VIEW_SOCKET_PATH,
   type ViewLimitsForTests,
 } from './compose-views.ts'
+import { wireWorkspace } from './compose-workspace.ts'
 import { createAclActors } from './modules/acl/actors.ts'
 import { adminProcedures, type Network } from './modules/admin/index.ts'
 import {
@@ -84,22 +84,21 @@ import {
 import {
   createNodeCallLimit,
   createNodeCallLimitSettings,
-  motorConsentRisk,
+  motorConsentEffect,
   ownerAnswers,
 } from './modules/motor/index.ts'
+import { type createNodes, type NodeSocketData, nodeProcedures } from './modules/nodes/index.ts'
 import {
-  BUILTIN_CAPABILITY_SPECS,
-  createNodeCapabilityRegistry,
-  createNodes,
-  type NodeSocketData,
-  nodeProcedures,
-} from './modules/nodes/index.ts'
-import {
+  type CatalogApp,
+  clientCallConsentEffect,
   clientCallTool,
   clientContextFor,
   type ParietalService,
   presenceProcedures,
   presenceTool,
+  type WorkspaceService,
+  workspaceConsentEffect,
+  workspaceProcedures,
 } from './modules/parietal/index.ts'
 import { coreRemoval } from './modules/people/index.ts'
 import { createPluginRoutes, createWake } from './modules/plugins/index.ts'
@@ -127,10 +126,9 @@ import {
 } from './modules/wernicke-broca/index.ts'
 import type { Config } from './platform/config.ts'
 import type { Logger, toHarnessLogger } from './platform/logger.ts'
-import { reachableUrl } from './platform/net.ts'
+import type { NetProxy } from './platform/net-proxy.ts'
 import type { pruneRetention } from './platform/retention.ts'
 import { rpc } from './platform/rpc.ts'
-
 import { frontSessionId } from './platform/sessions.ts'
 import { createUndoLog } from './platform/undo-log.ts'
 
@@ -162,6 +160,7 @@ export interface Wiring {
   lock: ReturnType<typeof sqliteLock>
   version: string
   health: Health
+  net: NetProxy
   network: () => Network
   /** The bound address, once the listener announces it (`Core.announce`). */
   bound: { host?: string; port?: number }
@@ -204,6 +203,9 @@ export interface Wiring {
 
 /** The front region: nodes, plugins, per-person care, the cortex (workers) and the front agent. */
 export interface Front {
+  workspace: WorkspaceService
+  /** The window apps of this core (`web.window` contributions, ADR-0038). */
+  workspaceApps: () => readonly CatalogApp[]
   nodes: ReturnType<typeof createNodes>
   pluginHost: Awaited<ReturnType<typeof createPlugins>>
   care: ReturnType<typeof createSessionCare>
@@ -224,66 +226,8 @@ export interface Front {
 export async function wireFront(w: Wiring): Promise<Front> {
   const { config, logger, sqlite, identity, store, timing, holder, tasks, storage } = w
   const { audit, people } = identity
-  const nodes = createNodes({
-    capabilities: createNodeCapabilityRegistry([
-      ...BUILTIN_CAPABILITY_SPECS,
-      ...(w.nodeCapabilities ?? []),
-    ]),
-    nodes: nodesRepo(sqlite),
-    pairing: pairingRepo(sqlite),
-    store,
-    version: w.version,
-    allowCoreShell: config.allowCoreShell,
-    shellEnv: config.shellEnv,
-    publicUrl: () => {
-      const net = w.network()
-      return net.publicUrl ?? reachableUrl(net.host, w.bound.port ?? net.port)
-    },
-    timing: {
-      heartbeatMs: timing.nodeHeartbeatMs,
-      heartbeatTimeoutMs: timing.nodeHeartbeatTimeoutMs,
-      sweepEveryMs: timing.nodeSweepEveryMs,
-      pairingTtlMs: timing.pairingTtlMs,
-      timeoutGraceMs: timing.nodeTimeoutGraceMs,
-      rotateAfterMs: timing.nodeTokenRotateMs,
-    },
-    onPaired: ({ nodeId, name, ip }) =>
-      audit.record({
-        kind: 'node.paired',
-        actor: 'system',
-        via: 'tcp',
-        detail: { nodeId, name, ip },
-      }),
-    onRateLimited: (nodeId) =>
-      audit.record({
-        kind: 'node.rate_limited',
-        actor: 'system',
-        via: 'tcp',
-        detail: { node: nodeId },
-      }),
-    onDriversChanged: ({ nodeId, name, changes }) =>
-      audit.record({
-        kind: 'node.drivers',
-        actor: 'system',
-        via: 'tcp',
-        detail: { nodeId, name, drivers: changes },
-      }),
-    onCapabilityRefused: ({ nodeId, name, id, schemaVersion, reason }) =>
-      audit.record({
-        kind: 'node.capability.refused',
-        actor: 'system',
-        via: 'tcp',
-        detail: { nodeId, name, id, schemaVersion, reason },
-      }),
-    onRotated: ({ nodeId, name }) =>
-      audit.record({
-        kind: 'node.token.rotated',
-        actor: 'system',
-        via: 'tcp',
-        detail: { nodeId, name },
-      }),
-    warn: (message) => logger.warn(message),
-  })
+  // the nodes hub: pairing, heartbeats, drivers and their audit rows (docs/specs/nodes.md)
+  const nodes = wireNodes(w)
   // plugins: boot each one in isolation; a failure is logged and marked, never thrown
   // a guest principal resolves to an actor only while its session is live (`guestRegistry`); the registry exists later
   const pluginHost = await createPlugins({
@@ -304,6 +248,7 @@ export async function wireFront(w: Wiring): Promise<Front> {
     wake: createWake({ delivery: w.delivery }),
     protocols: w.protocolsPort.port,
     schedules: { tickMs: timing.scheduleTickMs },
+    pluginConfig: config.pluginConfig,
   })
   // per-person care of the front sessions: dead letters, recovery, reconcile, graceful stop
   const care = createSessionCare({
@@ -322,8 +267,12 @@ export async function wireFront(w: Wiring): Promise<Front> {
   // conversational consent (ADR-0036): one registry for the front agent and its workers (a worker is clean only when the front
   // call that delegated it was), and one undo log for the reversible tools
   const clientAuth = createClientAuth()
+  const motorEffect = motorConsentEffect(nodes.capabilities)
   const consent = createConsent({
-    riskOf: motorConsentRisk(nodes.capabilities),
+    effectOf: (name, input) =>
+      motorEffect(name, input) ??
+      workspaceConsentEffect(name, input) ??
+      clientCallConsentEffect(name, input),
     elevatedOf: clientAuth.elevatedOf,
     stepUpCall: (toolName, input) => ownerAnswers(toolName, input, nodes.capabilities),
   })
@@ -352,6 +301,22 @@ export async function wireFront(w: Wiring): Promise<Front> {
     observeAux: w.activity.observeAux,
   })
   const protocolTools = protocolToolSlot(createAclActors({ people }))
+  // the person's own workspace (docs/specs/workspace.md): one service for the RPC router and Keith's `workspace` tool
+  const workspace = wireWorkspace({
+    ...w,
+    store,
+    actors: createAclActors({ people }),
+    audit,
+    undo,
+    contributions: (point) => pluginHost.contributions(point),
+    can: async (personId, capability) => {
+      const person = await people.get(personId).catch(() => undefined)
+      return (
+        person !== undefined &&
+        identity.capabilities.of({ personId, role: person.role }).has(capability)
+      )
+    },
+  })
   const agent = createFrontAgent({
     whois,
     // the persona (system prompt block) and the style of the turn's person (turn reminder), docs/specs/prefrontal.md
@@ -398,6 +363,9 @@ export async function wireFront(w: Wiring): Promise<Front> {
       actors: createAclActors({ people }),
       audit,
     }),
+    // `workspace` (P40.3): Keith changes the person's workspace and asks their screen to show it (docs/specs/workspace.md "Keith")
+    workspaceTool: workspace.tool,
+    onScreen: workspace.onScreen,
     protocolTools: protocolTools.plugin,
     // `room_post` (P30.4.3): offered only while the person is active in a room; it never posts by itself
     roomPost: createRoomPostPlugin({ rooms: roomsRepo(sqlite), service: w.rooms.service }),
@@ -427,6 +395,8 @@ export async function wireFront(w: Wiring): Promise<Front> {
     consent,
     clientAuth,
     consentNotes,
+    workspace: workspace.service,
+    workspaceApps: workspace.catalog,
   }
 }
 
@@ -586,6 +556,8 @@ export function wireEdge(w: Wiring, front: Front, succession: SuccessionService)
     agenda: agendaProcedures({ agenda: agendaService }),
     rooms: w.rooms.procedures,
     persona: w.prefrontal.procedures,
+    // the person's own workspace (docs/specs/workspace.md "RPC"); a change is announced on their own front session
+    workspace: workspaceProcedures(front.workspace, front.workspaceApps),
     // the context reset and compaction (docs/specs/chat-context.md "RPC"): the caller's own front session only
     chat: chatProcedures({ context }),
     // the memory dreaming (docs/specs/dreaming.md "RPC"): the caller's own memory, the owner's audited diary read and settings
@@ -688,6 +660,12 @@ export function wireEdge(w: Wiring, front: Front, succession: SuccessionService)
   })
   const app = createApp({
     generations: w.generations,
+    // the static bundles of plugin window apps, with a CSP per app (ADR-0038 §5, docs/specs/thalamus.md "Plugin web bundles")
+    pluginWeb: {
+      plugins: () => pluginHost.loaded(),
+      contributions: (point) => pluginHost.contributions(point),
+      net: w.net,
+    },
     agent,
     tokens,
     credentials,

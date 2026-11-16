@@ -14,7 +14,7 @@ by policy are in `cortex.md` and `motor.md`; `brain.amygdala.decide` is `brain-e
 - `attentionOptions({ lead, cortex, tasks, people, store, lock? })` returns the `attention` option of
   `createHarnessHttp` (type `AttentionOptions`).
 - `watchPending(store, warn?)` returns an `ActivityStore` that wraps another one.
-- `createConsent({ riskOf?, elevatedOf?, max? })` returns `{ registry, plugin(role), learnedSource }`: the consent hook plugin of an agent (`'front'` or `'worker'`) and the registry
+- `createConsent({ effectOf?, elevatedOf?, stepUpCall?, max? })` returns `{ registry, plugin(role), learnedSource }`: the consent hook plugin of an agent (`'front'` or `'worker'`) and the registry
   the attention list reads (`tierOf`, `contextOf`). `consentContext`, `consentDecision`: the pure parts. `createUndoPlugin(log)`: the `undo_last` tool (the log is
   `createUndoLog()` of `platform/undo-log.ts`). `classifyConsent(message, summary, { model? })`, `classifyShort`: the consent classifier (below).
   `createConsentConversation(deps)` (`.message(call)`): the person's message answering a request asked in conversation. `createConsentVoice(deps)`: the audit row and the wake of a
@@ -115,7 +115,7 @@ The decision is made by code from facts the model cannot forge, never by the mod
 
 **Tool traits.** `metadata: { risk, source, reversible? }` (`permissions.md`, "Tool risk"): `risk` is eharness' `read | write | destructive | external`; `source` is `trusted | outside`
 (undeclared: `outside`); `reversible: true` marks a write whose last change `undo_last` can take back (`persona_template`, `persona_edit`, `persona_restore`, `style_set`, `model_role_set`,
-`presence_status_set`, and `undo_last` itself). `@keith/eh-ext` reads them (`toolSource(metadata, name)`, `toolReversible`, `declaresSource`) and knows the eharness tools by name
+`presence_status_set`, `workspace`, and `undo_last` itself). `@keith/eh-ext` reads them (`toolSource(metadata, name)`, `toolReversible`, `declaresSource`) and knows the eharness tools by name
 (`EHARNESS_TOOL_TRAITS`). `tool-sources.test.ts` builds the front agent and both workers with their real plugins, resolves every plugin and lists each tool with its source and
 `reversible` mark in one table; a Keith-owned tool that does not declare `source` fails it, and so does a tool added without a row.
 
@@ -137,16 +137,39 @@ delivery digest starts (`session.inject(..., { wake: true })`). The origin is `p
 A person turn that merges a queued, non-waking event still counts as the person's. A worker has no trigger: `ctx.session.parent = { sessionId, toolCallId }` names the front call that delegated it, and the
 registry holds the context of that call (`<session id>|<tool call id>`): `clean` gives `delegated-clean`; `tainted`, an unknown or evicted call, or no parent gives `tainted`.
 
-**Table (`consent-table.ts`, pure).** The risk is the call's: `riskOf(name, input)` of the options (the core passes `motorConsentRisk`: `system.info` and any call that runs unasked are `read`, a
-destructive capability is `destructive`, any other `motor_remote` call is `external`), else eharness' web tools (`web_fetch`, `web_search`) as `read`, else `e.risk`.
+**Effect (ADR-0039 §1).** Consent reads what a call can do, not only the turn: `none` (reads, or changes only what the person sees),
+`local` (the person's own data inside Keith, removable or undoable), `behavior` (how Keith acts from then on), `egress` (data leaves Keith
+or reaches people outside the conversation), `destructive` (runs code, or destroys what cannot be undone). Resolution: `effectOf(name,
+input)` of the options (the core passes `motorConsentEffect`: a call that runs unasked is `none`, every other `motor_remote` call
+`destructive`; `workspaceConsentEffect`: `none` unless params name a destination, then `egress` with those as `url` targets,
+workspace.md "Consent"; `clientCallConsentEffect`: `location.share` is `egress`, the rest `none`), then `metadata.effect` (`toolEffect`,
+`@keith/eh-ext`: `behavior` on `persona_template`, `persona_edit`, `persona_restore`, `model_role_set`), then the eharness table
+(`EHARNESS_TOOL_TRAITS`: the web tools, files, delegation and todo `none` or `local`, `memory_delete` `destructive`, `send_message`
+`egress`), then eharness' risk (`read` → `none`, `write` → `local`, `external` → `egress`, `destructive` → `destructive`). The effect is
+learned by name, since re-validation passes calls without metadata.
 
-| Risk | Clean | Tainted |
+**Provenance (`consent-provenance.ts`, pure, ADR-0039 §2).** An `egress` or `destructive` call may name targets. `targetsFromPerson`
+compares them with the person's own messages in the restricted transcript (never a tool output): a `url` target is the person's when its
+host is, or is under, a host they wrote (a full URL or a bare domain, `www.` ignored); a `text` target when it appears in a message,
+whitespace aside. `egress` reads every message of the person; `destructive` only the newest. Cached with the call.
+
+**Table (`consent-table.ts`, pure).**
+
+| Effect | Clean | Tainted |
 | --- | --- | --- |
-| `read` | `approved` | `approved` |
-| `write`, reversible | `approved` (runs, with undo) | `user-approval`, tier `conversation` |
-| `destructive`, `external` | `user-approval`, tier `conversation` | `user-approval`, tier `device` |
-| `write` not reversible | no opinion (the tool's own rules and the agent's policy decide, as before) | `user-approval`, tier `conversation` |
-| no risk | no opinion | no opinion |
+| `none` | `approved` | `approved` |
+| `local`, reversible | `approved` (runs, with undo) | `approved` (runs, with undo) |
+| `local` not reversible | no opinion (the tool's own rules and the agent's policy decide) | no opinion |
+| `behavior` | `approved` (runs, with undo) | `user-approval`, tier `conversation` |
+| `egress`, targets the person's | `approved` | `approved` |
+| `egress`, other | `approved` | `user-approval`, tier `conversation` |
+| `destructive`, targets in the newest message | `approved` | `approved` |
+| `destructive`, other | `user-approval`, tier `conversation` | `user-approval`, tier `device` |
+| no effect | no opinion | no opinion |
+
+`motor_remote` keeps its own ask (motor.md) and names no targets (it runs in a worker, whose transcript never holds the person's words),
+so a machine action is asked as before: `conversation` when the delegating turn was clean, `device` when tainted. The outcome of every
+tool, clean and tainted, is locked in `tool-sources.test.ts` ("the consent outcome of every tool").
 
 **Self-confirmed tools.** A tool that runs its own confirmation outside the model declares `metadata.selfConfirmed: true` (`room_post`: the person confirms the exact text of a room post request, corpus-callosum.md); the consent hook gives no opinion on it, so the person is never asked twice. Learned by name, since re-validation passes calls without metadata.
 
@@ -174,7 +197,8 @@ persona (`persona.restore` to the version before, `prefrontal.md`), style (`styl
 (`setStatus` to the status before, `parietal.md`). The front tool `undo_last` (`{ risk: 'write', reversible: true, source: 'trusted' }`, no input) takes the newest entry of the person in this session off
 the log and runs it, answering `{ ok: true, summary }` or `{ ok: false, reason, message }` (`nothing-to-undo`, `no-person`, `undo-failed`, or the service's refusal); it records no undo of its own, so a second
 "undo" takes back the change before. Being a reversible write it is itself clean-only by the table (after outside content it asks in conversation). Each undo goes through the same service and writes the same
-audit row as the original action (`persona.restore`, `persona.style.set`, `settings.model.set`, `presence.status.set`), so nothing is invisible.
+audit row as the original action (`persona.restore`, `persona.style.set`, `settings.model.set`, `presence.status.set`), so nothing is invisible. The
+`workspace` tool's undo runs `workspace.undoKeith` (a new version announced as `workspace-changed`, `workspace.md`).
 
 ## Asked in conversation (ADR-0036 §4, P39.3)
 

@@ -78,9 +78,9 @@ and the workers the owner started. The plugin keeps no grant memory of its own.
 
 ### Consent (ADR-0036)
 
-`motor_remote` is `external` as a tool, but a call that runs unasked is a `read` for consent. `motorConsentRisk(capabilities)` (`motor/risk.ts`, pure over the registry)
-is the `riskOf` option of amygdala's consent hook: a call that `runsUnasked` (`system.info`, a read capability, an `approval: 'never'` capability at `write` or below) is `read`;
-a capability whose risk for the input is `destructive` is `destructive`; every other call (an unknown capability or an unreadable input included) is `external`. The consent table
+`motorConsentEffect(capabilities)` (`motor/risk.ts`, pure over the registry; ADR-0039) is part of the `effectOf` option of amygdala's consent hook: a call that `runsUnasked`
+(`system.info`, a read capability, an `approval: 'never'` capability at `write` or below) is `none`; every other call (an unknown capability or an unreadable input included) is
+`destructive`, with no targets (the call runs in a worker, whose transcript never holds the person's words). `motorConsentRisk` is kept for callers that read a risk. The consent table
 (`amygdala.md`) then gives `user-approval` with the tier `conversation` when the conversation is clean (a command the person asked for in their own words, or delegated from
 such a message and with no outside content read by the worker since) and `device` when tainted. The plugin's own `tool.approve` above is unchanged and still decides who is
 asked and what is denied: most restrictive wins, so shell-off still denies, a `read` still runs without asking, and the member-to-owner routing and the step-up are untouched.

@@ -174,6 +174,13 @@ export interface FrontAgentOptions {
   presence?: HarnessPlugin
   /** The `client_call` tool (`modules/parietal/client-tools.ts`): the front agent only, never a worker, room or guest. */
   clientCall?: HarnessPlugin
+  /** The `workspace` tool (`modules/parietal/workspace-tool.ts`): the front agent only, never a worker, room or guest. */
+  workspaceTool?: HarnessPlugin
+  /**
+   * The "On screen now" line of the person (`parietal`, ADR-0037 §5): what their workspace screen shows, read at each turn.
+   * Absent, failing or undefined (no screen draws a workspace): no line.
+   */
+  onScreen?: (personId: string) => string | undefined
   /** The protocol tools (`modules/hypothalamus/tools.ts`): the front agent only, never a worker. */
   protocolTools?: HarnessPlugin
   /** The `room_post` tool (`modules/corpus-callosum/post.ts`): the front agent only, offered while the person is in a room. */
@@ -311,6 +318,22 @@ export function createFrontAgent(options: FrontAgentOptions): HarnessAgent {
               },
             },
           ]),
+      // what the person's workspace screen shows now (ADR-0037 §5): titles quoted as data, no line when no screen draws one
+      ...(options.workspaceTool === undefined || options.onScreen === undefined
+        ? []
+        : [
+            {
+              refresh: 'turn' as const,
+              text: async (ctx: HarnessContext): Promise<string | undefined> => {
+                try {
+                  const id = ctx.principal?.id
+                  return id === undefined ? undefined : options.onScreen?.(id)
+                } catch {
+                  return undefined
+                }
+              },
+            },
+          ]),
       // the mode block of the turn, last in the reminder: fixed text chosen in code from the person's channel (P33.4.1, ADR-0029 §5)
       {
         refresh: 'turn' as const,
@@ -334,6 +357,7 @@ export function createFrontAgent(options: FrontAgentOptions): HarnessAgent {
       ...(options.plugins ?? []),
       ...(options.presence === undefined ? [] : [options.presence]),
       ...(options.clientCall === undefined ? [] : [options.clientCall]),
+      ...(options.workspaceTool === undefined ? [] : [options.workspaceTool]),
       ...(options.protocolTools === undefined ? [] : [options.protocolTools]),
       ...(options.personaTools === undefined ? [] : [options.personaTools]),
       ...(options.modelTools === undefined ? [] : [options.modelTools]),

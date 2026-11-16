@@ -70,6 +70,8 @@ export {
   type MotorActPayload,
   MotorActPayloadSchema,
   ParietalPresencePayloadSchema,
+  type ParietalWorkspacePayload,
+  ParietalWorkspacePayloadSchema,
   type PrefrontalChangePayload,
   PrefrontalChangePayloadSchema,
   type PrefrontalStylePayload,
@@ -132,10 +134,13 @@ export {
   ChatNewContextOutputSchema,
 } from './chat-context.ts'
 export {
+  type ConsentCallEffect,
   type ConsentContext,
   ConsentContextSchema,
   type ConsentTier,
   ConsentTierSchema,
+  type ToolEffect,
+  ToolEffectSchema,
   type ToolSource,
   ToolSourceSchema,
 } from './consent.ts'
@@ -539,3 +544,5 @@ export {
   type TaskStatus,
   TaskStatusSchema,
 } from './tasks.ts'
+export * from './web-apps.ts'
+export * from './workspace.ts'

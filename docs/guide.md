@@ -183,6 +183,28 @@ rooms, plugin views and every Manage section. Press ⌘K (Ctrl+K) for the comman
 - Guests: with guest mode on, the guest port (7421) serves a guest chat page at `/app/guest`.
 - For development: `bun run --cwd apps/web dev` (Vite on 5173, proxied to a core on 7420).
 
+### The world map
+
+Ask Keith "show Surabaya on the map", "what is flying over Jakarta?", "cameras near Tunjungan Plaza" or "quakes today". Keith answers and
+opens the World window (`maps:map`): a globe you can drag, scroll and tilt.
+
+- **2D / 3D** switches between the globe and a flat map without a reload. ⌖ looks straight down, north up. ◫ picks the style (dark,
+  satellite, night lights, standard, terrain…).
+- **≋ Data layers**: flights, ships, transit, my receivers, satellites, launches, earthquakes, natural events, weather, air quality, rain,
+  public cameras, radio, recent imagery. Each shows a count or why it is empty ("zoom in to 9"). City layers (cameras, transit, imagery)
+  appear when you zoom in. Click a thing for its card: facts, a camera snapshot (refreshed every 20 s), a radio player, Zoom to, Follow.
+- **✎ Draw**: pins, lines and areas in six colours with a label. Keith sees your marks and can draw too.
+- Every source is free and keyless except ships. Settings go in one environment variable on the core, then restart it:
+
+  ```
+  KEITH_PLUGIN_CONFIG='{"maps":{"aisstreamKey":"<your aisstream.io key>","receivers":["http://raspberrypi.local/tar1090/data/aircraft.json"]}}'
+  ```
+
+  `aisstreamKey` (free at aisstream.io) turns on ships; `receivers` lists the `aircraft.json` of your own SDR receivers (readsb, dump1090,
+  tar1090) for the My receivers layer.
+- Outside agents (Claude Desktop, an IDE) can use Keith's plugin tools over MCP: point them at `http://<core>/plugins/mcp` with a token from
+  Manage > Tokens as `Authorization: Bearer <token>`. They get exactly what that token may call, through the same checks.
+
 
 
 | Command | What it does |

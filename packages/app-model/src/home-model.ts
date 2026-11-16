@@ -37,6 +37,7 @@ const STRENGTH: Partial<Record<BrainEvent['type'], number>> = {
   'brain.amygdala.wait': 0.4,
   'brain.parietal.presence': 0.4,
   'brain.parietal.deliver': 0.6,
+  'brain.parietal.workspace': 0.6,
 }
 
 /** How hard an event fires its region on the trace (default 0.5). */

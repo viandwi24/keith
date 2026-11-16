@@ -91,7 +91,11 @@ describe('rendering ids (ADR-0029 §5)', () => {
   test('a client may declare render.markdown and render.speech-only', () => {
     for (const ok of ['render.markdown', 'render.speech-only'])
       expect(ClientCapabilitySchema.safeParse(ok).success, ok).toBe(true)
-    expect(RENDER_CAPABILITY_IDS).toEqual(['render.markdown', 'render.speech-only'])
+    expect(RENDER_CAPABILITY_IDS).toEqual([
+      'render.markdown',
+      'render.speech-only',
+      'render.workspace',
+    ])
     const register = { ...registerBase, capabilities: ['chat', 'render.markdown'] }
     expect(ClientRegisterSchema.safeParse(register).success).toBe(true)
   })

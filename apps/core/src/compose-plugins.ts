@@ -56,6 +56,8 @@ export async function createPlugins(options: {
   guestLive?: (randomId: string) => boolean
   /** Ticker and catch-up timing of the plugins' schedules (tests shorten them). */
   schedules?: { tickMs?: number; graceMs?: number }
+  /** Raw settings by plugin id (`KEITH_PLUGIN_CONFIG`); each is checked against the plugin's `config` schema. */
+  pluginConfig?: Record<string, unknown>
 }): Promise<
   PluginHost & { reviews: ReviewService; schedules: ScheduleService; admin: PluginAdmin }
 > {
@@ -106,8 +108,10 @@ export async function createPlugins(options: {
       }
     },
   }
+  const configs = pluginConfigs(options.plugins, options.pluginConfig ?? {}, (m) => logger.warn(m))
   const host = await createPluginHost({
     plugins: options.plugins,
+    config: (id) => configs.get(id) ?? {},
     directory,
     acl: options.acl,
     kinds: options.kinds,
@@ -152,4 +156,34 @@ export async function createPlugins(options: {
     schedules: scheduleStore,
   })
   return Object.assign(host, { reviews, schedules, admin })
+}
+
+/**
+ * Each plugin's settings, parsed by its `config` schema. A part that does not fit is dropped with a warning that names the
+ * plugin and the fields, never the values (they may be keys); a part for a plugin that declares no config, or is not loaded, too.
+ */
+export function pluginConfigs(
+  plugins: readonly KeithPlugin[],
+  raw: Record<string, unknown>,
+  warn: (message: string) => void,
+): Map<string, Readonly<Record<string, unknown>>> {
+  const out = new Map<string, Readonly<Record<string, unknown>>>()
+  for (const id of Object.keys(raw))
+    if (!plugins.some((p) => p.id === id)) warn(`plugin config: no plugin "${id}" is loaded`)
+  for (const plugin of plugins) {
+    const value = raw[plugin.id]
+    if (value === undefined) continue
+    const schema = plugin.manifest.config
+    if (schema === undefined) {
+      warn(`plugin config: ${plugin.id} takes no settings`)
+      continue
+    }
+    const parsed = schema.safeParse(value)
+    if (parsed.success) out.set(plugin.id, parsed.data as Record<string, unknown>)
+    else
+      warn(
+        `plugin config: ${plugin.id} settings ignored (${parsed.error.issues.map((i) => i.path.join('.') || '(root)').join(', ')})`,
+      )
+  }
+  return out
 }

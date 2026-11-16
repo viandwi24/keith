@@ -1,5 +1,5 @@
 // A removed person's presence (ADR-0027 §26, docs/specs/people.md "Removal"): `keep` writes the person's clients,
-// signals, manual status and disclosure settings into the kept folder (the live rows stay until the keep time),
+// signals, manual status, disclosure settings and workspace into the kept folder (the live rows stay until the keep time),
 // `export` writes the same file for `people export`, and `purge` deletes the live rows once the keep time has passed.
 import { copyFileSync, existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -7,7 +7,13 @@ import type { Sqlite } from '@keith/db'
 import { type PersonRemovalHooks, removedFolderOf } from '../people/index.ts'
 
 /** The presence tables of a person, in the order they are written and deleted. */
-const TABLES = ['clients', 'presence_signals', 'presence_status', 'presence_disclosure'] as const
+const TABLES = [
+  'clients',
+  'presence_signals',
+  'presence_status',
+  'presence_disclosure',
+  'workspaces',
+] as const
 
 export const PRESENCE_FILE = 'presence.json'
 

@@ -9,12 +9,17 @@ import {
   type ClientOs,
 } from '@keith/contracts'
 
-/** What the web app declares on register: the same four as the terminal (chat, notice, a view it can open, Markdown). */
+/**
+ * What the web app declares on register: the same four as the terminal (chat, notice, a view it can open, Markdown), plus the
+ * workspace it draws (`render.workspace`) and shows on request (`workspace.show`), ADR-0037 §6.
+ */
 export const WEB_CAPABILITIES: readonly ClientCapability[] = [
   'chat',
   'notify',
   'open.view',
   'render.markdown',
+  'workspace.show',
+  'render.workspace',
 ]
 
 /** The part of `navigator` that detection reads; tests pass a stub. */

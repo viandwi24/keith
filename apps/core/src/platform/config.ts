@@ -85,6 +85,26 @@ const ConfigSchema = z.object({
   /** Short git SHA reported by `/health`. Empty: read from git at boot. */
   KEITH_BUILD_SHA: optional,
   /**
+   * Settings of plugins as one JSON object `{ "<plugin id>": { … } }` (docs/specs/plugins.md "Config"), e.g. the maps plugin's
+   * `aisstreamKey`. Each plugin's part is checked against its `config` schema at boot. Empty: none.
+   */
+  KEITH_PLUGIN_CONFIG: optional.pipe(
+    z
+      .string()
+      .transform((text, ctx) => {
+        try {
+          const value: unknown = JSON.parse(text)
+          if (typeof value === 'object' && value !== null && !Array.isArray(value))
+            return value as Record<string, unknown>
+        } catch {
+          // reported below
+        }
+        ctx.addIssue({ code: 'custom', message: 'must be a JSON object { "<plugin id>": { … } }' })
+        return z.NEVER
+      })
+      .optional(),
+  ),
+  /**
    * A `keith-core` admin session kept in the environment of one shell (`eval "$(keith-core login)"`): memory
    * of that shell only, never a file. Empty counts as unset.
    */
@@ -164,6 +184,8 @@ export interface Config {
   modelsDevUrl: string | undefined
   /** `KEITH_NODE_ROTATE_MS`: node token age that triggers a rotation; `undefined` keeps 30 days. */
   nodeTokenRotateMs?: number
+  /** `KEITH_PLUGIN_CONFIG`: each plugin's raw settings by plugin id (validated by the plugin host). */
+  pluginConfig: Record<string, unknown>
   /** Environment handed to the provider manager (env connections). */
   providerEnv: Record<string, string | undefined>
   /** Whether `host`, `port` and `publicUrl` were set in the environment (they win over settings). */
@@ -222,6 +244,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     adminSession: c.KEITH_ADMIN_SESSION,
     ui: { theme: themeOf(c.KEITH_THEME, c.COLORFGBG), depth: depthOf(c) },
     modelsDevUrl: c.KEITH_MODELS_DEV_URL,
+    pluginConfig: c.KEITH_PLUGIN_CONFIG ?? {},
     ...(c.KEITH_NODE_ROTATE_MS === undefined ? {} : { nodeTokenRotateMs: c.KEITH_NODE_ROTATE_MS }),
     providerEnv: {
       OPENROUTER_API_KEY: c.OPENROUTER_API_KEY,

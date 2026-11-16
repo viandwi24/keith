@@ -1,6 +1,7 @@
 import { defineKinds } from '@keith/acl'
 import { CAPABILITY_IDS, TuiSlotSchema } from '@keith/contracts'
 import type { z } from 'zod'
+import { checkExtensionFields } from './contributions.ts'
 import { EVENT_NAME } from './events.ts'
 import {
   CAPABILITY_ID,
@@ -136,6 +137,9 @@ export function defineKeithPlugin(manifest: PluginManifest): KeithPlugin {
     (typeof manifest.storage?.migrations !== 'string' || manifest.storage.migrations === '')
   )
     bad('storage is { migrations: <folder> }')
+
+  // extension points, contributions and the web bundle folder (ADR-0038)
+  checkExtensionFields(manifest, id, bad)
 
   // tui slot (ADR-0018): menu entries point at views of this plugin, a permission is one the plugin may name
   const tui = manifest?.tui

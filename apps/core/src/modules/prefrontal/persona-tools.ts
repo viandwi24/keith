@@ -175,7 +175,7 @@ export function personaToolsOf(deps: PersonaToolsDeps) {
         description:
           'Owner only. Switch the persona to a built-in template (butler, friend or professional). Runs at once when the owner just asked for it; "undo_last" takes it back.',
         inputSchema: z.object({ template: PersonaTemplateSchema }),
-        metadata: { risk: 'write', reversible: true, source: 'trusted' },
+        metadata: { risk: 'write', reversible: true, source: 'trusted', effect: 'behavior' },
         execute: ({ template }: { template: z.infer<typeof PersonaTemplateSchema> }) =>
           asCaller(ctx, async (caller) => {
             const before = persona.get()?.version
@@ -190,7 +190,7 @@ export function personaToolsOf(deps: PersonaToolsDeps) {
         description:
           'Owner only. Change fields of the persona: tone, attitude, humour (none, dry, warm), addressing, caresAbout, lines. Pass only the fields to change. Runs at once when the owner just asked for it; "undo_last" takes it back.',
         inputSchema: PersonaEditInput,
-        metadata: { risk: 'write', reversible: true, source: 'trusted' },
+        metadata: { risk: 'write', reversible: true, source: 'trusted', effect: 'behavior' },
         execute: (input: z.infer<typeof PersonaEditInput>) =>
           asCaller(ctx, async (caller) => {
             const before = persona.get()?.version
@@ -205,7 +205,7 @@ export function personaToolsOf(deps: PersonaToolsDeps) {
         description:
           'Owner only. Restore an older persona version (writes a new version with its content). Runs at once when the owner just asked for it; "undo_last" takes it back.',
         inputSchema: z.object({ version: z.number().int().min(1) }),
-        metadata: { risk: 'write', reversible: true, source: 'trusted' },
+        metadata: { risk: 'write', reversible: true, source: 'trusted', effect: 'behavior' },
         execute: ({ version }: { version: number }) =>
           asCaller(ctx, async (caller) => {
             const before = persona.get()?.version

@@ -3,7 +3,9 @@
 export {
   declaresSource,
   EHARNESS_TOOL_TRAITS,
+  effectOfRisk,
   eharnessConsentRisk,
+  toolEffect,
   toolReversible,
   toolSelfConfirmed,
   toolSource,

@@ -56,12 +56,18 @@ function onlineCapabilities(
   return onlineCapabilitiesOf(parietal.list(personId))
 }
 
+/** The capabilities `client_call` offers: every one but `workspace.show`, which only the `workspace` tool asks for. */
+const CALLABLE_IDS = CLIENT_CAPABILITY_IDS.filter((cap) => cap !== 'workspace.show') as [
+  ClientCapabilityId,
+  ...ClientCapabilityId[],
+]
+
 function onlineCapabilitiesOf(clients: readonly ClientRecord[]): ClientCapabilityId[] {
   const online = new Set<ClientCapabilityId>()
   for (const client of clients)
     if (client.online)
       for (const cap of client.capabilities) if (isClientCapabilityId(cap)) online.add(cap)
-  return CLIENT_CAPABILITY_IDS.filter((cap) => online.has(cap))
+  return CALLABLE_IDS.filter((cap) => online.has(cap))
 }
 
 export interface ClientCallToolOptions {
@@ -96,6 +102,7 @@ export function clientsFor(
 
 /** The input each capability takes, as the model reads it in the tool description. */
 const INPUT_HINT: Record<ClientCapabilityId, string> = {
+  'workspace.show': 'the workspace tool asks for it',
   notify: 'shows a notice with input {text, title?, level?}',
   'open.view': 'opens a view with input {view, args?}',
   'location.share': 'asks for the coarse location the person chose to share, input {precision}',
@@ -121,6 +128,15 @@ export function appsOnlineLine(clients: readonly ClientRecord[]): string {
   return `Apps online now: ${listed.join(', ')}. ${hints}. A capability not listed is unavailable.`
 }
 
+/** The delivery `name` a client reads: the view for `open.view`, else the tool's name. */
+export function deliveryNameOf(capability: ClientCapabilityId, input: unknown): string {
+  if (capability === 'open.view') {
+    const view = (input as { view?: unknown }).view
+    if (typeof view === 'string') return view
+  }
+  return CLIENT_CALL_TOOL
+}
+
 /** The tool of one turn: `ctx.principal` is read when the tool runs, so the person is the one who asked. */
 export function clientCallToolOf(options: ClientCallToolOptions) {
   const newId = options.newId ?? (() => crypto.randomUUID())
@@ -128,7 +144,7 @@ export function clientCallToolOf(options: ClientCallToolOptions) {
     tool({
       description: CLIENT_CALL_DESCRIPTION,
       inputSchema: z.object({
-        capability: z.enum(CLIENT_CAPABILITY_IDS),
+        capability: z.enum(CALLABLE_IDS),
         input: z.record(z.string(), z.unknown()),
       }),
       metadata: { risk: 'write', source: 'trusted' },
@@ -163,7 +179,8 @@ export function clientCallToolOf(options: ClientCallToolOptions) {
             const call = await options.parietal.callClient(personId, capability, parsed.data, {
               clientId: client.id,
               deliveryId: `client_call:${newId()}`,
-              name: CLIENT_CALL_TOOL,
+              // the delivery carries no input: for `open.view` its name is the view to open (parietal.md)
+              name: deliveryNameOf(capability, parsed.data),
             })
             if (call.ok) {
               answer = {

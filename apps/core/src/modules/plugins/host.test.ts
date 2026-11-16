@@ -223,3 +223,67 @@ describe('plugin loader', () => {
     expect(d.infos).toEqual([])
   })
 })
+
+describe('plugin loader: extension points', () => {
+  const entry = z.object({ id: z.string(), title: z.string() })
+  const owner = (over: Partial<PluginManifest> = {}) =>
+    small('web', { extensionPoints: { 'web.window': entry }, ...over })
+  const contributor = (id: string, over: Partial<PluginManifest> = {}) =>
+    small(id, { contributes: { 'web.window': [{ id: 'main', title: id }] }, ...over })
+
+  test('a contribution to an unknown point fails that plugin with one line; the rest load', async () => {
+    const lost = small('lost', { contributes: { 'nowhere.window': [{ id: 'x' }] } })
+    const d = deps([lost, contributor('maps'), owner()])
+    const host = await createPluginHost(d.all)
+    expect(host.status().map((s) => [s.id, s.reason ?? s.state])).toEqual([
+      ['lost', 'contributes to "nowhere.window", which no plugin declares'],
+      ['maps', 'loaded'],
+      ['web', 'loaded'],
+    ])
+    expect(host.loaded().map((p) => p.id)).toEqual(['web', 'maps'])
+    expect(host.contributions('web.window')).toEqual([
+      {
+        point: 'web.window',
+        contributor: 'maps',
+        id: 'main',
+        entry: { id: 'main', title: 'maps' },
+      },
+    ])
+    expect(host.contributions('nowhere.window')).toEqual([])
+  })
+
+  test('the declaring plugin off: contributions ignored with a warning, the contributor loads', async () => {
+    const d = deps([owner(), contributor('maps')], { isEnabled: (id) => id !== 'web' })
+    const host = await createPluginHost(d.all)
+    expect(host.status().map((s) => s.state)).toEqual(['disabled', 'loaded'])
+    expect(d.warnings).toContain(
+      'plugins: contributions of maps to "web.window" are ignored: web is off',
+    )
+    expect(host.contributions('web.window')).toEqual([])
+  })
+
+  test('a contributor or a declaring plugin that fails at start takes its contributions with it', async () => {
+    const seen: string[] = []
+    const reader = owner({
+      start: (ctx) => void seen.push(...ctx.contributions('web.window').map((c) => c.contributor)),
+    })
+    const broken = contributor('broke', {
+      start: () => {
+        throw new Error('no luck')
+      },
+    })
+    const host = await createPluginHost(deps([reader, broken, contributor('maps')]).all)
+    // read at the owner's start: both are still planned
+    expect(seen).toEqual(['broke', 'maps'])
+    expect(host.contributions('web.window').map((c) => c.contributor)).toEqual(['maps'])
+
+    const failing = owner({
+      start: () => {
+        throw new Error('web is down')
+      },
+    })
+    const other = await createPluginHost(deps([failing, contributor('maps')]).all)
+    expect(other.status().map((s) => s.state)).toEqual(['failed', 'loaded'])
+    expect(other.contributions('web.window')).toEqual([])
+  })
+})

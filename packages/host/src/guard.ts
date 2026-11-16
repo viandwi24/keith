@@ -10,6 +10,7 @@ import type { SchedulePort } from './schedule.ts'
 import type {
   AuditPort,
   Clock,
+  Contribution,
   EventPort,
   KeithPlugin,
   NotifyPort,
@@ -50,6 +51,8 @@ export interface GuardDeps {
   plugin?: (pluginId: string) => KeithPlugin | undefined
   /** The services a plugin may read (`requires` only; core: the service registry). */
   services?: (plugin: KeithPlugin) => PluginServices
+  /** The live contributions to a point that `pluginId` declares (`k.contributions`). Without it a declared point reads as empty. */
+  contributions?: (pluginId: string, point: string) => readonly Contribution[]
   /** Where typed events go (core: the activity feed, one record per recipient). */
   events?: EventPort
   /** Where notices go (core: the same feed, as a `notice` event to the person). */

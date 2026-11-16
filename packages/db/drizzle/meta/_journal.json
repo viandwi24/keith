@@ -197,6 +197,13 @@
       "when": 1794678910707,
       "tag": "0027_purple_skullbuster",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1794734263627,
+      "tag": "0028_needy_mindworm",
+      "breakpoints": true
     }
   ]
 }

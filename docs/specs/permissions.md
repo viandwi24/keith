@@ -154,8 +154,9 @@ owner-routed item gets `403` with code `KEITH_WAITING_FOR_OWNER`.
 Tools keep their own risk (`motor.md`, `cortex.md`) and, since ADR-0036, declare a **source** next to it: `metadata: { risk, source: 'trusted' | 'outside', reversible? }`
 (`@keith/eh-ext` `toolSource`, `toolReversible`, read like eharness `toolTraits`; the type is `ToolSource` in `@keith/contracts`). `trusted` is Keith's own state and the person's own data;
 `outside` is anything a third party can have written (web pages and search results, plugin text from other people, room messages, other people's notes, node and desktop
-output, a worker's report). A tool that declares nothing is `outside`; the tools eharness ships are known by name (`EHARNESS_TOOL_TRAITS`). Risk and source decide how a call is
-consented (`amygdala.md`, "Consent"). The one rule that crosses people: a member's
+output, a worker's report). A tool that declares nothing is `outside`; the tools eharness ships are known by name (`EHARNESS_TOOL_TRAITS`). Since ADR-0039 a tool may also declare an **effect**
+(`metadata.effect`: `none | local | behavior | egress | destructive`, `toolEffect`; else derived from the risk); effect, source and the
+provenance of a call's targets decide how it is consented (`amygdala.md`, "Consent"). The one rule that crosses people: a member's
 `shell.exec` (on a node or on `core`) is an approval the owner answers (`amygdala.md`, "Who answers"),
 shown to the owner with the asker, node and command (the documented exception to "the owner does not
 see members' messages"). `tool.approve` stays deterministic: it never reads who asks, and it decides from the input and static tables, with one exception that can only deny: the shell-off check reads the live node registry (`motor.md`).

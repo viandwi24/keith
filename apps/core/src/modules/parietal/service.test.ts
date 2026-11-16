@@ -147,6 +147,23 @@ describe('register', () => {
 })
 
 describe('heartbeat', () => {
+  test('the workspace view of the latest beat is on the online client, never in the raw read, gone after goodbye', () => {
+    const { service, clock } = harness()
+    service.register('ana', reg(1))
+    clock.now += 6 * SEC
+    service.heartbeat('ana', { id: uuid(1), active: false, view: { mode: 'ambient' } })
+    clock.now += 1 * SEC // too soon for a beat, not for the view
+    service.heartbeat('ana', {
+      id: uuid(1),
+      active: false,
+      view: { mode: 'workspace', desktopId: 'd2' },
+    })
+    expect(service.list('ana')[0]?.view).toEqual({ mode: 'workspace', desktopId: 'd2' })
+    expect(service.raw('ana').clients[0]).not.toHaveProperty('view')
+    service.goodbye('ana', uuid(1))
+    expect(service.list('ana')[0]?.view).toBeUndefined()
+  })
+
   test('a heartbeat sooner than 5 s after the last one is ignored', () => {
     const { service, clock, sqlite } = harness()
     const t0 = clock.now

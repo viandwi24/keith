@@ -1,6 +1,6 @@
 # ADR-0036: Conversational consent
 
-Status: accepted (Nov 15, 2026). Plan: `docs/plans/active/P39-conversational-consent.md`. Amends ADR-0027 (approvals and their
+Status: accepted (Nov 15, 2026); §1 and §4 amended by ADR-0039 (effect-based consent, Nov 16, 2026). Plan: `docs/plans/active/P39-conversational-consent.md`. Amends ADR-0027 (approvals and their
 lifetime) and ADR-0034 §3 (persona and model tools wait for approval). Builds on ADR-0035 (web client) and the channel design.
 
 ## Context

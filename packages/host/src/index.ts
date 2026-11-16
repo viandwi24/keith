@@ -11,6 +11,7 @@ export type {
   PluginAccess,
   PluginPeople,
 } from './access.ts'
+export { readContributions } from './contributions.ts'
 export { buildCtx, MAX_CALL_DEPTH } from './ctx.ts'
 export { defineKeithPlugin, defineOperation, PluginDefinitionError } from './define.ts'
 export {
@@ -77,6 +78,7 @@ export {
 export {
   type BootPlan,
   createServiceRegistry,
+  type PlanBootOptions,
   planBoot,
   type ServiceRegistry,
 } from './services.ts'
@@ -85,6 +87,8 @@ export {
   type AuditEvent,
   type AuditPort,
   type Clock,
+  type Contribution,
+  type ContributionEntry,
   type EventAudience,
   type EventPort,
   type Exposure,

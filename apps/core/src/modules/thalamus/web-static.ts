@@ -30,6 +30,8 @@ export function contentSecurityPolicy(hashes: readonly string[]): string {
     "connect-src 'self'",
     "img-src 'self' data:",
     "style-src 'self' 'unsafe-inline'",
+    // plugin window apps in sandboxed iframes (same origin, /plugins/<id>/web/) and the built-in browser app (ADR-0038 §6, §9)
+    "frame-src 'self' https:",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",

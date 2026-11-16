@@ -61,6 +61,7 @@ describe('/app', () => {
       "connect-src 'self'",
       "img-src 'self' data:",
       "style-src 'self' 'unsafe-inline'",
+      "frame-src 'self' https:",
       "frame-ancestors 'none'",
       "base-uri 'self'",
     ])

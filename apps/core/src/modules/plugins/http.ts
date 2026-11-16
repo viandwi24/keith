@@ -7,6 +7,7 @@ import {
 } from '@keith/host'
 import type { Principal, Via } from '../auth/index.ts'
 import type { PluginHost } from './host.ts'
+import { answerMcp } from './mcp.ts'
 
 /** What thalamus knows about the request and hands over (`createApp` resolved the bearer). */
 export interface PluginRequestContext {
@@ -48,6 +49,38 @@ export function createPluginRoutes(options: { host: PluginHost }): PluginRoutes 
       // parts[0] is `plugins`
       const principalRef = { id: principal.personId }
 
+      const session = {
+        id: null,
+        kind: 'api' as const,
+        method: principal.credential?.methods?.[0] ?? (via === 'local' ? 'local' : null),
+        elevated: principal.elevated === true,
+      }
+
+      // the MCP endpoint (docs/specs/plugins.md "MCP"): the same operations through the same guard
+      if (parts.length === 2 && parts[1] === 'mcp') {
+        if (request.method !== 'POST')
+          return new Response(null, { status: 405, headers: { allow: 'POST' } })
+        const text = await request.text()
+        if (new TextEncoder().encode(text).length > PLUGIN_BODY_MAX_BYTES)
+          return json(413, errorBody('PAYLOAD_TOO_LARGE', 'the request body is too large'))
+        let message: unknown
+        try {
+          message = JSON.parse(text)
+        } catch {
+          return json(400, {
+            jsonrpc: '2.0',
+            id: null,
+            error: { code: -32700, message: 'parse error' },
+          })
+        }
+        const answer = await answerMcp(message, {
+          operations: () => host.visibleOperations(principalRef.id, 'http'),
+          run: (op, input) =>
+            host.guard.run(op, input, { principal: principalRef, session, signal: request.signal }),
+        })
+        return answer === undefined ? new Response(null, { status: 202 }) : json(200, answer)
+      }
+
       if (parts.length === 2 && parts[1] === 'openapi.json' && request.method === 'GET') {
         const ops = await host.visibleOperations(principalRef.id, 'http')
         return json(200, buildOpenApi(ops))
@@ -83,12 +116,7 @@ export function createPluginRoutes(options: { host: PluginHost }): PluginRoutes 
       try {
         const output = await host.guard.run(op, input, {
           principal: principalRef,
-          session: {
-            id: null,
-            kind: 'api',
-            method: principal.credential?.methods?.[0] ?? (via === 'local' ? 'local' : null),
-            elevated: principal.elevated === true,
-          },
+          session,
           signal: request.signal,
         })
         // an operation held for the owner's review answers 202 with its ticket

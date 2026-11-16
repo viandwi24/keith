@@ -5,6 +5,137 @@ The browser client of Keith: a SvelteKit 3 single-page app (Svelte 5 runes, `ada
 core serves at `/app` on its own origin. It reaches the core only through `@keith/client/browser`, takes types only from `@keith/contracts`
 and the look only from `@keith/ui/tokens`. State today: W6 (sign-in, shell, chat, approvals, Inbox, step-up, Home with the orb, command palette, inspector, presence, and the screens: Tasks, Nodes, Budget, Presence, Brain, Me and Memory, Rooms, Help), W8 (plugin views as the terminal grid, the guest page) and the web side of W9 (PWA, Web Push subscription). Manage is W7.
 
+## Redesign in progress (the stage)
+
+The web is being redesigned around one full-screen page (the "KEITH voice orb" design). While it is built, the old screens are **off**:
+`LEGACY_SCREENS` in `features/stage/legacy.ts` is `false`, so the app layout mounts no shell (rail, top bar, tab bar), no command palette
+and no inspector, and sends every app path but `/app/` to `/app/` (`legacyRedirect`; nothing behind it renders first). Their code stays in
+place as the backup; setting the flag to `true` brings everything below back. Sign-in (`/app/login`), the guest page, the step-up dialog
+and the privacy notice are unchanged. The layout still starts the feed, the connection monitor, approvals, presence and the front chat, so
+the orb's mode is real.
+
+- **Stage** (`features/stage`, route `/app/`). `Stage` fills the viewport in two layers. **Layer 0** is the background and takes no
+  input: near-black with a lighter centre and faint scanlines, the voice orb in the middle of the screen and the `KEITH` wordmark under
+  it; it never scrolls. **The HUD layer** floats above it: from 900 px wide a left and a right column (300 px each, 32 px from the edges,
+  top aligned, each scrolls on its own when it overflows); below 900 px one column (at most 320 px) that starts at 72 % of the height,
+  so the orb shows first, and scrolls over the orb. The brain panel is the first panel of the left column; the right column is empty
+  for now. Colours come from `VOICE_ORB_PALETTE` (`@keith/ui/orb`), always dark whatever the theme, written as `--stage-*` properties.
+- **Voice orb.** `VoiceOrb` steps the same `Orb` model and draws it as the design does (`drawVoiceOrb`): a radial glow whose opacity follows
+  `orb.amplitude` (`0.06 + amp * 0.002`, radius 320 design units), then every ring with its own opacity from the model (one fill style
+  per ring) and dots that grow from 1.1 to 2 design units toward the outside. Model units are pixels of a 720 px square
+  (`DESIGN_SIZE`); the orb is 720 px when it fits, else the width less a 16 px gutter or 80 % of the height, at least 160 px
+  (`orbSizeFor`). The mode is `orbState.mode` (see "Home"); it runs on every animation frame, stops while the tab is hidden, and the still
+  orb setting or reduced motion draws one fixed frame. Mode colours: idle `#d4d4d4`, listening `#4ade80`, thinking `#a5b4fc`, speaking
+  `#ffffff`, alert `#f87171`.
+- **Brain panel.** `BrainPanel` is the terminal's brain frame as a compact HUD panel (the design's panels: a translucent near-black fill
+  with a 6 px backdrop blur so the orb shows through, hairline border, white corner brackets, a letter-spaced title over a dashed rule;
+  colours in `VOICE_ORB_PALETTE.panel`). It is as wide as its column and stacks: header (`BRAIN`, the orb's mode as a coloured tag and a
+  chevron button that expands or collapses the panel, `aria-expanded`),
+  the shared `live.trace` as a 42 px grid of square dots, the braille look (`drawBrainDots`: 3 px pitch, 1.5 px dots, one column per
+  sample, newest at the right, lit symmetrically around the middle by the level, coloured by the leading region at `0.35 + 0.65 *
+  level`), the twelve regions in two columns under it (`regionRows`: `○` muted below energy 0.08, else `●`, the region's colour and a
+  one-character level bar; names from `regionLabel`; **only while expanded**), and the trail over a dashed rule (`trailOf`, regions joined by `›`) or
+  `no activity yet`. Region colours are the terminal's dark-theme ones (`VOICE_ORB_PALETTE.brain`). While it animates it steps the
+  trace every frame (`live.driveTrace`) and reads the list and trail ten times a second; still: no stepping, read once a second.
+- **Collapsed or expanded.** A panel opens collapsed: only what matters (header, graph, trail). Expanded adds its details (for the
+  brain panel, the region list). The choice is a per-browser convenience in `localStorage` (`keith.stage.<panel>.expanded` = `on`,
+  `panel-state.ts`, guarded: no storage or a throwing one means collapsed).
+- **Tests.** `panel-state.test.ts`, `voice-orb-draw.test.ts` (glow, one style per ring, design opacities, dot sizes, centring, sizes), `brain-draw.test.ts`
+  (grid, columns, colours, region rows, trail), `legacy.test.ts`.
+
+### Workspace (P40.1, ADR-0037)
+
+The stage has three modes (`workspace.mode`): **ambient** (the orb and the HUD panels above, with a `WORKSPACE` button under the orb
+that shows the number of open windows), **workspace** (the workspace floats over the orb: the orb stays in the background, a little smaller
+and quieter, behind a dimmed, blurred backdrop; the desktop comes in over it in a framed panel (`float.ts`: it rises 24 px and grows
+from 94 % while it fades in, 280 ms, instant under reduced motion) and leaves the same way; the HUD and the way in fade out. A 36 px orb
+sits in the dock; clicking it or the backdrop goes back to ambient. On a phone the panel fills the screen) and **overview** (every desktop as a card: choose, add, close; `Escape` goes back).
+`features/workspace` holds it. The document lives in the core (P40.2, `workspace.md`); the view is this browser's.
+
+- **Document** (`model.ts`). The workspace document and its operations are `@keith/contracts` (`workspace.md`): `model.ts` only
+  re-exports them, so this client applies an operation exactly as the core does.
+- **Sync** (`workspace.svelte.ts`, `sync.ts`). `workspace.start()` (from the app layout, once) reads `workspace.get` and follows
+  `workspace-changed`: a record with this tab's `clientId` is dropped, a newer version from elsewhere and every feed resync read the
+  document again. A change is applied here at once and queued; the queue sends one change at a time as `workspace.apply` on the version
+  the core last answered. Every answer replaces the base, and the changes still on their way are applied again on top of it
+  (`replayPending`; one that no longer applies is dropped with its reason). A conflict is tried again up to 3 times (`settleApply`);
+  a refusal shows a short note in the dock; a failed call drops the change and reads the document again. A drag that leaves a preset
+  sends `desktop.layout` (with every drawn rect) and `window.move` as one change.
+- **Keith** (P40.3, `workspace.md` "Keith"). A Keith change arrives as `workspace-changed` with `by: 'keith'`: the dock shows
+  `UNDO KEITH` (`workspace.undoKeith()` → `rpc.workspace.undoKeith`; a refusal is the note `Nothing of Keith's to undo`) until the
+  person changes the workspace or another change arrives. `workspace.show` is answered by the presence handler (below):
+  `deliverShow(target, busy)` shows the desktop (and focuses the window, or opens the overview, or goes back to the orb for `ambient`)
+  and acks `shown`, or, when the person is typing in a field with text or the tab is hidden, keeps a desktop or the overview in
+  `workspace.held` and acks `held` (the orb is never held). The app layout reports a changed `workspace.view` at once
+  (`presence.reportView`). A held request is a `KEITH · <title>`
+  chip in the dock (open or dismiss) and, in ambient, turns the way in into `KEITH HAS SOMETHING TO SHOW`.
+- **View** The desktop shown and the mode are kept in `localStorage` (`keith.workspace.view.v1`, guarded). `workspace.view`
+  (`{ mode, desktopId?, focusWindowId? }`) is what the leading tab's presence heartbeat reports (`presence.setView`, wired in the app
+  layout).
+- **Layouts** (`layout.ts`, pure). `placeWindows(desktop, area)` gives each window a pixel rect or `hidden`, 12 px apart: `focus` (only
+  the window on top, full size), `split` (the first window on the left half, the others stacked on the right), `stack` (rows), `grid`
+  (`ceil(sqrt(n))` columns, the last row widened), `free` (each rect × the area). A maximised window covers the desktop and hides the
+  others; minimised windows are not drawn. Below 600 px wide (`NARROW_WIDTH`) every desktop is drawn as `focus` and windows cannot be
+  dragged; the stage draws the phone workspace instead (below).
+- **Windows** (`WindowFrame`). A HUD frame (translucent fill, 8 px blur, corner brackets: white when focused, muted otherwise) with a
+  32 px title bar: the app glyph, the title, a `KEITH` tag when Keith opened it, minimise, maximise or restore, close; a double click
+  maximises. Dragging the title bar or the corner grip moves or resizes the frame by CSS only and sends one `window.move` on release;
+  dragging a window out of a preset makes the desktop `free`. The body sets the dark tokens inline (`darkTokenStyle`, and derives
+  `--border`, `--surface` and `--surface-strong` again), so an old screen reads dark over the stage whatever the theme.
+- **Apps** (`apps.ts`, `AppView`, P40.5, ADR-0038). `workspace.loadApps()` (from `start()` and on every feed resync) reads
+  `rpc.workspace.apps()`: the contributions to `web.window` this person may open. `mergeApps` lets the core's list win (an app it lists
+  replaces the fallback of the same id, in its order) and appends the fallback apps it does not list; a failed call keeps the last good
+  list, or `BUILTIN_APPS` (the offline fallback: the old screens plus `web:browser`, `web:doc`, `web:media`, `web:tui`). `appOf(id)`
+  reads the merged list. `AppView` draws a window by its entry: `{ builtin }` by name (`builtinName`; an unknown `web:*` id is drawn by
+  its local name, so a window Keith opened works before the list arrives), `{ url }` as a plugin page in `PluginFrame`. The old screens
+  are `web:chat`, `web:tasks`, `web:inbox`, `web:nodes`, `web:memory`, `web:rooms`, `web:budget`, `web:brain`, drawn unchanged and
+  singletons: opening one again focuses its window, or moves it to the desktop shown (`openAppOp`). Other apps follow their `singleton`
+  (a new window each time when false); the launcher opens them with no params, and each shows its empty state. Opening an app shows the
+  workspace. Links inside an old screen that go to another path still lead back to the stage.
+- **Plugin apps and the bridge** (`PluginFrame`, `bridge.ts`; the protocol and the sandbox rules are `plugin-web-apps.md`). A plugin
+  page loads in `<iframe sandbox="allow-scripts" referrerpolicy="no-referrer">`, never `allow-same-origin`, and only from
+  `/plugins/<id>/web/…` (`pluginFrameSrc`). Messages are read only when `event.source` is that frame's window and they fit
+  `AppToHostSchema` at `BRIDGE_VERSION`. `ready` is answered by `init` (params, theme `dark`, `navigator.language`, the frame's size);
+  a change of the window's params by Keith or the person is sent as `params` (not echoed back when it is what the app proposed);
+  `call` runs `POST /plugins/<contributor>/<operation>` from the SPA (same origin, the cookie) when the operation is the
+  contributor's own and listed in `calls` and the window is under `BRIDGE_CALLS_PER_MINUTE` (sliding minute, per window id), and
+  answers `result` (an error is one line of at most 200 characters); `setParams` is debounced 300 ms, checked as window params
+  (`WindowParamsSchema`, 4 KB) and applied as `window.setParams` when it differs; `setTitle` is cleaned (`cleanTitle`: no control or
+  bidi characters, 80 characters) and shown in a slim bar inside the window, the workspace title stays; `error` shows one short line.
+- **Built-in apps with params** (`builtin/`; params checked again by `builtin/params.ts`, the core validates them first).
+  `web:browser { url }`: https only (else the card `Only https pages`), `<iframe sandbox="allow-scripts allow-forms allow-popups"
+  referrerpolicy="no-referrer">` under a bar that always shows the domain and `Open in a new tab` (`target=_blank rel="noopener
+  noreferrer"`); when the frame has not fired `load` in 8 s the frame is replaced by a card (domain, `Open in a new tab`). Without a
+  URL it offers an address field that sets the window's params. `web:doc { title?, text }`: the chat's `Markdown` (nodes, never
+  HTML). `web:media { url, kind, caption? }`: https image, video or audio in the native element, no autoplay. `web:tui { view }`: the
+  Apps screen's `TerminalView` embedded (`embedded`: no back links, no page title, the box fills the window) for the view id
+  `<plugin>.<view>`.
+- **Dock** (`Dock`). The orb, the desktop tabs (with their window counts) and `+`, `APPS` (the launcher, `Escape` closes it), the five
+  layout presets as icon radios (workspace mode only), the minimised windows (click restores), `OVERVIEW`. It scrolls sideways when it
+  does not fit; the page never does.
+- **Overview** (`Overview`, P40.4). One card per desktop (number, name, layout, its windows): click shows it, double click or `✎`
+  renames it in place (Enter or blur keeps, Escape drops), `◀ ▶` or dragging a card onto another reorders (`desktop.move`), `×` closes
+  it (never the last), `+ NEW DESKTOP` up to six. The shortcut list is printed under the cards. Escape goes back to the workspace.
+- **Keyboard** (`keys.ts`, pure; the stage listens on the window, every mode). Alt (Option) held, read by `code` so Option+letter on a
+  Mac works: `Alt+1…6` shows that desktop, `Alt+←/→` the previous or next (wrapping), `Alt+Shift+←/→` moves the desktop shown,
+  `Alt+J/K` focuses the next or previous window (minimised ones too, focusing restores them), `Alt+O` toggles the overview, `Alt+W`
+  closes the focused window, `Alt+N` adds a desktop, `Alt+H` toggles the orb. Arrows are left to a text field; Ctrl or Cmd held is
+  never a workspace shortcut. A shortcut that does nothing (no window, at an edge) lets the key through.
+- **Phone** (`PhoneDesktops`, `phone.ts`, below `NARROW_WIDTH`). The desktops are pages side by side with scroll snap and dots under
+  them; the page a swipe rests on (`pageAt`, 120 ms after the last scroll) is the desktop shown, and a desktop shown from elsewhere
+  scrolls its page in (`pageOffset`). On the shown page each window is a full-height card (title, minimise, close, the app with the dark
+  tokens), focused first, one under the other; minimised windows are slim `RESTORE` rows at the end (`phoneCards`). Other pages only
+  list their windows, so a swipe never mounts every app.
+- **Tests.** `apps.test.ts` (built-in apps, singletons, the merged list, built-in names), `bridge.test.ts` (source and version
+  checks, the call rule, the limiter, the call run with a fake `fetch`, `init` fields, titles, errors, proposed params, frame src),
+  `builtin/params.test.ts` (https targets, doc, media, terminal view), `sync.test.ts` (replay on a newer document, a change that no longer applies,
+  the answers), `layout.test.ts`
+  (every preset with 1 to 12 windows at 375, 960 and 1440 px stays inside the area without overlap; split, focus, max, min, free),
+  `dark-tokens.test.ts`, `keys.test.ts` (every shortcut, text fields, modifiers, desktop steps and moves, window cycling, the phone
+  pages and cards). There is no DOM test environment in this app, so the components are checked by hand at 375 and 1440 px.
+
+The sections below describe the old screens, off until the flag is turned on again.
+
 ## Routes (base `/app`)
 
 | Route | Screen |
@@ -40,9 +171,11 @@ privacy notice. Routes are thin: they compose feature components.
 | `live` | The activity feed as state (`live`: brain state and lamps, the brain trace, tasks, nodes, budget) and the pure view models (`lampRows`, `budgetBar`, `nodeRows`, `taskRows`, `summaryCards`) |
 | `manage` | Manage: the section list and shell, `SectionStore` (the shared model read through the client), `ActionFlow` (forms, confirmations, notes), the table, drawer and dialogs, the provider form, the Logs levels and charts |
 | `home` | The orb and brain-wave canvases, subtitle, caption, quick ask, summary cards, `orbState` |
+| `stage` | The redesign's full-screen page: `Stage`, `VoiceOrb`, `BrainPanel`, `float` (the workspace coming in over the orb), `drawVoiceOrb`, `orbSizeFor`, `drawBrainDots`, `regionRows`, `trailOf` (pure, tested), `LEGACY_SCREENS` and `legacyRedirect` |
+| `workspace` | Modes, desktops and windows (P40.1): the document and its operations (`model.ts`), layout presets (`layout.ts`), the built-in apps (`apps.ts`, `AppView`), `WindowFrame`, `Desktop`, `Dock`, `Overview`, keyboard (`keys.ts`), the phone (`PhoneDesktops`, `phone.ts`), `workspace` state |
 | `inspector` | The right column and the drawer |
 | `palette` | The command palette: item model, filter, key model, actions |
-| `presence` | Presence kind `web`: leader election, the reporter, `notify` and `open.view`, the notification opt-in |
+| `presence` | Presence kind `web`: leader election, the reporter, `notify`, `open.view` and `workspace.show`, the notification opt-in |
 | `connection` | The connection monitor (`watchConnection`) as state, the pill, the offline banner with Retry |
 | `toasts` | The toast queue and stack |
 | `chat` | The conversation: controller, Markdown, tool cards, composer, history (see "Chat") |
@@ -97,7 +230,7 @@ animation, and menus, dialogs and tabs come from `bits-ui` (headless; styled by 
 
 `@keith/ui/orb` (`packages/ui/src/orb/index.ts`) is the orb model for a browser: `Orb` (particles and modes), `BrainTrace`, `orbPaletteOf` (the
 same colours as the terminal, from the tokens), the typewriter steps and a word wrap that takes its width function (`wordWrapWith`, with
-`pureCells` for the browser). It imports no Bun API, `node:`, Ink or React (`orb-subpath.test.ts` walks the import graph); the terminal-only
+`pureCells` for the browser), `VOICE_ORB_PALETTE` (the stage's fixed dark look: orb, HUD panel, brain colours), `LIST_ORDER` and `regionLabel` (the region list) and `orb.amplitude` (the current wave height). It imports no Bun API, `node:`, Ink or React (`orb-subpath.test.ts` walks the import graph); the terminal-only
 ANSI width helpers live in `orb/ansi-width.ts`.
 
 ## Chat
@@ -269,6 +402,9 @@ The layout passes the inspector to the shell as a snippet, so the shell imports 
   from that click, and a blocked browser is told so. The choice is `localStorage` `keith.notify` (guarded).
 - **`open.view`.** `tasks` opens `/tasks`, `protocols` opens `/manage/protocols`, `room:<id>` opens `/rooms/<id>`, `plugin:<id>:<view>` opens `/apps/<id>/<view>` when the
   view is in the person's menu (`viewMenu()`; a view they may not open is as unknown as any other name); anything else is acked `unsupported` (`UnsupportedDelivery`).
+- **`workspace.show`.** The delivery name is the target (`parseWorkspaceShowName`). A desktop this tab does not have is read again
+  (`workspace.sync()`, Keith may have just added it) before it is acked `unsupported`; otherwise `workspace.deliverShow` decides
+  `shown` or `held` (the Workspace section above). The web declares `render.workspace` too, so Keith's turns get "On screen now".
 
 ## Screens
 

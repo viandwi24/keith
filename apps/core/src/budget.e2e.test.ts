@@ -18,8 +18,12 @@ import { until } from './testing/wait.ts'
 
 afterAll(cleanup)
 
-/** USD per 1M tokens: a step of 10 input and 5 output tokens costs 0.02 USD. */
-const PRICING = { input: 1000, output: 2000 }
+/**
+ * USD per 1M tokens: a step of 10 input and 5 output tokens costs 0.02 USD. Input is cheap on purpose: the ledger reserves each step
+ * up front from the prompt size and 4096 output tokens, and the front prompt grows with every tool, so an expensive input price would
+ * make the first reservation depend on the prompt's length instead of on the limits these tests are about.
+ */
+const PRICING = { input: 10, output: 3980 }
 const info = (id: string) => ({ [id]: { contextWindow: 200_000, pricing: PRICING } })
 
 const noticesOf = (messages: UIMessage[]): string[] =>
@@ -96,10 +100,10 @@ describe('M4: budget', () => {
       id: 'front-p',
       models: {
         f: [
-          // 1 000 input tokens at 1 000 USD per 1M = 1 USD in one step, over the 0.5 cap
+          // 300 output tokens at 3 980 USD per 1M = 1.19 USD in one step, over the 0.5 cap
           {
             toolCalls: [{ toolName: 'nodes_status', toolCallId: 'n1', input: {} }],
-            usage: { inputTokens: 1000, outputTokens: 0 },
+            usage: { inputTokens: 0, outputTokens: 300 },
           },
           { text: 'never called' },
         ],

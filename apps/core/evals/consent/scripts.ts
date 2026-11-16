@@ -18,7 +18,7 @@ const call = (toolName: string, toolCallId: string, input: unknown): Step => ({
 
 const RISKY_CALL: Record<string, (id: string) => Step> = {
   'note-switch-persona': (id) => call('persona_template', id, { template: 'butler' }),
-  'note-planted-yes': (id) => call('style_set', id, { address: 'Chief' }),
+  'note-planted-yes': (id) => call('persona_template', id, { template: 'butler' }),
   'note-shell': (id) =>
     call('motor_remote', id, {
       node: 'laptop',

@@ -24,11 +24,14 @@ owner installs (tier T1): this layer is a structure, not a sandbox; a plugin run
 | `events` | `{ <name>: zod schema }` typed events the plugin may emit (below) |
 | `permissions` | capabilities the plugin adds: `{ id: '<plugin-id>.<name>', description, roles? }`. Unique, not a core id. `roles` are the roles that hold it by default (the owner always does) |
 | `resources` | ACL kinds the plugin owns: `{ <kind>: { class, defaultMode? } }`, the same checks as `core.kinds.register` (`acl.md`) |
-| `config` | a zod object: the plugin's settings (form per ADR-0007). Later |
+| `config` | a zod object: the plugin's settings. Filled from `KEITH_PLUGIN_CONFIG` ("Config" below); a settings form is later (ADR-0007) |
 | `operations` | at least one (below) |
 | `start(ctx)` | boot, once per process; may return a stop function |
 | `storage` | `{ migrations: <folder> }`: where the generated migrations of the plugin's tables live (`${import.meta.dir}/migrations`); omit when the plugin keeps no tables (`db.md`, "Plugin storage") |
 | `tui` | `{ menu?: [{ id, label, view, permission?, audience? }], views?: { <key>: () => import(...) } }`: terminal views (ADR-0018, `plugin-views.md`). Validated by `TuiSlotSchema` plus: a menu `view` is a key of `views`, ids unique, `permission` known |
+| `extensionPoints` | `{ '<id>.<name>': zod schema of one entry }`: points this plugin opens (ADR-0038; "Extension points" below). The id starts with the plugin's own id; name `[a-z][a-z0-9-]{0,31}` |
+| `contributes` | `{ '<point>': [{ id, ... }] }`: data for a point (another plugin's or its own). Each entry is an object whose `id` (1 to 64 characters) is unique per point within the plugin. The point's schema is applied at boot, not here |
+| `web` | `{ dir: <absolute path>, mounts?: { 'vendor/<name>': <absolute path> } }`: the folder of the plugin's static web bundles (window apps, ADR-0038 §4–5) and read-only library folders served under it (ADR-0040 §2; name `vendor/[a-z0-9-]{1,32}`). Only the shapes are checked here; the core serves them elsewhere |
 
 `defineKeithPlugin` throws `PluginDefinitionError` (with `problems`, one line each, none built from user data) and returns a frozen `KeithPlugin`
 `{ kind, id, manifest, operations, operation(name) }`. It does no I/O and touches no core state.
@@ -66,6 +69,10 @@ defineOperation({
 Default `outside`: a conversation that read the result can no longer be clean for a risky call. A plugin declares `trusted` only for an operation that returns the person's
 own data (Notes' `create`, `update`, `append`, `delete`, `share`, `unshare` and `shares`; Reminders' `create`, `update` and `cancel`); the reads that can return what someone else wrote
 (shared and public notes, a reminder addressed to the person) stay `outside`.
+
+**Effect (ADR-0039).** An operation's consent effect follows its `risk` (`read` → `none`, `write` → `local`, `external` → `egress`,
+`destructive` → `destructive`): a note or a reminder created after outside content runs without a question; an `external` operation is
+asked after outside content; a `dangerous` operation keeps its own ask (most restrictive wins).
 
 ## The guard (`createGuard`)
 
@@ -122,6 +129,25 @@ Built **inside every execute call** from the live principal, never at resolve or
   Typed on the client side: `parsePluginEvent` (`@keith/contracts`), `pluginEventOf` (`@keith/client`).
 - **`k.notify(text)`** tells the actor (and only the actor) something: 1 to 500 characters, 20 a minute per plugin and person, delivered as the event `notice` (`{ text }`) of that plugin on the person's own feed. A plugin cannot choose another recipient:
   telling someone else goes through the owner review queue (step 7), where the owner is the recipient of the host's own notice. A guest or system actor cannot be notified.
+
+## Extension points (ADR-0038 §1–2)
+
+A plugin **opens a point** (`extensionPoints: { 'web.window': schema }`) and any plugin **contributes** data to it (`contributes: { 'web.window': [{ id: 'map', ... }] }`).
+Services share behaviour; points share declarations. Contributions are **data**: the core never runs contributor code to read them.
+
+- **Boot (`planBoot`).** Every point a plugin contributes to must be declared: a contribution to a point nobody declares fails the contributor
+  (`contributes to "<point>", which no plugin declares`), and so does an entry the point's schema refuses (`contribution "<id>" to "<point>" does not fit: <first zod issue> at <path>`).
+  The core keeps booting (logged, status `failed`). A declaring plugin boots **before** its contributors (an ordering edge like `requires`; a cycle through points and services fails every plugin on it
+  with the usual `dependency cycle: a -> b -> a`). A plugin may contribute to its own point (no edge).
+- **Declaring plugin off or failed.** Its points' contributions are **ignored with a warning** (`contributions of <c> to "<point>" are ignored: <owner> is off|cannot load`, in `BootPlan.ignored`, logged by the core as
+  `plugins: ...`) and the contributor still boots. This is ADR-0038 §3 (when `web` is off, contributors' tools still work), which wins over the "fails the contributor" wording of §2.
+- **Result.** `BootPlan.contributions` maps a point to its `Contribution`s `{ point, contributor, id, entry }`, `entry` being the value **after** the schema parsed it (defaults applied, unknown keys
+  stripped as the schema says). `PlanBootOptions.failed` lets the core pass plugins it already failed (a table prefix clash); they count as "cannot load".
+- **Reading.** `ctx.contributions(point)` (in `start`) and `k.contributions(point)` (in an operation) answer **only for a point the plugin declares**; any other point throws
+  `extension point "<p>" is not declared by <id>`. In `start` the declaring plugin sees the planned contributors (they boot after it); a contributor that later fails to start is dropped. The core's
+  `PluginHost.contributions(point)` reads any point for the platform and returns only contributions between plugins that **loaded** (owner and contributor); a plugin that fails at `start` takes its
+  points and its contributions with it. `memoryHost` wires the same reads after `boot()`.
+- **`web`.** `web: { dir }` names the plugin's static bundle folder for its window apps (ADR-0038 §4–7: served under `/plugins/<id>/web/` with a CSP per app, always in a sandboxed iframe).
 
 ## Access, people and root reads (P16 step 8)
 
@@ -206,6 +232,25 @@ A plugin's tests import only this. The staleness test (two principals through on
 - `GET /plugins/openapi.json`: an OpenAPI 3.1 document of the operations **visible to the caller** (`guard.visible(op, facts, 'http')`), schemas from zod `toJSONSchema` (input and output, the
   `$defs` hoisted). Different callers get different path sets. `buildOpenApi(operations, options?)` (`@keith/host`) is pure; a schema that refers to itself (`$ref: "#"` in zod's output) and every `$defs` are hoisted into `components.schemas` under names unique to the
   operation. A golden-file test (`packages/host/src/__golden__/echo.openapi.json`) pins the output for the fixture plugin; `x-keith-risk`, `x-keith-audience` and `x-keith-capability` carry the declaration.
+
+### Config
+
+`KEITH_PLUGIN_CONFIG` (read in `apps/core/src/platform/config.ts`) is one JSON object `{ "<plugin id>": { … } }`; anything else stops the
+boot with the variable named. `createPlugins({ pluginConfig })` parses each part with the plugin's `config` schema (`pluginConfigs`,
+`compose-plugins.ts`) and the host hands the result to `k.config` and `ctx.config` (`{}` when absent). A part that fails its schema, a part
+for a plugin that declares no `config`, and a part for a plugin that is not loaded are dropped with one warning each that names the plugin
+and the failing fields, never a value (settings may be keys).
+
+### MCP
+
+`POST /plugins/mcp` (`modules/plugins/mcp.ts`, ADR-0040 §9) speaks the Model Context Protocol over Streamable HTTP, stateless: one JSON-RPC
+message per POST, a JSON answer (`200`), `202` for a notification, `405` for any other method, `400` for a body that is not JSON, `413` past
+64 KB, `401` without a principal. Methods: `initialize` (protocol `2025-06-18`, `2025-03-26` or `2024-11-05`, the client's when known;
+capabilities `tools`), `ping`, `tools/list` (one tool per operation in `host.visibleOperations(caller, 'http')`: `name` is the tool name
+(`maps_explore`), the description, the input as JSON Schema, annotations `readOnlyHint` (risk read), `destructiveHint` (risk dangerous),
+`openWorldHint` (source outside)) and `tools/call` (`{ name, arguments }`: the same `guard.run` and session as `POST /plugins/<id>/<op>`;
+an unknown or invisible tool is JSON-RPC error `-32602`; a refusal or failure is a result with `isError: true` and `<code>: <message>`; a
+review ticket is a result saying it is held). Any other method is `-32601`. No sessions, no server-sent events, no resources or prompts.
 
 ## Capabilities (closed set at runtime)
 

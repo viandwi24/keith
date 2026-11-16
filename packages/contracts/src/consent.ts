@@ -18,3 +18,22 @@ export type ConsentContext = z.infer<typeof ConsentContextSchema>
  */
 export const ConsentTierSchema = z.enum(['conversation', 'device'])
 export type ConsentTier = z.infer<typeof ConsentTierSchema>
+
+/**
+ * What a tool call can do (ADR-0039 §1), which consent reads instead of the turn alone: `none` reads or changes only what the person
+ * sees; `local` adds to or changes the person's own data inside Keith (removable or undoable); `behavior` changes how Keith acts from
+ * then on (persona, model roles); `egress` sends data out of Keith or to other people; `destructive` runs code or destroys what cannot
+ * be undone. Declared on a tool as `metadata.effect`, or decided per call by an input-aware rule in the core.
+ */
+export const ToolEffectSchema = z.enum(['none', 'local', 'behavior', 'egress', 'destructive'])
+export type ToolEffect = z.infer<typeof ToolEffectSchema>
+
+/**
+ * The effect of one call, with its targets (ADR-0039 §2): the values that decide where data goes or what runs (a URL, a command).
+ * `url` targets are compared by host with the person's messages, `text` targets by their text.
+ */
+export interface ConsentCallEffect {
+  effect: ToolEffect
+  targets?: readonly string[]
+  targetKind?: 'url' | 'text'
+}

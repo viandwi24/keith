@@ -180,6 +180,8 @@ The instructions have one static part and one per-turn part:
    - the "Where the person is now" block of the person's active client (`parietal`, "Client context block"; ADR-0033 §5): the app, host, OS,
      device, network and local time (always on, no setting, ADR-0033 amendment); nothing when no client is online. It is the person's own clients
      only and is cleaned as data.
+   - the "On screen now" line (`parietal`, `onScreenLine`; `workspace.md`, Keith): what the person's active workspace screen shows, titles
+     quoted as data; only when the `workspace` tool is wired and an online client of the person declares `render.workspace`.
    - the mode block of the turn (last).
 
 ### Rooms
@@ -235,14 +237,15 @@ audit rows are identical.
 | Tool | Input | Who | Approval |
 | --- | --- | --- | --- |
 | `style_get` | none | the speaker | no (a read, `trusted`) |
-| `style_set` | `address` (string or null), `language`, `brevity`, `formality`, `gentleTopics`, all optional; no field stores the defaults ("skip") | the speaker, own style only | when tainted (reversible write) |
+| `style_set` | `address` (string or null), `language`, `brevity`, `formality`, `gentleTopics`, all optional; no field stores the defaults ("skip") | the speaker, own style only | never (`local`, runs with undo; ADR-0039) |
 | `persona_get` | none | owner (`not-owner` for a member) | no (a read, `trusted`) |
-| `persona_template` | `template`: `butler`, `friend` or `professional` | owner | when tainted (reversible write) |
-| `persona_edit` | any of `tone`, `attitude`, `humour`, `addressing`, `caresAbout`, `lines` | owner | when tainted (reversible write) |
-| `persona_restore` | `version` | owner | when tainted (reversible write) |
+| `persona_template` | `template`: `butler`, `friend` or `professional` | owner | when tainted (`behavior`) |
+| `persona_edit` | any of `tone`, `attitude`, `humour`, `addressing`, `caresAbout`, `lines` | owner | when tainted (`behavior`) |
+| `persona_restore` | `version` | owner | when tainted (`behavior`) |
 
 - **Consent (ADR-0036, amends ADR-0034 §3).** The plugin has no `tool.approve` hook. Every tool declares `metadata`: the reads `style_get` and `persona_get` are
-  `{ risk: 'read', source: 'trusted' }`; `style_set`, `persona_template`, `persona_edit` and `persona_restore` are `{ risk: 'write', reversible: true, source: 'trusted' }`.
+  `{ risk: 'read', source: 'trusted' }`; `style_set` is `{ risk: 'write', reversible: true, source: 'trusted' }` (effect `local`: it runs with undo even after outside content, ADR-0039);
+  `persona_template`, `persona_edit` and `persona_restore` add `effect: 'behavior'` (asked in conversation after outside content).
   Amygdala's consent hook (`amygdala.md`, "Consent") answers: in a clean conversation (the person's own message asked, nothing outside read since) the change runs
   with no pending approval and records an undo; after outside content, or in a turn that no person started, it waits as an approval with the tier `conversation`
   (so ADR-0034 §3's "persona tools wait for approval" holds only when tainted). The three persona names plus `model_role_set` stay `STEP_UP_TOOLS`

@@ -1579,3 +1579,46 @@ report or a room message approves anything; "no" or a new topic leaves the reque
 survives its 10 minutes; a restart turns an open request into something that runs.
 
 **Reset.** `rm -rf .data/test`; stop the python server and `rm -rf /tmp/p39`.
+
+### Scenario 36: the world globe, live layers and MCP (ADR-0040)
+
+**Goal.** The map window is a globe that morphs to 2D and back without a reload, its layers load through the core, the agent reads a
+layer with `maps_explore`, and an outside MCP client lists and calls the plugin tools. Steps 1 to 7 need no model; step 8 does.
+
+Set up: `rm -rf .data/test`, `bun run manual:setup`, `bun run --cwd apps/web build`, `bun run manual:core`, sign in at
+`http://127.0.0.1:7420/app` (Chrome or Safari, WebGL on). Open the launcher and start **World**, or ask Keith "show Surabaya on the map".
+
+**Steps.**
+1. Globe: the window shows a dark globe with labels. Drag to turn it, scroll to zoom, ctrl-drag (or middle-drag) to tilt. DevTools console of
+   the frame: no CSP error, no "Failed to construct 'Worker'", no WebAssembly error.
+2. 2D / 3D: press `2D`. The globe morphs to a flat map in about a second; the marker, pins and drawn marks stay. Press `3D`: back to the
+   globe. Reload the page: the window opens in the mode you left it in (`view` in the params).
+3. Styles: ◫ > Satellite, then Night. Tiles load (Network tab: `/plugins/maps/net/...` 200, `X-Keith-Cache`). The credit at the bottom right
+   changes; ⓘ shows the full credit.
+4. Layers: ≋ > Earthquakes and Satellites. Within a few seconds quakes appear as orange badges and satellites move along their orbits.
+   Click a satellite: the card shows altitude, period and inclination, and its track is drawn; Follow keeps it centred until you drag.
+5. City layers: fly to London (or Singapore, Hong Kong) at zoom 12: ≋ > Public cameras. Camera badges appear; a click shows a live
+   snapshot that refreshes every 20 s (when a city's feed is down the card says "No snapshot from this camera right now"; TfL's feed was
+   empty on 2026-11-16, Singapore and Hong Kong answered). At zoom 13+ anywhere (try Jakarta) cameras mapped in OpenStreetMap appear (no picture, their tags).
+   ≋ > Flights shows aircraft with a heading arrow; ≋ > Radio lists stations, and the card plays one only when you press play.
+6. Transit: fly to Kuala Lumpur at zoom 11, ≋ > Transit: Rapid KL buses appear with their route numbers and move between answers.
+7. Director mode: ✎ > Area, click three points, Done. Then Line and Pin with a label. Undo removes the last one. Reload: the marks are still
+   there (`marks` in the params).
+8. Agent: ask "what is flying over Jakarta right now?" and "show me public cameras near Trafalgar Square". Expect `maps_explore` calls
+   (Logs > the session) with a short list, and the World window opening with that layer on and zoomed to the place.
+9. Ships (optional): stop the core, start it with `KEITH_PLUGIN_CONFIG='{"maps":{"aisstreamKey":"<key>"}}' bun run manual:core`, fly to
+   the Strait of Malacca at zoom 7, ≋ > Ships. The layer says "listening to AIS" and ships appear within a minute. Without the key it says
+   it needs the `aisstreamKey` setting. A bad JSON in the variable stops the boot with `KEITH_PLUGIN_CONFIG` named; a wrong field logs
+   `plugin config: maps settings ignored (aisstreamKey)` without the value.
+10. MCP: create a token (Manage > Tokens), then:
+    ```
+    curl -s http://127.0.0.1:7420/plugins/mcp -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+    curl -s http://127.0.0.1:7420/plugins/mcp -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"maps_explore","arguments":{"layer":"quakes","near":"Ambon","radiusKm":500}}}'
+    ```
+    Expect `maps_explore` in the list (and no `maps_layers`), and a result with quakes near Ambon. Without the header: `401`.
+
+**Bug if:** the frame logs a CSP or worker error; 2D/3D reloads the page or loses marks; a tile, snapshot or preview loads from any host
+other than the core (`/plugins/maps/net/...`); a radio plays by itself; a layer's failure breaks the other layers; a member's token lists a
+tool the member may not call; the plugin config value appears in a log line.
+
+**Reset.** `rm -rf .data/test`; stop the core.

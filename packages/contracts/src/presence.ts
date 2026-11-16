@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ClientViewSchema } from './workspace.ts'
 
 /**
  * Presence and clients of the parietal region (docs/specs/parietal.md, ADR-0025, ADR-0023 §5). A client is a node for one
@@ -20,8 +21,13 @@ export type ClientCapability = z.infer<typeof ClientCapabilitySchema>
  * The rendering ids a client declares on register (ADR-0029 §5): `render.markdown` (its screen renders Markdown) and
  * `render.speech-only` (its channel is spoken). The core never asks a client for them; it reads them to choose the mode
  * of an answer. A client that declares neither gets plain text in `chat` mode, so no client is assumed to render Markdown.
+ * `render.workspace` (ADR-0037 §6): the client draws the person's workspace, so Keith may open windows for it to show.
  */
-export const RENDER_CAPABILITY_IDS = ['render.markdown', 'render.speech-only'] as const
+export const RENDER_CAPABILITY_IDS = [
+  'render.markdown',
+  'render.speech-only',
+  'render.workspace',
+] as const
 export const RenderCapabilitySchema = z.enum(RENDER_CAPABILITY_IDS)
 export type RenderCapability = z.infer<typeof RenderCapabilitySchema>
 
@@ -117,6 +123,8 @@ export const ClientRecordSchema = ClientRegisterSchema.extend({
   lastActiveAt: z.number().nullable(),
   online: z.boolean(),
   network: ClientNetworkSchema.optional(),
+  /** The workspace view of its latest heartbeat, while it is online (kept in memory, never stored). */
+  view: ClientViewSchema.optional(),
 })
 export type ClientRecord = z.infer<typeof ClientRecordSchema>
 
@@ -124,7 +132,11 @@ export type ClientRecord = z.infer<typeof ClientRecordSchema>
  * A client as the owner's raw read shows it: the record without `environment` and `network`. Another person's client
  * environment is never listed to anyone (docs/decisions/0033 §3; docs/specs/client.md, "Client environment").
  */
-export const RawClientRecordSchema = ClientRecordSchema.omit({ environment: true, network: true })
+export const RawClientRecordSchema = ClientRecordSchema.omit({
+  environment: true,
+  network: true,
+  view: true,
+})
 export type RawClientRecord = z.infer<typeof RawClientRecordSchema>
 
 /** The signal types of ADR-0025 §1. `device.location` is listed but refused until a mobile client exists. */
@@ -230,6 +242,8 @@ export type PresenceStatusView = z.infer<typeof PresenceStatusViewSchema>
 export const ClientHeartbeatSchema = z.object({
   id: z.string().uuid(),
   active: z.boolean(),
+  /** What the client shows of the workspace now (ADR-0037 §4); a client that renders none leaves it out. */
+  view: ClientViewSchema.optional(),
 })
 export type ClientHeartbeat = z.infer<typeof ClientHeartbeatSchema>
 

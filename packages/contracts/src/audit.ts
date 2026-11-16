@@ -122,6 +122,8 @@ export const AUDIT_SUBJECT_FIELDS: Readonly<Record<string, readonly string[]>> =
   'client.removed': ['subject'],
   // an ecosystem call of the front agent (`client_call`, docs/specs/node-drivers.md): the person, the capability, the outcome
   'client.call': ['person'],
+  // Keith changed the person's workspace (`workspace` tool, docs/specs/workspace.md): the person, the action, the outcome; no titles
+  'workspace.keith': ['person'],
   // a file of the person leaves Keith by reference (ADR-0021 §2): the path and the size, never the content
   'workspace.file.send': ['person'],
   'presence.status.set': ['subject'],

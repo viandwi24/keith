@@ -168,3 +168,81 @@ describe('GET /plugins/openapi.json', () => {
     expect((await get('/plugins/openapi.json', undefined)).status).toBe(401)
   })
 })
+
+/** The parts of a JSON-RPC answer the MCP tests read. */
+type RpcAnswer = {
+  result: {
+    protocolVersion?: string
+    capabilities: { tools?: unknown }
+    tools?: { name: string; inputSchema: { type: string } }[]
+    isError?: boolean
+    structuredContent?: unknown
+  }
+  error: { code: number }
+}
+
+describe('POST /plugins/mcp', () => {
+  const rpc = (id: number | undefined, method: string, params?: unknown) => ({
+    jsonrpc: '2.0',
+    ...(id === undefined ? {} : { id }),
+    method,
+    ...(params === undefined ? {} : { params }),
+  })
+
+  test('initialize, tools/list of what the caller may see, and tools/call through the guard', async () => {
+    const { post, get, as } = await setup()
+    const init = (await (
+      await post('/plugins/mcp', rpc(1, 'initialize', { protocolVersion: '2025-03-26' }), as('ana'))
+    ).json()) as RpcAnswer
+    expect(init.result.protocolVersion).toBe('2025-03-26')
+    expect(init.result.capabilities.tools).toBeDefined()
+    expect(
+      (await post('/plugins/mcp', rpc(undefined, 'notifications/initialized'), as('ana'))).status,
+    ).toBe(202)
+
+    const list = (await (
+      await post('/plugins/mcp', rpc(2, 'tools/list'), as('ana'))
+    ).json()) as RpcAnswer
+    const names = (list.result.tools ?? []).map((t: { name: string }) => t.name)
+    expect(names).toContain('echo_say')
+    // a member lacks people.manage: the owner-only operation is not listed
+    expect(names).not.toContain('echo_admin')
+    const say = list.result.tools?.find((t: { name: string }) => t.name === 'echo_say')
+    expect(say?.inputSchema.type).toBe('object')
+
+    const call = (await (
+      await post(
+        '/plugins/mcp',
+        rpc(3, 'tools/call', { name: 'echo_say', arguments: { text: 'hi' } }),
+        as('ana'),
+      )
+    ).json()) as RpcAnswer
+    expect(call.result.isError).toBe(false)
+    expect(call.result.structuredContent).toEqual({ text: 'hi' })
+
+    const denied = (await (
+      await post(
+        '/plugins/mcp',
+        rpc(4, 'tools/call', { name: 'echo_admin', arguments: {} }),
+        as('ana'),
+      )
+    ).json()) as RpcAnswer
+    expect(denied.error.code).toBe(-32602)
+    const bad = (await (
+      await post(
+        '/plugins/mcp',
+        rpc(5, 'tools/call', { name: 'echo_say', arguments: { text: 5 } }),
+        as('ana'),
+      )
+    ).json()) as RpcAnswer
+    expect(bad.result.isError).toBe(true)
+
+    expect((await post('/plugins/mcp', rpc(6, 'tools/list'), undefined)).status).toBe(401)
+    expect((await get('/plugins/mcp', as('ana'))).status).toBe(405)
+    expect((await post('/plugins/mcp', null, as('ana'), '{not json')).status).toBe(400)
+    const unknown = (await (
+      await post('/plugins/mcp', rpc(7, 'resources/list'), as('ana'))
+    ).json()) as RpcAnswer
+    expect(unknown.error.code).toBe(-32601)
+  })
+})

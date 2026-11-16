@@ -228,6 +228,12 @@ import {
   SuccessionViewSchema,
 } from './succession.ts'
 import { TaskSchema } from './tasks.ts'
+import { WebAppSchema } from './web-apps.ts'
+import {
+  WorkspaceApplyResultSchema,
+  WorkspaceApplySchema,
+  WorkspaceDocSchema,
+} from './workspace.ts'
 
 const ConnectionId = z.object({ id: z.string() })
 
@@ -635,6 +641,19 @@ export const keithContract = {
    * remote caller, and each writes one version. `history` is owner only (`audit.read`). A person reads and sets their own style
    * with `chat`; `style.read` is the owner's audited read of another person's style (`audit.read`, acl.owner-access).
    */
+  /**
+   * The workspace of the signed-in person (ADR-0037, docs/specs/workspace.md): desktops and windows as one versioned document.
+   * Every signed-in person (`chat`) reads and changes their own; a guest has no workspace.
+   */
+  workspace: {
+    get: can('chat').output(WorkspaceDocSchema),
+    /** Operations on the version the caller saw: applied all or none, or a conflict with the newest document. */
+    apply: can('chat').input(WorkspaceApplySchema).output(WorkspaceApplyResultSchema),
+    /** Takes back Keith's latest change while nothing changed after it (the dock's Undo, ADR-0037 §7). */
+    undoKeith: can('chat').output(WorkspaceApplyResultSchema),
+    /** The window apps this person may open: the contributions to `web.window` (ADR-0038, docs/specs/plugin-web-apps.md). */
+    apps: can('chat').output(z.array(WebAppSchema)),
+  },
   persona: {
     get: can('chat').output(PersonaViewSchema),
     history: can('audit.read').output(z.array(PersonaVersionSchema)),

@@ -122,3 +122,18 @@ describe('loadConfig', () => {
     )
   })
 })
+
+describe('KEITH_PLUGIN_CONFIG', () => {
+  test('a JSON object by plugin id; empty is none; anything else is refused', () => {
+    expect(loadConfig({}).pluginConfig).toEqual({})
+    expect(
+      loadConfig({
+        KEITH_PLUGIN_CONFIG: '{"maps":{"receivers":["http://rx.lan/data/aircraft.json"]}}',
+      }).pluginConfig,
+    ).toEqual({
+      maps: { receivers: ['http://rx.lan/data/aircraft.json'] },
+    })
+    expect(() => loadConfig({ KEITH_PLUGIN_CONFIG: '[1]' })).toThrow('KEITH_PLUGIN_CONFIG')
+    expect(() => loadConfig({ KEITH_PLUGIN_CONFIG: '{oops' })).toThrow('KEITH_PLUGIN_CONFIG')
+  })
+})

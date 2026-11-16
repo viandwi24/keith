@@ -1,6 +1,6 @@
 # 0016. The Keith plugin layer: one operations registry
 
-Status: Accepted (2026-11-08). Fulfils the plugin promise of ADR-0003 and ADR-0007. Plan: docs/plans/done/P16-keith-plugin-layer.md. Amended by ADR-0027 §3 (migrations may run at start, after a backup).
+Status: Accepted (2026-11-08). Fulfils the plugin promise of ADR-0003 and ADR-0007. Plan: docs/plans/done/P16-keith-plugin-layer.md. Amended by ADR-0027 §3 (migrations may run at start, after a backup) and ADR-0038 (proposed: extension points; §5 a plugin may serve the static files of its web apps).
 
 ## Context
 

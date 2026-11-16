@@ -32,6 +32,7 @@ export {
   type PresenceWindows,
   whereOf,
 } from './compute.ts'
+export { clientCallConsentEffect, workspaceConsentEffect } from './consent-effects.ts'
 export {
   activeClientOf,
   CLIENT_CONTEXT_HEADING,
@@ -93,3 +94,26 @@ export {
   presenceToolOf,
   resolvePerson,
 } from './tool.ts'
+export {
+  type CatalogApp,
+  type ContributionLike,
+  catalogOf,
+  checkAppOps,
+  openableBy,
+  webAppOf,
+} from './web-apps.ts'
+export {
+  createWorkspaceService,
+  type WorkspaceService,
+  type WorkspaceServiceDeps,
+} from './workspace.ts'
+export { workspaceProcedures } from './workspace-procedures.ts'
+export {
+  KEITH_OPS_PER_MINUTE,
+  onScreenLine,
+  WORKSPACE_TOOL,
+  type WorkspaceToolOptions,
+  workspaceScreens,
+  workspaceTool,
+  workspaceToolOf,
+} from './workspace-tool.ts'

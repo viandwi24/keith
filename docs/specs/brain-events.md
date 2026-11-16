@@ -33,6 +33,7 @@ The payload of each is a zod schema in `packages/contracts/src/brain.ts` (`Brain
 | `brain.hippocampus.recall` | `memory_view` returned (`path`, `taskId` in a worker) | `brainEvents`, `step.end` |
 | `brain.parietal.presence` | a person's computed presence changed (`personId`, `state`, `previous`: null on the first computation) | `parietal` recompute on a signal or every minute (`parietal.md`, Signals and computation) |
 | `brain.parietal.deliver` | a client was asked to do a capability for a delivery (`clientId`, `deliveryId`, `capability`, `name`) | `parietal.callClient` (`parietal.md`, Client capability registry and route) |
+| `brain.parietal.workspace` | Keith's `workspace` tool acted on the person's workspace (`action`, `ok`; no titles) | the `workspace` tool, on the turn's session (`workspace.md`, Keith) |
 | `brain.hypothalamus.fire` | a protocol run started (`protocolId`, `runId`, `trigger`: `time`, `absence`, `signal`, `event`) | the protocol engine (`hypothalamus.md`, Engine; built in P28.2) |
 | `brain.hypothalamus.step` | a step of a run got its outcome (`runId`, `step`, `kind`, `outcome`) | the protocol engine (`hypothalamus.md`, Engine) |
 | `brain.hypothalamus.wait` | a run waits until `wakeAt` (a `wait`, an `ask` deadline, a delayed event) | the protocol engine (`hypothalamus.md`, Engine) |

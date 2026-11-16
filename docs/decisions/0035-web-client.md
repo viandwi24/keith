@@ -1,7 +1,8 @@
 # ADR-0035: The web client is a built-in app
 
 Status: accepted (Nov 14, 2026). Plan: `docs/plans/active/P38-web-client.md`. Amends the P0 plan (`plugins/web-ui`, "the web UI comes
-in as a plugin"). Builds on ADR-0013 (sign-in), ADR-0016 (plugin layer), ADR-0033 (client context).
+in as a plugin"). Builds on ADR-0013 (sign-in), ADR-0016 (plugin layer), ADR-0033 (client context). Amended by ADR-0037 and
+ADR-0038 (proposed): §1 the workspace's core side is the plugin `web`; §7 plugin code may run in the browser, sandboxed.
 
 ## Context
 

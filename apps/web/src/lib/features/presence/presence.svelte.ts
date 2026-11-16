@@ -7,9 +7,11 @@ import {
   UnsupportedDelivery,
   WEB_CAPABILITIES,
 } from '@keith/client/browser'
+import { type ClientView, parseWorkspaceShowName } from '@keith/contracts'
 import { goto } from '$app/navigation'
 import { appBase, getClient } from '../session/index.ts'
 import { toasts } from '../toasts/index.ts'
+import { workspace } from '../workspace/index.ts'
 import { electLeader } from './leader.ts'
 import { notifications } from './notifications.svelte.ts'
 import { decideNotify, shouldTouch, viewPath } from './notify-decision.ts'
@@ -17,6 +19,16 @@ import { decideNotify, shouldTouch, viewPath } from './notify-decision.ts'
 const WEB_VERSION = '0.1.0'
 const TOUCH_CHANNEL = 'keith.presence.touch'
 const TOUCH_EVENTS = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const
+
+/** The person is typing in a field with text, or does not see the tab: Keith's `workspace.show` waits as a chip. */
+function isBusy(): boolean {
+  if (document.hidden) return true
+  const active = document.activeElement
+  return (
+    (active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement) &&
+    active.value.trim() !== ''
+  )
+}
 
 /**
  * Presence kind `web`: this browser is one of the person's clients. Only one tab reports (the election in `leader.ts`); it
@@ -29,6 +41,17 @@ class PresenceState {
   private reporter: PresenceReporter | undefined
   private leave: (() => void) | undefined
   private lastTouch = 0
+  private viewReader: (() => ClientView | undefined) | undefined
+
+  /** What the heartbeat reports as this tab's workspace view (ADR-0037 §4); the app layout wires it to the workspace. */
+  setView(read: () => ClientView | undefined): void {
+    this.viewReader = read
+  }
+
+  /** The view changed (the person or Keith switched between the orb, a desktop and the overview): tell the core now, not at the next beat. */
+  reportView(): void {
+    this.reporter?.reportNow()
+  }
 
   start(): void {
     if (this.leave !== undefined) return
@@ -86,6 +109,7 @@ class PresenceState {
       version: WEB_VERSION,
       store: localStorageClientIdStore(),
       environment: () => detectBrowserEnvironment(),
+      view: () => this.viewReader?.(),
     })
     reporter.onNotify((delivery) => {
       const decision = decideNotify({
@@ -125,6 +149,16 @@ class PresenceState {
       }
       void goto(`${appBase()}${path}`)
       return undefined
+    })
+    // Keith asks this screen to show a desktop, a window or the overview: held as a dock chip while the person types or the tab
+    // is hidden (ADR-0037 §6); a target this tab does not have is unsupported
+    reporter.onDeliver('workspace.show', async (delivery) => {
+      const target = parseWorkspaceShowName(delivery.name)
+      if (target === undefined) throw new UnsupportedDelivery()
+      // Keith may have just added the desktop: read the workspace again before calling it unknown
+      if ('desktopId' in target && !workspace.has(target.desktopId)) await workspace.sync()
+      if ('desktopId' in target && !workspace.has(target.desktopId)) throw new UnsupportedDelivery()
+      return workspace.deliverShow(target, isBusy())
     })
     this.reporter = reporter
     this.leading = true

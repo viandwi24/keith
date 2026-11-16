@@ -7,6 +7,7 @@ import type {
   ClientNetwork,
   ClientRecord,
   ClientRegister,
+  ClientView,
   DisclosureLevel,
   DisclosureRow,
   DisclosureSet,
@@ -131,6 +132,8 @@ export function createParietalService(options: ParietalServiceOptions): Parietal
   const warn = options.warn ?? (() => {})
   const overlays: OverlayRegistry = createOverlayRegistry()
   const lastBeat = new Map<string, number>()
+  /** The workspace view of each client from its latest heartbeat (ADR-0037 §4): memory only, gone on goodbye or restart. */
+  const views = new Map<string, ClientView>()
   const registers = new Map<string, number[]>()
   const lastState = new Map<string, PresenceState>()
 
@@ -172,20 +175,29 @@ export function createParietalService(options: ParietalServiceOptions): Parietal
   const leftAtOf = (personId: string): Map<string, number> =>
     repos.signals.newestPerClient(personId, 'client.disconnected')
 
-  const toRecord = (row: ClientRow, at: number, leftAt: number | null): ClientRecord => ({
-    id: row.id,
-    personId: row.personId,
-    kind: row.kind,
-    label: row.label,
-    capabilities: row.capabilities,
-    version: row.version,
-    firstSeenAt: row.firstSeenAt,
-    lastSeenAt: row.lastSeenAt,
-    lastActiveAt: row.lastActiveAt,
-    online: isClientOnline({ lastSeenAt: row.lastSeenAt, leftAt }, at, windows.clientTimeoutMs),
-    ...(row.environment === null ? {} : { environment: row.environment }),
-    ...(row.network === null ? {} : { network: row.network }),
-  })
+  const toRecord = (row: ClientRow, at: number, leftAt: number | null): ClientRecord => {
+    const online = isClientOnline(
+      { lastSeenAt: row.lastSeenAt, leftAt },
+      at,
+      windows.clientTimeoutMs,
+    )
+    const view = online ? views.get(row.id) : undefined
+    return {
+      id: row.id,
+      personId: row.personId,
+      kind: row.kind,
+      label: row.label,
+      capabilities: row.capabilities,
+      version: row.version,
+      firstSeenAt: row.firstSeenAt,
+      lastSeenAt: row.lastSeenAt,
+      lastActiveAt: row.lastActiveAt,
+      online,
+      ...(row.environment === null ? {} : { environment: row.environment }),
+      ...(row.network === null ? {} : { network: row.network }),
+      ...(view === undefined ? {} : { view }),
+    }
+  }
 
   const withLeft = (personId: string) => {
     const left = leftAtOf(personId)
@@ -302,6 +314,8 @@ export function createParietalService(options: ParietalServiceOptions): Parietal
     heartbeat(personId, input) {
       const at = now()
       owned(personId, input.id)
+      // the view is taken even from a beat that comes too soon: it is what the screen shows now
+      if (input.view !== undefined) views.set(input.id, input.view)
       const last = lastBeat.get(input.id)
       if (last !== undefined && at - last < HEARTBEAT_MIN_MS) return
       if (!repos.clients.touch(personId, input.id, at, input.active))
@@ -316,6 +330,7 @@ export function createParietalService(options: ParietalServiceOptions): Parietal
       const at = now()
       owned(personId, id)
       lastBeat.delete(id)
+      views.delete(id)
       repos.signals.record({ personId, clientId: id, type: 'client.disconnected', at })
       refresh(personId)
     },
@@ -332,6 +347,7 @@ export function createParietalService(options: ParietalServiceOptions): Parietal
       owned(personId, id)
       repos.clients.remove(personId, id)
       lastBeat.delete(id)
+      views.delete(id)
       refresh(personId)
     },
 
@@ -441,10 +457,10 @@ const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
 
 /**
- * The client as the owner's raw read shows it: no `environment` and no `network` (docs/decisions/0033 §3). The fields
+ * The client as the owner's raw read shows it: no `environment`, no `network` (docs/decisions/0033 §3) and no workspace view. The fields
  * are removed here, not in the contract's parse, so the record kept in the store is the only copy that has them.
  */
 const rawClient = (client: ClientRecord): RawClientRecord => {
-  const { environment: _environment, network: _network, ...rest } = client
+  const { environment: _environment, network: _network, view: _view, ...rest } = client
   return rest
 }

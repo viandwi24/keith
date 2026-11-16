@@ -1,0 +1,17 @@
+{
+  "name": "@keith/plugin-web",
+  "type": "module",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "exports": {
+    ".": "./plugin.ts"
+  },
+  "dependencies": {
+    "@keith/contracts": "workspace:*",
+    "@keith/host": "workspace:*"
+  }
+}

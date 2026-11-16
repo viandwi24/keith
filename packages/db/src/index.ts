@@ -279,3 +279,4 @@ export {
   type TokensRepo,
   tokensRepo,
 } from './repos/tokens.ts'
+export { type WorkspaceRow, type WorkspacesRepo, workspacesRepo } from './repos/workspaces.ts'

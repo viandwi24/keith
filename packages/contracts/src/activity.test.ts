@@ -14,6 +14,7 @@ import { DELIVERY_FAILED } from './delivery.ts'
 import { NODE_CHANGED } from './nodes.ts'
 import { PERSONA_CHANGED } from './persona.ts'
 import { TASK_CHANGED } from './tasks.ts'
+import { WORKSPACE_CHANGED } from './workspace.ts'
 
 const status = {
   scope: 'owner',
@@ -53,6 +54,7 @@ describe('activity record contracts', () => {
         PERSONA_CHANGED,
         CHAT_CONTEXT_CHANGED,
         CHAT_CONTEXT_PENDING,
+        WORKSPACE_CHANGED,
       ].sort(),
     )
   })
